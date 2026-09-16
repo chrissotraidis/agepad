@@ -1,0 +1,3803 @@
+diff --git a/app/Madeira.xcodeproj/project.pbxproj b/app/Madeira.xcodeproj/project.pbxproj
+index bafe783..5f7a34f 100644
+--- a/app/Madeira.xcodeproj/project.pbxproj
++++ b/app/Madeira.xcodeproj/project.pbxproj
+@@ -38,7 +38,7 @@
+ 		A1000051 /* libdxmt_combined.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000051 /* libdxmt_combined.a */; };
+ 		A1000052 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000052 /* Metal.framework */; };
+ 		A1000053 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000053 /* QuartzCore.framework */; };
+-		A1000054 /* MetalFX.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000054 /* MetalFX.framework */; };
++		A1000054 /* MetalFX.framework in Frameworks */ = {isa = PBXBuildFile; platformFilter = ios; fileRef = A2000054 /* MetalFX.framework */; };
+ 		A1000055 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000055 /* libsqlite3.tbd */; };
+ 		A1000060 /* libwin32u_unix.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000060 /* libwin32u_unix.a */; };
+ 		A1000070 /* Winios/Winios.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000070 /* Winios/Winios.m */; };
+@@ -133,7 +133,6 @@
+ 				A1000051 /* libdxmt_combined.a in Frameworks */,
+ 				A1000052 /* Metal.framework in Frameworks */,
+ 				A1000053 /* QuartzCore.framework in Frameworks */,
+-				A1000054 /* MetalFX.framework in Frameworks */,
+ 				A1000055 /* libsqlite3.tbd in Frameworks */,
+ 				A1000060 /* libwin32u_unix.a in Frameworks */,
+ 				A1000090 /* libgnutls.a in Frameworks */,
+@@ -353,7 +352,7 @@
+ 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+ 				GCC_WARN_UNUSED_FUNCTION = YES;
+ 				GCC_WARN_UNUSED_VARIABLE = YES;
+-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
++				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+ 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+ 				MTL_FAST_MATH = YES;
+ 				ONLY_ACTIVE_ARCH = YES;
+@@ -381,7 +380,7 @@
+ 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+ 				GCC_WARN_UNUSED_FUNCTION = YES;
+ 				GCC_WARN_UNUSED_VARIABLE = YES;
+-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
++				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+ 				MTL_ENABLE_DEBUG_INFO = NO;
+ 				MTL_FAST_MATH = YES;
+ 				SDKROOT = iphoneos;
+@@ -430,7 +429,9 @@
+ 					"$(SRCROOT)/Madeira",
+ 				);
+ 				MARKETING_VERSION = 0.1.0;
+-				PRODUCT_BUNDLE_IDENTIFIER = com.willfaust.mythicemu;
++				OTHER_LDFLAGS = "$(inherited) -lresolv";
++				"OTHER_LDFLAGS[sdk=iphoneos*]" = "$(inherited) -framework MetalFX -lresolv";
++				PRODUCT_BUNDLE_IDENTIFIER = local.agepad.windows-runtime;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				PROVISIONING_PROFILE_SPECIFIER = "";
+ 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+@@ -481,7 +482,9 @@
+ 					"$(SRCROOT)/Madeira",
+ 				);
+ 				MARKETING_VERSION = 0.1.0;
+-				PRODUCT_BUNDLE_IDENTIFIER = com.willfaust.mythicemu;
++				OTHER_LDFLAGS = "$(inherited) -lresolv";
++				"OTHER_LDFLAGS[sdk=iphoneos*]" = "$(inherited) -framework MetalFX -lresolv";
++				PRODUCT_BUNDLE_IDENTIFIER = local.agepad.windows-runtime;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+ 				SUPPORTS_MACCATALYST = NO;
+diff --git a/app/Madeira/ContentView.swift b/app/Madeira/ContentView.swift
+index be08bb4..cfbfc86 100644
+--- a/app/Madeira/ContentView.swift
++++ b/app/Madeira/ContentView.swift
+@@ -890,6 +890,42 @@ struct ContentView: View {
+                 jit_install_trap_handler()
+                 entitlements = EntitlementStatus.check()
+                 logEntitlementStatus()
++#if targetEnvironment(simulator)
++                if getenv("AGEPAD_SIGNED_STARTUP") != nil {
++                    unsetenv("AGEPAD_SIGNED_STARTUP")
++                    let container = Bundle.main.bundlePath + "/Frameworks/PEContainer.dylib"
++                    setenv("AGEPAD_SIGNED_NTDLL", container, 1)
++                    setenv("AGEPAD_SIGNED_DLL_DIR", Bundle.main.bundlePath + "/Frameworks", 1)
++                    let testExe = getenv("AGEPAD_TEST_EXE").map { String(cString: $0) } ?? "hello-x64.exe"
++                    setenv("MADEIRA_EXE", testExe, 1)
++                    setenv("MADEIRA_USE_ARM64EC", "1", 1)
++                    logStore.log("Signed ntdll startup experiment; no gameplay or JIT qualification")
++                    DispatchQueue.global(qos: .userInitiated).async {
++                        self.startWineserver()
++                        Thread.sleep(forTimeInterval: 2.0)
++                        self.startWineProcess()
++                    }
++                }
++#else
++                // Configure only. Device execution must still pass the existing
++                // Enable JIT / full Wine sequence and successful dual-map allocation.
++                if getenv("AGEPAD_DEVICE_SIGNED_STARTUP") != nil {
++                    unsetenv("AGEPAD_DEVICE_SIGNED_STARTUP")
++                    let container = Bundle.main.bundlePath + "/Frameworks/PEContainer.dylib"
++                    let testExe = getenv("AGEPAD_TEST_EXE").map { String(cString: $0) } ?? "cube-x64.exe"
++                    if testExe == (testExe as NSString).lastPathComponent &&
++                        FileManager.default.fileExists(atPath: container) &&
++                        FileManager.default.fileExists(atPath: Bundle.main.bundlePath + "/arm64ec-windows/" + testExe) {
++                        setenv("AGEPAD_SIGNED_NTDLL", container, 1)
++                        setenv("AGEPAD_SIGNED_DLL_DIR", Bundle.main.bundlePath + "/Frameworks", 1)
++                        setenv("MADEIRA_EXE", testExe, 1)
++                        setenv("MADEIRA_USE_ARM64EC", "1", 1)
++                        logStore.log("Device signed runtime configured. Enable JIT, then use x64 DX11 cube for the device drawing test; execution is untested.")
++                    } else {
++                        logStore.log("Device signed runtime configuration rejected: missing container or bundled executable.", level: .error)
++                    }
++                }
++#endif
+             }
+         }
+     }
+diff --git a/app/Madeira/WineProcessBridge.m b/app/Madeira/WineProcessBridge.m
+index 822c342..225de20 100644
+--- a/app/Madeira/WineProcessBridge.m
++++ b/app/Madeira/WineProcessBridge.m
+@@ -386,7 +386,17 @@ static void *wine_process_thread(void *arg) {
+          * restore the full trace channel set. */
+         {
+             const char *verbose = getenv("MADEIRA_DEBUG_VERBOSE");
+-            if (verbose && *verbose && *verbose != '0') {
++            const char *http_trace = getenv("AGEPAD_HTTP_TRACE");
++            const char *certificate_trace = getenv("AGEPAD_CERTIFICATE_TRACE");
++            if (certificate_trace && !strcmp(certificate_trace, "1")) {
++                setenv("WINEDEBUG", (http_trace && !strcmp(http_trace, "1"))
++                       ? "err+all,err-virtual,trace+winhttp,trace+crypt,trace+chain,trace+cryptnet"
++                       : "err+all,err-virtual,trace+crypt,trace+chain,trace+cryptnet", 1);
++                LOG("WINEDEBUG = certificate trace (unauthenticated diagnostic)");
++            } else if (http_trace && !strcmp(http_trace, "1")) {
++                setenv("WINEDEBUG", "err+all,err-virtual,trace+winhttp", 1);
++                LOG("WINEDEBUG = targeted WinHTTP trace (diagnostic)");
++            } else if (verbose && *verbose && *verbose != '0') {
+                 setenv("WINEDEBUG", "err+all,fixme+all,warn+module,warn+file,trace+process,trace+module,trace+loaddll,trace+loadorder,trace+win,trace+user32,trace+syscall,trace+file", 1);
+                 LOG("WINEDEBUG = verbose (MADEIRA_DEBUG_VERBOSE set)");
+             } else {
+@@ -503,26 +513,8 @@ static void *wine_process_thread(void *arg) {
+          * is the pure branch-feeder) or a writer-side fix. Healer stays
+          * opt-in-off. */
+ 
+-        /* Steam game vars. One title reads SteamAppPath as its asset base path and
+-         * queries it dozens of times during init, so it must be present before that
+-         * title starts.
+-         *
+-         * KNOWN DEFECT, deliberately left in place for now: this publishes ONE title's
+-         * identity to EVERY guest, with overwrite=1. A different title that links a Steam
+-         * wrapper therefore sees the wrong app ID. Removing it outright was tested and is
+-         * NOT the fix -- it regresses the title that needs the path, and it did not change
+-         * the behaviour of the title that was mis-identified, so the mismatch is real but
+-         * was not the failure being chased.
+-         *
+-         * The durable design belongs in the title-launch layer: publish nothing by
+-         * default, take the ID from explicit title metadata or the game's own
+-         * steam_appid.txt, set SteamAppPath to that game's directory, and give each child
+-         * its own environment rather than mutating one process-global set shared by every
+-         * pseudo-process. This path usually launches explorer.exe and cannot know which
+-         * title the desktop will start later, so a conditional here cannot work. */
+-        setenv("SteamAppPath", "C:\\Program Files\\Thumper", 1);
+-        setenv("SteamGameId", "356400", 1);
+-        setenv("SteamAppId",  "356400", 1);
++        /* AgePad: do not impose another title's Steam identity on every guest.
++         * Genuine Steam launches must supply their own per-process environment. */
+ 
+         /* iOS-Madeira 2026-07-02: publish the TRUE JIT-pool RX->RW offset to
+          * xtajit64.dll (its own FEXCore copy reads this via getenv in
+diff --git a/build/crypto-unix/gen_gnutls_symtab.sh b/build/crypto-unix/gen_gnutls_symtab.sh
+index 5c0cd76..3bccc7e 100755
+--- a/build/crypto-unix/gen_gnutls_symtab.sh
++++ b/build/crypto-unix/gen_gnutls_symtab.sh
+@@ -15,7 +15,7 @@ set -e
+ BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
+ REPO_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
+ WINE_SRC="$REPO_ROOT/wine"
+-GNUTLS_LIB="$REPO_ROOT/toolchains/gnutls-ios/lib/libgnutls.a"
++GNUTLS_LIB="$REPO_ROOT/toolchains/gnutls-${AGEPAD_SDK:-iphoneos}/lib/libgnutls.a"
+ OUT="$BUILD_DIR/gnutls_symtab_ios.c"
+ 
+ SOURCES=(
+diff --git a/build/dxmt-ios/build.sh b/build/dxmt-ios/build.sh
+index 755dd36..784c43e 100755
+--- a/build/dxmt-ios/build.sh
++++ b/build/dxmt-ios/build.sh
+@@ -9,20 +9,34 @@ BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
+ REPO_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
+ DXMT_SRC="$REPO_ROOT/research/dxmt/src"
+ DXMT_ROOT="$REPO_ROOT/research/dxmt"
+-LLVM_SRC="$REPO_ROOT/toolchains/llvm-project/llvm"
+-LLVM_BUILD="$REPO_ROOT/toolchains/llvm-ios-build"
+-SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+-OBJ_DIR="$BUILD_DIR/obj"
+-OUT_LIB="$BUILD_DIR/libdxmt_unix.a"
++LLVM_SRC="$REPO_ROOT/toolchains/llvm-project-15.0.7.src/llvm"
++SDK_NAME="${AGEPAD_SDK:-iphonesimulator}"
++case "$SDK_NAME" in
++    iphonesimulator)
++        LLVM_DEFAULT="$REPO_ROOT/../../generated/madeira-llvm-sim"
++        TARGET="arm64-apple-ios18.0-simulator"
++        OBJ_DIR="$BUILD_DIR/obj"
++        OUT_LIB="$BUILD_DIR/libdxmt_unix.a"
++        AIR_PLATFORM_DEF="-DAGEPAD_SIMULATOR_AIR=1" ;;
++    iphoneos)
++        LLVM_DEFAULT="$REPO_ROOT/../../generated/madeira-llvm-device"
++        TARGET="arm64-apple-ios18.0"
++        OBJ_DIR="$BUILD_DIR/obj-iphoneos"
++        OUT_LIB="$BUILD_DIR/libdxmt_unix-iphoneos.a"
++        AIR_PLATFORM_DEF="-DAGEPAD_DEVICE_AIR=1" ;;
++    *) echo "Unsupported SDK: $SDK_NAME"; exit 1 ;;
++esac
++LLVM_BUILD="${AGEPAD_LLVM_BUILD:-$LLVM_DEFAULT}"
++SDK=$(xcrun --sdk "$SDK_NAME" --show-sdk-path)
+ 
+ mkdir -p "$OBJ_DIR"
+ 
+-COMMON_FLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=18.0 -fblocks -O2"
++COMMON_FLAGS="-target $TARGET -isysroot $SDK -fblocks -O2"
+ INCLUDES="-I$DXMT_ROOT/include -I$DXMT_ROOT/libs -I$DXMT_SRC/winemetal -I$DXMT_SRC/airconv"
+ INCLUDES_DIRECTX="-I$DXMT_ROOT/include/native/directx -I$DXMT_ROOT/include/native/windows"
+ INCLUDES_SHADERS="-I$BUILD_DIR/shader-headers"
+ LLVM_INCLUDES="-I$LLVM_BUILD/include -I$LLVM_SRC/include"
+-AIRCONV_DEFS="-D_FILE_OFFSET_BITS=64 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS"
++AIRCONV_DEFS="$AIR_PLATFORM_DEF -D_FILE_OFFSET_BITS=64 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS"
+ CXX_FLAGS="-std=c++20 -fno-exceptions -fno-rtti"
+ 
+ SUCCEEDED=0
+@@ -32,7 +46,7 @@ FAILED_FILES=""
+ compile_objc() {
+     local src=$1 name=$2
+     printf "  %-40s " "$name"
+-    if xcrun -sdk iphoneos clang $COMMON_FLAGS -x objective-c $INCLUDES \
++    if xcrun -sdk "$SDK_NAME" clang $COMMON_FLAGS -x objective-c $INCLUDES \
+         -c "$src" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
+         echo "OK"; SUCCEEDED=$((SUCCEEDED+1))
+     else
+@@ -43,7 +57,7 @@ compile_objc() {
+ compile_cxx() {
+     local src=$1 name=$2 extra="${3:-}"
+     printf "  %-40s " "$name"
+-    if xcrun -sdk iphoneos clang++ $COMMON_FLAGS $CXX_FLAGS $INCLUDES $INCLUDES_DIRECTX $INCLUDES_SHADERS $LLVM_INCLUDES $AIRCONV_DEFS $extra \
++    if xcrun -sdk "$SDK_NAME" clang++ $COMMON_FLAGS $CXX_FLAGS $INCLUDES $INCLUDES_DIRECTX $INCLUDES_SHADERS $LLVM_INCLUDES $AIRCONV_DEFS $extra \
+         -c "$src" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
+         echo "OK"; SUCCEEDED=$((SUCCEEDED+1))
+     else
+@@ -72,7 +86,7 @@ for cpp in BlobContainer.cpp DXBCUtils.cpp ShaderBinary.cpp; do
+     name=dxbc_$(basename "$cpp" .cpp)
+     # ShaderBinary uses `throw`, so we can't use -fno-exceptions from CXX_FLAGS.
+     printf "  %-40s " "$name"
+-    if xcrun -sdk iphoneos clang++ $COMMON_FLAGS -std=c++20 -fno-rtti \
++    if xcrun -sdk "$SDK_NAME" clang++ $COMMON_FLAGS -std=c++20 -fno-rtti \
+             $INCLUDES $INCLUDES_DIRECTX $AIRCONV_DEFS \
+             -c "$DXMT_ROOT/libs/DXBCParser/$cpp" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
+         echo "OK"; SUCCEEDED=$((SUCCEEDED+1))
+@@ -91,5 +105,5 @@ fi
+ 
+ echo ""
+ echo "=== Archiving libdxmt_unix.a ==="
+-xcrun -sdk iphoneos ar rcs "$OUT_LIB" "$OBJ_DIR"/*.o
++xcrun -sdk "$SDK_NAME" ar rcs "$OUT_LIB" "$OBJ_DIR"/*.o
+ echo "Built: $OUT_LIB ($(wc -c < "$OUT_LIB" | tr -d ' ') bytes)"
+diff --git a/build/gnutls-ios/build.sh b/build/gnutls-ios/build.sh
+index bdf6c33..1c7cd5d 100755
+--- a/build/gnutls-ios/build.sh
++++ b/build/gnutls-ios/build.sh
+@@ -19,16 +19,19 @@ set -e
+ BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
+ REPO_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
+ SRC_DIR="$BUILD_DIR/src"
+-OBJ_DIR="$BUILD_DIR/obj"
+-PREFIX="$REPO_ROOT/toolchains/gnutls-ios"
++SDK_NAME="${AGEPAD_SDK:-iphoneos}"
++OBJ_DIR="$BUILD_DIR/obj-$SDK_NAME"
++PREFIX="$REPO_ROOT/toolchains/gnutls-$SDK_NAME"
+ 
+ GMP_VER=6.3.0
+ NETTLE_VER=3.10.1
+ GNUTLS_VER=3.8.9
+ 
+-SDK=$(xcrun --sdk iphoneos --show-sdk-path)
++SDK=$(xcrun --sdk "$SDK_NAME" --show-sdk-path)
+ CLANG=$(xcrun -f clang)
+-HOSTFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=17.0"
++TARGET="arm64-apple-ios17.0"
++if [ "$SDK_NAME" = iphonesimulator ]; then TARGET="$TARGET-simulator"; fi
++HOSTFLAGS="-target $TARGET -isysroot $SDK"
+ 
+ export CC="$CLANG $HOSTFLAGS"
+ export CXX="$(xcrun -f clang++) $HOSTFLAGS"
+@@ -42,7 +45,7 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+ export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
+ 
+ HOST=aarch64-apple-darwin
+-JOBS=$(sysctl -n hw.ncpu)
++JOBS="${AGEPAD_JOBS:-6}"
+ 
+ mkdir -p "$OBJ_DIR" "$PREFIX"
+ 
+diff --git a/build/ntdll-unix/build.sh b/build/ntdll-unix/build.sh
+index 2fef101..036abce 100755
+--- a/build/ntdll-unix/build.sh
++++ b/build/ntdll-unix/build.sh
+@@ -5,8 +5,11 @@ BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
+ REPO_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
+ WINE_SRC="$REPO_ROOT/wine"
+ WINE_BUILD="$WINE_SRC/build-macos"
+-SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+-OBJ_DIR="$BUILD_DIR/obj"
++SDK_NAME="${AGEPAD_SDK:-iphoneos}"
++SDK=$(xcrun --sdk "$SDK_NAME" --show-sdk-path)
++TARGET="arm64-apple-ios17.0"
++if [ "$SDK_NAME" = iphonesimulator ]; then TARGET="$TARGET-simulator"; fi
++OBJ_DIR="$BUILD_DIR/obj-$SDK_NAME"
+ APP_LIB="$REPO_ROOT/app/Madeira/libntdll_unix.a"
+ 
+ mkdir -p "$OBJ_DIR"
+@@ -20,8 +23,8 @@ compile_one() {
+     local name=$2
+     echo -n "  $name... "
+ 
+-    if xcrun -sdk iphoneos clang \
+-        -arch arm64 -isysroot "$SDK" -miphoneos-version-min=17.0 \
++    if xcrun -sdk "$SDK_NAME" clang \
++        -target "$TARGET" -isysroot "$SDK" \
+         -O2 -fPIC -fvisibility=hidden -fno-stack-protector -fno-strict-aliasing \
+         -Wno-implicit-function-declaration -Wno-int-conversion \
+         -include "$WINE_BUILD/include/config.h" \
+@@ -53,13 +56,13 @@ compile_one() {
+ # load_builtin_unixlib. GnuTLS-backed libs add ios_gnutls_shim.h to
+ # route dlopen/dlsym at the static symtab (gnutls_symtab_ios.c).
+ CRYPTO_DIR="$REPO_ROOT/build/crypto-unix"
+-GNUTLS_PREFIX="$REPO_ROOT/toolchains/gnutls-ios"
++GNUTLS_PREFIX="$REPO_ROOT/toolchains/gnutls-$SDK_NAME"
+ compile_unixlib() {
+     local src=$1 name=$2 prefix=$3
+     shift 3
+     echo -n "  $name... "
+-    if xcrun -sdk iphoneos clang \
+-        -arch arm64 -isysroot "$SDK" -miphoneos-version-min=17.0 \
++    if xcrun -sdk "$SDK_NAME" clang \
++        -target "$TARGET" -isysroot "$SDK" \
+         -O2 -fPIC -fvisibility=hidden -fno-stack-protector -fno-strict-aliasing \
+         -Wno-implicit-function-declaration -Wno-int-conversion \
+         -include "$WINE_BUILD/include/config.h" \
+@@ -90,15 +93,17 @@ compile_one "$BUILD_DIR/audio_null_ios.c" "audio_null_ios"
+ 
+ # iOS-Madeira 2026-07-05 (Steam S0): network + crypto unix sides.
+ echo "=== Building crypto/network unixlibs ==="
+-"$CRYPTO_DIR/gen_gnutls_symtab.sh" > /dev/null
++AGEPAD_SDK="$SDK_NAME" bash "$CRYPTO_DIR/gen_gnutls_symtab.sh" > /dev/null
+ compile_one "$CRYPTO_DIR/gnutls_symtab_ios.c" "gnutls_symtab_ios"
+ compile_unixlib "$WINE_SRC/dlls/ws2_32/unixlib.c" "ws2_32_unixlib" "ws2_32" \
+     -I"$WINE_SRC/dlls/ws2_32"
+ compile_unixlib "$WINE_SRC/dlls/bcrypt/gnutls.c" "bcrypt_unixlib" "bcrypt" \
+     -I"$WINE_SRC/dlls/bcrypt" -I"$GNUTLS_PREFIX/include" \
++    -DHAVE_GNUTLS_CIPHER_INIT=1 '-DSONAME_LIBGNUTLS="libgnutls.dylib"' \
+     -include "$CRYPTO_DIR/ios_gnutls_shim.h"
+ compile_unixlib "$WINE_SRC/dlls/secur32/schannel_gnutls.c" "secur32_unixlib" "secur32" \
+     -I"$WINE_SRC/dlls/secur32" -I"$GNUTLS_PREFIX/include" \
++    -DHAVE_GNUTLS_CIPHER_INIT=1 '-DSONAME_LIBGNUTLS="libgnutls.dylib"' \
+     -include "$CRYPTO_DIR/ios_gnutls_shim.h"
+ # iOS-Madeira ml494 (#61 text wall): dwrite had NO unixlib, so every
+ # __wine_unix_call from dwrite.dll failed and get_glyph_bbox never ran —
+@@ -108,13 +113,18 @@ compile_unixlib "$WINE_SRC/dlls/secur32/schannel_gnutls.c" "secur32_unixlib" "se
+ # build tree, so that include dir is named explicitly here.
+ compile_unixlib "$BUILD_DIR/dwrite_freetype_ios.c" "dwrite_unixlib" "dwrite" \
+     -I"$WINE_SRC/dlls/dwrite" -I"$REPO_ROOT/research/freetype/include" \
+-    -I"$REPO_ROOT/wine/build-arm64ec/include"
++    -I"$WINE_BUILD/include"
+ compile_unixlib "$CRYPTO_DIR/crypt32_unixlib_ios.c" "crypt32_unixlib" "crypt32" \
+     -I"$WINE_SRC/dlls/crypt32" -I"$GNUTLS_PREFIX/include" \
++    -DHAVE_GNUTLS_CIPHER_INIT=1 '-DSONAME_LIBGNUTLS="libgnutls.dylib"' \
+     -include "$CRYPTO_DIR/ios_gnutls_shim.h"
+ # iOS-Madeira 2026-08-03 (#79 transport): in-process NSI TCP connection
+ # tables (nsiproxy.sys is not shipped; PE nsi.dll falls back to this).
+ compile_one "$BUILD_DIR/nsi_unixlib_ios.c" "nsi_unixlib_ios"
++compile_one "$BUILD_DIR/nsi_unicast_ios.c" "nsi_unicast_ios"
++compile_one "$BUILD_DIR/nsi_routes_ios.c" "nsi_routes_ios"
++compile_unixlib "$WINE_SRC/dlls/dnsapi/libresolv.c" "dnsapi_unixlib_ios" "dnsapi"
++compile_unixlib "$WINE_SRC/dlls/nsiproxy.sys/ndis.c" "nsi_ndis_ios" "nsi_ndis"
+ 
+ for src in $WINE_SRC/dlls/ntdll/unix/*.c; do
+     name=$(basename "$src" .c)
+@@ -158,9 +168,10 @@ if [ -n "$FAILED_FILES" ]; then
+ fi
+ 
+ echo ""
++if [ "$FAILED" -gt 0 ]; then echo "Refusing archive after compile failures"; exit 1; fi
+ echo "=== Building libntdll_unix.a ==="
+ ar rcs "$OBJ_DIR/libntdll_unix.a" \
+-    "$OBJ_DIR/audio_null_ios.o" "$OBJ_DIR/nsi_unixlib_ios.o" \
++    "$OBJ_DIR/audio_null_ios.o" "$OBJ_DIR/nsi_unixlib_ios.o" "$OBJ_DIR/nsi_ndis_ios.o" "$OBJ_DIR/nsi_unicast_ios.o" "$OBJ_DIR/nsi_routes_ios.o" "$OBJ_DIR/dnsapi_unixlib_ios.o" \
+     "$OBJ_DIR/gnutls_symtab_ios.o" "$OBJ_DIR/ws2_32_unixlib.o" \
+     "$OBJ_DIR/bcrypt_unixlib.o" "$OBJ_DIR/secur32_unixlib.o" "$OBJ_DIR/crypt32_unixlib.o" \
+     "$OBJ_DIR/dwrite_unixlib.o" \
+diff --git a/build/ntdll-unix/env_ios.c b/build/ntdll-unix/env_ios.c
+index 373cd2d..2a898c8 100644
+--- a/build/ntdll-unix/env_ios.c
++++ b/build/ntdll-unix/env_ios.c
+@@ -2304,6 +2304,10 @@ void unix_init_startup_info(void)
+     if (info->dllpath_len) copy_unicode_string( &src, &dst, &params->DllPath, info->dllpath_len );
+     copy_dos_path_string( &src, &dst, &params->ImagePathName, &nt_name, info->imagepath_len );
+     copy_unicode_string( &src, &dst, &params->CommandLine, info->cmdline_len );
++    if (getenv("AGEPAD_SIGNED_CHILD_NTDLL"))
++        dprintf(2, "[AgePad-child-params] curdir=%u dll=%u image=%u command=%u image_value=%s command_value=%s\n",
++                info->curdir_len, info->dllpath_len, info->imagepath_len, info->cmdline_len,
++                debugstr_us(&params->ImagePathName), debugstr_us(&params->CommandLine));
+     copy_unicode_string( &src, &dst, &params->WindowTitle, info->title_len );
+     copy_unicode_string( &src, &dst, &params->Desktop, info->desktop_len );
+     copy_unicode_string( &src, &dst, &params->ShellInfo, info->shellinfo_len );
+@@ -2404,6 +2408,10 @@ void *create_startup_info( const UNICODE_STRING *nt_image, ULONG process_flags,
+     info->dllpath_len = append_string( &ptr, params, &params->DllPath );
+     info->imagepath_len = append_string( &ptr, params, nt_image );
+     info->cmdline_len = append_string( &ptr, params, &params->CommandLine );
++    if (getenv("AGEPAD_SIGNED_CHILD_NTDLL"))
++        dprintf(2, "[AgePad-parent-params] curdir=%u dll=%u image=%u command=%u image_value=%s command_value=%s\n",
++                info->curdir_len, info->dllpath_len, info->imagepath_len, info->cmdline_len,
++                debugstr_us(nt_image), debugstr_us(&params->CommandLine));
+     info->title_len = append_string( &ptr, params, &params->WindowTitle );
+     info->desktop_len = append_string( &ptr, params, &params->Desktop );
+     info->shellinfo_len = append_string( &ptr, params, &params->ShellInfo );
+diff --git a/build/ntdll-unix/loader_ios.c b/build/ntdll-unix/loader_ios.c
+index 95c30e0..b1db0db 100644
+--- a/build/ntdll-unix/loader_ios.c
++++ b/build/ntdll-unix/loader_ios.c
+@@ -1631,6 +1631,12 @@ done:
+  * Load the builtin dll if specified by load order configuration.
+  * Return STATUS_IMAGE_ALREADY_LOADED if we should keep the native one that we have found.
+  */
++#ifdef WINE_IOS
++static ULONG_PTR find_named_export(HMODULE, const IMAGE_EXPORT_DIRECTORY *, const char *);
++static const void *get_module_data_dir(HMODULE, ULONG, ULONG *);
++#include "agepad_signed_ntdll.h"
++#endif
++
+ NTSTATUS load_builtin( const struct pe_image_info *image_info, UNICODE_STRING *nt_name,
+                        ANSI_STRING *exp_name, USHORT machine, SECTION_IMAGE_INFORMATION *info,
+                        void **module, SIZE_T *size, ULONG_PTR limit_low, ULONG_PTR limit_high,
+@@ -1649,6 +1655,53 @@ NTSTATUS load_builtin( const struct pe_image_info *image_info, UNICODE_STRING *n
+             return STATUS_DLL_NOT_FOUND;
+         }
+     }
++    const char *signed_dir = getenv("AGEPAD_SIGNED_DLL_DIR");
++    if (signed_dir && *signed_dir && !offset && !limit_low && !limit_high)
++    {
++        unsigned int first = 0, length = nt_name->Length / sizeof(WCHAR);
++        char basename[64];
++        for (unsigned int i = 0; i < length; ++i)
++            if (nt_name->Buffer[i] == '\\' || nt_name->Buffer[i] == '/') first = i + 1;
++        if (length - first < sizeof(basename))
++        {
++            unsigned int i;
++            for (i = 0; i < length - first; ++i)
++            {
++                WCHAR c = nt_name->Buffer[first + i];
++                basename[i] = c > 127 ? '?' : (c >= 'A' && c <= 'Z' ? c + 'a' - 'A' : c);
++            }
++            basename[i] = 0;
++            if (!strcmp(basename, "xtajit64.dll") || !strcmp(basename, "ucrtbase.dll") ||
++                !strcmp(basename, "kernel32.dll") || !strcmp(basename, "kernelbase.dll") ||
++                !strcmp(basename, "d3d11.dll") || !strcmp(basename, "dxgi.dll") || !strcmp(basename, "winemetal.dll") ||
++                !strcmp(basename, "gdi32.dll") || !strcmp(basename, "user32.dll") || !strcmp(basename, "advapi32.dll") ||
++                !strcmp(basename, "win32u.dll") || !strcmp(basename, "sechost.dll") || !strcmp(basename, "msvcrt.dll") ||
++                (!strcmp(basename, "wininet.dll") && getenv("AGEPAD_SIGNED_WININET")))
++            {
++                struct pe_image_info signed_info;
++                char *path;
++                NTSTATUS status;
++                if (getenv("AGEPAD_SIGNED_CHILD_NTDLL") && agepad_signed_image_table[0][3] != (ULONG_PTR)NtCurrentTeb()->Peb)
++                {
++                    char stem[64];
++                    unsigned int bank = agepad_child_bank(NtCurrentTeb()->Peb, FALSE);
++                    if (!bank) return STATUS_NOT_SUPPORTED;
++                    strcpy(stem, basename);
++                    stem[strlen(stem) - 4] = 0; /* selected names above end in .dll */
++                    if (asprintf(&path, "%s/%s-child-%u.dll.dylib", signed_dir, stem, bank) < 0) return STATUS_NO_MEMORY;
++                }
++                else if (asprintf(&path, "%s/%s.dylib", signed_dir, basename) < 0) return STATUS_NO_MEMORY;
++                status = agepad_load_signed_ntdll(path, nt_name, module, FALSE, &signed_info);
++                free(path);
++                if (!status)
++                {
++                    *size = signed_info.map_size;
++                    virtual_fill_image_information(&signed_info, info);
++                }
++                return status; /* no silent fallback for the explicitly selected container */
++            }
++        }
++    }
+     /* On iOS, all PE DLLs are in the prefix (system32 symlinks to bundle).
+      * Skip the builtin .so search — it causes mmap failures on iOS and
+      * corrupts file descriptors.  Just tell the caller to use the PE file. */
+@@ -1974,6 +2027,19 @@ void **ios_ntdll_unix_call_dispatcher_ptr = NULL;
+ unixlib_handle_t *ios_ntdll_unixlib_handle_ptr = NULL;
+ #endif
+ 
++#ifdef WINE_IOS
++static void agepad_configure_direct_teb_check( HMODULE module, const IMAGE_EXPORT_DIRECTORY *exports )
++{
++    unsigned int *flag = find_named_export( module, exports, "agepad_direct_teb_check" );
++    unsigned int *offset = find_named_export( module, exports, "ios_teb_tsd_offset" );
++    int enabled = getenv("AGEPAD_DIRECT_TEB_CHECK") != NULL;
++    if (enabled && (!flag || !offset || !*offset))
++        fatal_error("direct TEB call check requested without initialized exports\n");
++    if (flag) *flag = enabled;
++    if (enabled) dprintf(2, "[AgePad-direct-teb] module=%p offset=0x%x enabled=1\n", module, *offset);
++}
++#endif
++
+ static void load_ntdll_functions( HMODULE module )
+ {
+     void **p__wine_syscall_dispatcher;
+@@ -2007,6 +2073,14 @@ static void load_ntdll_functions( HMODULE module )
+         GET_FUNC( __wine_unix_call_dispatcher_arm64ec );
+         GET_FUNC( KiUserEmulationDispatcher );
+     }
++#ifdef WINE_IOS
++    if (getenv("AGEPAD_SIGNED_NTDLL"))
++    {
++        void **slot = (void **)find_named_export(module, exports, "agepad_signed_images");
++        if (!slot) fatal_error("signed ntdll registration table export missing\n");
++        *slot = agepad_signed_image_table;
++    }
++#endif
+     *p__wine_syscall_dispatcher = __wine_syscall_dispatcher;
+     *p__wine_unixlib_handle = (UINT_PTR)unix_call_funcs;
+ #ifdef WINE_IOS
+@@ -2024,6 +2098,7 @@ static void load_ntdll_functions( HMODULE module )
+                 *pios_teb_tsd_offset, pios_teb_tsd_offset);
+         }
+     }
++    agepad_configure_direct_teb_check( module, exports );
+     ERR("syscall_dispatcher: p=%p *p=%p (unix func=%p)\n",
+         p__wine_syscall_dispatcher, *p__wine_syscall_dispatcher, __wine_syscall_dispatcher);
+     ERR("unix_call_dispatcher: p=%p *p=%p\n",
+@@ -2306,9 +2381,27 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
+     else asprintf( &name, "%s%s/ntdll.dll", dll_dir, pe_dir );
+ 
+     dprintf(2, "[ec-child-ntdll] loading %s for peb=%p\n", name, (void *)child_peb);
+-    status = open_builtin_pe_file( name, &attr, &module, &size, &info, 0, 0,
+-                                   IMAGE_FILE_MACHINE_AMD64, FALSE, 0 );
+-    if (status == STATUS_IMAGE_NOT_AT_BASE) status = virtual_relocate_module( module );
++    if (getenv("AGEPAD_SIGNED_CHILD_NTDLL"))
++    {
++        struct pe_image_info signed_info;
++        char *signed_path = NULL;
++        const char *dir = getenv("AGEPAD_SIGNED_DLL_DIR");
++        unsigned int bank = agepad_child_bank(child_peb, TRUE);
++        if (!bank || !dir || asprintf(&signed_path, "%s/ntdll-child-%u.dll.dylib", dir, bank) < 0) { free(name); return -1; }
++        dprintf(2, "[AgePad-child-bank] peb=%p slot=%u\n", child_peb, bank);
++        status = agepad_load_signed_ntdll(signed_path, &str, &module, TRUE, &signed_info);
++        free(signed_path);
++        if (!status) {
++            size = signed_info.map_size;
++            virtual_fill_image_information(&signed_info, &info);
++        }
++    }
++    else
++    {
++        status = open_builtin_pe_file( name, &attr, &module, &size, &info, 0, 0,
++                                       IMAGE_FILE_MACHINE_AMD64, FALSE, 0 );
++        if (status == STATUS_IMAGE_NOT_AT_BASE) status = virtual_relocate_module( module );
++    }
+     if (status)
+     {
+         dprintf(2, "[ec-child-ntdll] FAILED to load %s: 0x%x\n", name, status);
+@@ -2326,6 +2419,12 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
+         return -1;
+     }
+ 
++    if (getenv("AGEPAD_SIGNED_CHILD_NTDLL")) {
++        void **slot = (void **)find_named_export(module, exports, "agepad_signed_images");
++        if (!slot) return -1;
++        *slot = agepad_signed_image_table;
++    }
++
+     {
+         void **p__wine_syscall_dispatcher;
+         void **p__wine_unix_call_dispatcher;
+@@ -2367,6 +2466,7 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
+             }
+             else dprintf(2, "[teb-tsd] ec-child export ios_teb_tsd_offset NOT FOUND\n");
+         }
++        agepad_configure_direct_teb_check( module, exports );
+         if (p__wine_unix_call_dispatcher_arm64ec)
+         {
+             /* Round-7 EC unix-call swap (see load_ntdll_functions). */
+@@ -2474,6 +2574,21 @@ static void load_ntdll(void)
+     if (build_dir) asprintf( &name, "%s%s/ntdll.dll", ntdll_dir, pe_dir );
+     else asprintf( &name, "%s%s/ntdll.dll", dll_dir, pe_dir );
+ 
++#ifdef WINE_IOS
++    const char *signed_path = getenv("AGEPAD_SIGNED_NTDLL");
++    if (signed_path && *signed_path)
++    {
++        status = agepad_load_signed_ntdll(signed_path, &str, &module, TRUE, NULL);
++        if (status) fatal_error("signed ntdll load failed %x\n", status);
++        free(name);
++        load_ntdll_functions(module);
++        if (getenv("AGEPAD_CHILD_BANK_PREFLIGHT") && agepad_check_child_ntdll_storage(module))
++            fatal_error("signed child ntdll storage check failed\n");
++        if (is_arm64ec()) redirect_ntdll_functions(module);
++        dprintf(2, "[signed-ntdll] loader dispatch initialization reached; ec=%d\n", is_arm64ec());
++        return;
++    }
++#endif
+     if (is_arm64ec()) machine = main_image_info.Machine;
+     status = open_builtin_pe_file( name, &attr, &module, &size, &info, 0, 0, machine, FALSE, 0 );
+     if (status == STATUS_DLL_NOT_FOUND)
+@@ -3212,6 +3327,9 @@ DECLSPEC_EXPORT void wine_ios_child_main( int argc, char *argv[], int child_fd_s
+      * The parent thread is blocked in NtWaitForSingleObject at this point. */
+     {
+         PEB *parent_peb = peb;
++        int parent_argc = main_argc;
++        char **parent_argv = main_argv;
++        size_t child_startup_size;
+         peb = child_peb;
+ 
+         /* Set up main_argc/argv for this child (these are globals, but parent is blocked) */
+@@ -3219,7 +3337,16 @@ DECLSPEC_EXPORT void wine_ios_child_main( int argc, char *argv[], int child_fd_s
+         main_argv = argv;
+ 
+         /* Register with wineserver using the child's socketfd */
+-        startup_info_size = server_init_process_child( child_fd_socket );
++        child_startup_size = server_init_process_child( child_fd_socket );
++        if (child_startup_size == (size_t)-1)
++        {
++            peb = parent_peb;
++            main_argc = parent_argc;
++            main_argv = parent_argv;
++            dprintf(2, "[AgePad-child] process socket registration rejected; child will not enter guest code\n");
++            return;
++        }
++        startup_info_size = child_startup_size;
+ 
+         /* init_startup_info — reads startup info from wineserver, loads the
+          * child's PE. It OVERWRITES the main_image_info global with the
+@@ -3249,7 +3376,15 @@ DECLSPEC_EXPORT void wine_ios_child_main( int argc, char *argv[], int child_fd_s
+          * private second image instead of copying the session image. The
+          * fresh image needs no per-child copy (nobody else uses its .data);
+          * the standard map pipeline gave it pool/EC/x18 treatment. */
+-        if (ios_cur_image_info()->Machine == IMAGE_FILE_MACHINE_AMD64 && !is_arm64ec())
++        if (getenv("AGEPAD_SIGNED_CHILD_NTDLL"))
++        {
++            if (ios_load_child_ec_ntdll(child_peb) != 0)
++            {
++                dprintf(2, "[AgePad-child] private signed ntdll initialization failed; refusing shared fallback\n");
++                return;
++            }
++        }
++        else if (ios_cur_image_info()->Machine == IMAGE_FILE_MACHINE_AMD64 && !is_arm64ec())
+         {
+             if (ios_load_child_ec_ntdll( child_peb ) != 0)
+             {
+diff --git a/build/ntdll-unix/nsi_unixlib_ios.c b/build/ntdll-unix/nsi_unixlib_ios.c
+index d11f148..48d426e 100644
+--- a/build/ntdll-unix/nsi_unixlib_ios.c
++++ b/build/ntdll-unix/nsi_unixlib_ios.c
+@@ -47,12 +47,26 @@
+ #include "tcpmib.h"
+ #include "wine/nsi.h"
+ #include "wine/server.h"
++#include "../../wine/dlls/nsiproxy.sys/unix_private.h"
++
++const NPI_MODULEID NPI_MS_NDIS_MODULEID =
++    { sizeof(NPI_MODULEID), MIT_GUID,
++      { { 0xeb004a11, 0x9b1a, 0x11d4, { 0x91, 0x23, 0x00, 0x50, 0x04, 0x77, 0x59, 0xbc } } } };
+ 
+ /* NPI_MS_TCP_MODULEID (netiodef.h declares it extern; the defining
+  * translation unit lives in nsiproxy.sys which we don't build) */
+ static const NPI_MODULEID ios_tcp_moduleid =
+     { sizeof(NPI_MODULEID), MIT_GUID,
+       { { 0xeb004a03, 0x9b1a, 0x11d4, { 0x91, 0x23, 0x00, 0x50, 0x04, 0x77, 0x59, 0xbc } } } };
++static const NPI_MODULEID ios_ipv4_moduleid =
++    { sizeof(NPI_MODULEID), MIT_GUID,
++      { { 0xeb004a00, 0x9b1a, 0x11d4, { 0x91, 0x23, 0x00, 0x50, 0x04, 0x77, 0x59, 0xbc } } } };
++static const NPI_MODULEID ios_ipv6_moduleid =
++    { sizeof(NPI_MODULEID), MIT_GUID,
++      { { 0xeb004a01, 0x9b1a, 0x11d4, { 0x91, 0x23, 0x00, 0x50, 0x04, 0x77, 0x59, 0xbc } } } };
++extern NTSTATUS agepad_route_enumerate(struct nsi_enumerate_all_ex *, BOOL);
++extern NTSTATUS agepad_unicast_enumerate(struct nsi_enumerate_all_ex *, BOOL);
++
+ 
+ static NTSTATUS ios_tcp_conns_enumerate_all( UINT filter, struct nsi_tcp_conn_key *key_data, UINT key_size,
+                                              void *rw, UINT rw_size,
+@@ -174,6 +188,41 @@ static NTSTATUS ios_nsi_enumerate_all_ex( void *args )
+     UINT filter;
+ 
+     if (!params || !params->module) return STATUS_INVALID_PARAMETER;
++    if (params->table == NSI_IP_FORWARD_TABLE &&
++        (NmrIsEqualNpiModuleId(params->module, &ios_ipv4_moduleid) ||
++         NmrIsEqualNpiModuleId(params->module, &ios_ipv6_moduleid)))
++        return agepad_route_enumerate(params, NmrIsEqualNpiModuleId(params->module, &ios_ipv6_moduleid));
++
++    if (params->table == NSI_IP_UNICAST_TABLE &&
++        (NmrIsEqualNpiModuleId(params->module, &ios_ipv4_moduleid) ||
++         NmrIsEqualNpiModuleId(params->module, &ios_ipv6_moduleid)))
++    {
++        status = agepad_unicast_enumerate(params, NmrIsEqualNpiModuleId(params->module, &ios_ipv6_moduleid));
++        dprintf(2, "[nsi-ios] unicast module=%x status=%x count=%llu sizes=%u/%u/%u/%u\n", params->module->Guid.Data1,
++                (UINT)status, (unsigned long long)params->count, params->key_size, params->rw_size, params->dynamic_size, params->static_size);
++        return status;
++    }
++
++    if (NmrIsEqualNpiModuleId( params->module, &NPI_MS_NDIS_MODULEID ))
++    {
++        const struct module_table *table;
++        UINT sizes[4] = { params->key_size, params->rw_size, params->dynamic_size, params->static_size };
++        unsigned int i;
++        for (table = ndis_module.tables; table->table != ~0u; table++)
++            if (table->table == params->table) break;
++        if (table->table == ~0u || !table->enumerate_all) return STATUS_NOT_SUPPORTED;
++        for (i = 0; i < 4; i++)
++            if (sizes[i] && sizes[i] != table->sizes[i]) return STATUS_INVALID_PARAMETER;
++        status = table->enumerate_all(params->key_size ? params->key_data : NULL, params->key_size,
++                                     params->rw_size ? params->rw_data : NULL, params->rw_size,
++                                     params->dynamic_size ? params->dynamic_data : NULL, params->dynamic_size,
++                                     params->static_size ? params->static_data : NULL, params->static_size,
++                                     &params->count);
++        dprintf(2, "[nsi-ios] NDIS table=%u status=%x count=%llu\n", (UINT)params->table,
++                (UINT)status, (unsigned long long)params->count);
++        return status;
++    }
++
+     if (!NmrIsEqualNpiModuleId( params->module, &ios_tcp_moduleid ))
+     {
+         /* ml472 (#80 attribution): a hot caller retrying an unserviced table
+diff --git a/build/ntdll-unix/process_ios.c b/build/ntdll-unix/process_ios.c
+index f804fb9..11c546d 100644
+--- a/build/ntdll-unix/process_ios.c
++++ b/build/ntdll-unix/process_ios.c
+@@ -915,6 +915,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
+      * hardware-survey blob (-query 1 -out-file <tmp>); Steam needs none of it
+      * to reach or use the login UI, and tolerates a failed spawn exactly like
+      * gldriverquery. Refusing it is strictly better than letting it fault. */
++    if (!getenv("AGEPAD_RETAIL_PROCESSES"))
+     {
+         /* ml601: hardwareupdater joins the gate. Steam spawns
+          *   bin\hardwareupdater\hardwareupdater.exe --check-for-updates
+@@ -994,6 +995,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
+      * still tries to spawn (e.g. crashpad-handler) — a second instance
+      * would re-init both static PA copies and exhaust the slots. Chromium
+      * tolerates a failed crashpad spawn (continues without crash upload). */
++    if (!getenv("AGEPAD_RETAIL_PROCESSES"))
+     {
+         static const char helper[] = "steamwebhelper.exe";
+         static const char typesw[] = "--type=";
+@@ -1334,6 +1336,17 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
+         }
+         goto done;
+     }
++    /* The signed ARM64 host cannot provide the low address space required by
++     * this native-pointer WOW64 path. Report a real unsupported image error
++     * before creating a child or entering build_wow64_parameters, whose
++     * allocation assertion would otherwise abort every guest in the host. */
++    if (getenv("AGEPAD_SIGNED_NTDLL") && pe_info.machine == IMAGE_FILE_MACHINE_I386)
++    {
++        status = STATUS_INVALID_IMAGE_WIN_32;
++        ERR("[AgePad-unsupported-machine] image=%s machine=%04x status=%08x\n",
++            debugstr_us(&path), pe_info.machine, status);
++        goto done;
++    }
+     if (!machine)
+     {
+         /* Owner-aware (X3): the SPAWNER's identity decides hybrid-image
+@@ -2030,6 +2043,34 @@ static void ios_unwind_dump( uint64_t rip, const uint64_t *gregs, const char *ta
+ /******************************************************************************
+  *              NtTerminateProcess  (NTDLL.@)
+  */
++#ifdef WINE_IOS
++/* Experimental barrier after server termination but before PE DLL detach.
++ * No Windows wait/handle calls: workers are already dead to wineserver. */
++static BOOL ios_wait_for_fex_cleanup(TEB *teb)
++{
++    extern unsigned int ios_pending_thread_cleanup(void *, void *);
++    struct timespec start, now, pause = {0, 1000000};
++    unsigned int pending;
++    if (!teb || clock_gettime(CLOCK_MONOTONIC, &start)) return FALSE;
++    for (;;)
++    {
++        pending = ios_pending_thread_cleanup(teb, teb->Peb);
++        if (!pending)
++        {
++            dprintf(2, "[cleanup-barrier] DRAINED owner=%p\n", teb->Peb);
++            return TRUE;
++        }
++        if (clock_gettime(CLOCK_MONOTONIC, &now)) return FALSE;
++        if ((now.tv_sec - start.tv_sec) * 1000000000LL + now.tv_nsec - start.tv_nsec >= 10000000000LL)
++        {
++            dprintf(2, "[cleanup-barrier] FAILED pending=%u; retaining guest runtime state\n", pending);
++            return FALSE;
++        }
++        nanosleep(&pause, NULL);
++    }
++}
++#endif
++
+ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
+ {
+     unsigned int ret;
+@@ -2037,14 +2078,18 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
+ 
+ #ifdef WINE_IOS
+     {
+-        static int term_log_count = 0;
++        static LONG term_log_count = 0;
++        LONG term_sequence = InterlockedIncrement(&term_log_count);
+         /* iOS-Madeira [term-stack] (task#29): also fire on ANY nonzero exit_code
+          * (capped) so Steam's deliberate ExitProcess(-104) bootstrapper bail is
+          * captured — the first-3 slots are consumed by early exit-0 procs
+          * (cmd/start.exe) before steam.exe ever runs. The dump below (guest RIP +
+          * emulator-stack code-address scan) names which steam.exe code path bails. */
+-        if (term_log_count < 3 || (exit_code != 0 && term_log_count < 24)) {
+-            term_log_count++;
++        /* Signed guests share this native counter. Capture bounded clean exits
++         * too: Chromium reports a disconnected utility as crashed even if its
++         * actual Windows exit status is zero. */
++        if ((getenv("AGEPAD_SIGNED_NTDLL") && term_sequence <= 96) ||
++            term_sequence <= 3 || (exit_code != 0 && term_sequence <= 24)) {
+             extern volatile uint64_t g_wine_dispatcher_count;
+             extern volatile uint64_t g_wine_unix_call_count;
+             ERR("NtTerminateProcess(handle=%p, exit_code=0x%x) syscalls=%llu unix_calls=%llu\n",
+@@ -2089,6 +2134,20 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
+                      * (and as the fallback when .pdata is missing or the guest
+                      * stack is too damaged to walk). */
+                     ios_dump_std_handles( "at-terminate" );
++                    /* Raw candidates, NOT decoded frames. Signed ARM64EC PCs are
++                     * absent from the old JIT module registry; retain bounded
++                     * stack evidence without applying x64 unwind rules to them. */
++                    {
++                        uint64_t words[32];
++                        unsigned int wi;
++                        if (ios_unw_read(gregs[4], words, sizeof(words)))
++                            for (wi = 0; wi < 32; wi += 4)
++                                dprintf(2, "[term-raw] tid=%04x rsp=%llx offset=%x words=%llx,%llx,%llx,%llx\n",
++                                        (unsigned int)(ULONG_PTR)cur_teb->ClientId.UniqueThread,
++                                        (unsigned long long)gregs[4], wi * 8,
++                                        (unsigned long long)words[wi], (unsigned long long)words[wi+1],
++                                        (unsigned long long)words[wi+2], (unsigned long long)words[wi+3]);
++                    }
+                     ios_unwind_dump( rip, gregs, "term" );
+                     /* rsp: prefer a greg inside the cpuarea's recorded range,
+                      * but the live FEX stack can differ (seq-3656 run: rsp
+@@ -2247,8 +2306,24 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
+     if (self)
+     {
+ #ifdef WINE_IOS
+-        if (!handle) *exiting_flag = TRUE;
+-        else if (*exiting_flag) exit_process( exit_code );
++        if (!handle)
++        {
++            const char *enabled = getenv("AGEPAD_ABORT_FEX_CLEANUP");
++            *exiting_flag = TRUE;
++            if (enabled && !strcmp(enabled, "1") && !ios_wait_for_fex_cleanup(NtCurrentTeb()))
++            {
++                /* Experimental failure quarantine: do not return to DLL detach
++                 * or reclaim this owner's mappings while cleanup is unfinished.
++                 * End this native caller without the PE exit shim. The probe's
++                 * parent wait must then fail; retained state is not recovery. */
++                dprintf(2, "[cleanup-barrier] QUARANTINED; DLL detach skipped\n");
++                pthread_exit(NULL);
++            }
++        }
++        /* The server has terminated this guest's other threads. In the signed
++         * shared host, direct self-termination must close this guest's server
++         * connection and leave through its exit wrapper, never native _exit. */
++        else if (*exiting_flag || getenv("AGEPAD_SIGNED_NTDLL")) exit_process( exit_code );
+         else abort_process( exit_code );
+ #else
+         if (!handle) process_exiting = TRUE;
+diff --git a/build/ntdll-unix/server_ios.c b/build/ntdll-unix/server_ios.c
+index 9b54c6c..99070d9 100644
+--- a/build/ntdll-unix/server_ios.c
++++ b/build/ntdll-unix/server_ios.c
+@@ -190,10 +190,11 @@ extern void *ios_jit_current_peb(void);
+ static int ios_proc_socket_index(void)
+ {
+     void *cur = ios_jit_current_peb();
+-    int i, n = ios_proc_socket_count;
++    int i, n = __atomic_load_n( &ios_proc_socket_count, __ATOMIC_ACQUIRE );
++    if (n > IOS_MAX_PROC_SOCKETS) n = IOS_MAX_PROC_SOCKETS;
+     if (cur)
+         for (i = 0; i < n; i++)
+-            if (ios_proc_sockets[i].peb == cur) return i;
++            if (__atomic_load_n( &ios_proc_sockets[i].peb, __ATOMIC_ACQUIRE ) == cur) return i;
+     return -1;
+ }
+ 
+@@ -307,20 +308,28 @@ static void ios_fdt_autopsy( const char *what, int fd, int ret, int err )
+                    e ? e->gen : 0, e ? ios_fdt_names[e->prev_kind] : "oob");
+ }
+ 
+-static void ios_register_proc_socket(void *peb_id, int fd)
++/* Monotonic slots until process/thread quiescence permits safe reuse. */
++static BOOL ios_register_proc_socket(void *peb_id, int fd)
+ {
+-    int idx = __sync_fetch_and_add(&ios_proc_socket_count, 1);
+-    if (idx >= IOS_MAX_PROC_SOCKETS)
++    int idx = __atomic_load_n( &ios_proc_socket_count, __ATOMIC_RELAXED );
++    if (!peb_id) return FALSE;
++    for (;;)
+     {
+-        wine_log_write("[Wine child] proc-socket table FULL (%d)!", idx);
+-        return;
++        if (idx >= IOS_MAX_PROC_SOCKETS)
++        {
++            wine_log_write("[Wine child] proc-socket table FULL (%d); rejecting child", idx);
++            return FALSE;
++        }
++        if (__atomic_compare_exchange_n( &ios_proc_socket_count, &idx, idx + 1,
++                                         0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED )) break;
+     }
+     ios_fdt_reg( fd, FDT_MASTER, peb_id );
+     ios_proc_sockets[idx].fd = fd;
+     ios_proc_sockets[idx].exiting = FALSE;
+-    __sync_synchronize();
+-    ios_proc_sockets[idx].peb = peb_id;
++    __atomic_store_n( &ios_proc_sockets[idx].peb, peb_id, __ATOMIC_RELEASE );
++    return TRUE;
+ }
++
+ #endif
+ static _Thread_local int initial_cwd = -1;
+ static pid_t server_pid;
+@@ -614,6 +623,23 @@ void server_leave_uninterrupted_section( pthread_mutex_t *mutex, sigset_t *sigse
+ }
+ 
+ 
++/* Server EOF can exit a guest pthread while a request owns this shared lock.
++ * Release only the exiting thread's acquired lock and its removed cache fd.
++ * Other guest processes in the same Mach task must remain able to use it. */
++struct ios_fd_request_cleanup
++{
++    int *removed_fd;
++};
++
++static void ios_fd_request_aborted( void *opaque )
++{
++    struct ios_fd_request_cleanup *cleanup = opaque;
++    mutex_unlock( &fd_cache_mutex );
++    if (cleanup->removed_fd && *cleanup->removed_fd != -1)
++        close( *cleanup->removed_fd );
++}
++
++
+ /***********************************************************************
+  *              wait_select_reply
+  *
+@@ -629,7 +655,19 @@ static int wait_select_reply( void *cookie )
+         ret = read( ntdll_get_thread_data()->wait_fd[0], &reply, sizeof(reply) );
+         if (ret == sizeof(reply))
+         {
+-            if (!reply.cookie) abort_thread( reply.signaled );  /* thread got killed */
++            if (!reply.cookie)  /* thread got killed */
++            {
++                const char *enabled = getenv("AGEPAD_ABORT_FEX_CLEANUP");
++                if (enabled && !strcmp(enabled, "1"))
++                {
++                    extern unsigned int ios_cleanup_terminated_waiter(void *, void *);
++                    TEB *teb = NtCurrentTeb();
++                    unsigned int result = teb ? ios_cleanup_terminated_waiter(teb, teb->Peb) : 10;
++                    dprintf(2, "[waiter-cleanup] result=%u tid=%04x\n", result,
++                            teb ? (unsigned int)(ULONG_PTR)teb->ClientId.UniqueThread : 0);
++                }
++                abort_thread( reply.signaled );
++            }
+             if (wine_server_get_ptr(reply.cookie) == cookie) return reply.signaled;
+             /* we stole another reply, wait for the real one */
+             signaled = wait_select_reply( cookie );
+@@ -1310,6 +1348,8 @@ unsigned int server_queue_process_apc( HANDLE process, const union apc_call *cal
+             NtWaitForSingleObject( handle, FALSE, NULL );
+ 
+             server_enter_uninterrupted_section( &fd_cache_mutex, &sigset );
++            struct ios_fd_request_cleanup fd_cleanup = { NULL };
++            pthread_cleanup_push( ios_fd_request_aborted, &fd_cleanup );
+ 
+             /* remove the handle from the cache, get_apc_result will close it for us */
+             close_inproc_sync( handle );
+@@ -1321,6 +1361,7 @@ unsigned int server_queue_process_apc( HANDLE process, const union apc_call *cal
+             }
+             SERVER_END_REQ;
+ 
++            pthread_cleanup_pop( 0 );
+             server_leave_uninterrupted_section( &fd_cache_mutex, &sigset );
+ 
+             if (!ret && result->type == APC_NONE) continue;  /* APC didn't run, try again */
+@@ -1596,7 +1637,8 @@ static struct ios_fd_cache *ios_get_fd_cache(void)
+  * its cached fds and pinned the unlinked inodes behind them. */
+ void ios_fd_cache_release( void *peb )
+ {
+-    int i, j, n, closed = 0;
++    int i, n, closed = 0;
++    unsigned int j;
+     struct ios_fd_cache *c = NULL;
+ 
+     pthread_mutex_lock( &ios_fd_cache_alloc_lock );
+@@ -1617,15 +1659,23 @@ void ios_fd_cache_release( void *peb )
+         union fd_cache_entry *block = c->blocks[i];
+         if (!block) continue;
+         for (j = 0; j < FD_CACHE_BLOCK_SIZE; j++)
+-            if (block[j].s.fd > 0)
++        {
++            union fd_cache_entry cached;
++            cached.data = interlocked_xchg64( &block[j].data, 0 );
++            /* Cache entries encode fd + 1; invalid entries encode NTSTATUS.
++             * Match get_cached_fd/remove_fd_from_cache, including valid fd 0.
++             * Closing the encoded value can close another process's pipe. */
++            if (cached.s.fd > 0 && cached.s.type != FD_TYPE_INVALID)
+             {
+-                /* ml586: the prime suspect close — a stale cache entry whose fd
+-                 * number was recycled into another thread's comm pipe */
+-                ios_fdt_note_close( block[j].s.fd, "fd-cache-release", peb );
+-                close( block[j].s.fd );
++                int fd = cached.s.fd - 1;
++                ios_fdt_note_close( fd, "fd-cache-release", peb );
++                close( fd );
+                 closed++;
+             }
+-        if (block != c->initial_block) free( block );
++        }
++        /* Noninitial blocks come from anon_mmap_alloc, not malloc. */
++        if (block != c->initial_block)
++            munmap( block, FD_CACHE_BLOCK_SIZE * sizeof(*block) );
+     }
+     free( c );
+     dprintf( 2, "[fd-cache] rev=ml571 released peb=%p, closed %d cached fd(s)\n", peb, closed );
+@@ -1751,6 +1801,8 @@ int server_get_unix_fd( HANDLE handle, unsigned int wanted_access, int *unix_fd,
+     if (ret != STATUS_INVALID_HANDLE) goto done;
+ 
+     server_enter_uninterrupted_section( &fd_cache_mutex, &sigset );
++    struct ios_fd_request_cleanup fd_cleanup = { NULL };
++    pthread_cleanup_push( ios_fd_request_aborted, &fd_cleanup );
+     ret = get_cached_fd( handle, &fd, type, &access, options );
+     if (ret == STATUS_INVALID_HANDLE)
+     {
+@@ -1796,6 +1848,7 @@ int server_get_unix_fd( HANDLE handle, unsigned int wanted_access, int *unix_fd,
+         }
+         SERVER_END_REQ;
+     }
++    pthread_cleanup_pop( 0 );
+     server_leave_uninterrupted_section( &fd_cache_mutex, &sigset );
+ 
+ done:
+@@ -2225,6 +2278,23 @@ static int init_thread_pipe(void)
+ void process_exit_wrapper( int status )
+ {
+ #ifdef WINE_IOS
++    /* Experimental last-native-exit guard. This retires only the three FEX
++     * callbacks, not all native threads/registries. Never recycle banks here.
++     * On unknown or active callbacks retain sockets and JIT mappings rather
++     * than announcing successful teardown or reclaiming executable memory. */
++    const char *retire = getenv("AGEPAD_RETIRE_FEX_CALLBACKS");
++    if (retire && !strcmp(retire, "1"))
++    {
++        extern unsigned int ios_retire_process_callbacks(void *);
++        TEB *teb = NtCurrentTeb();
++        unsigned int pending = teb ? ios_retire_process_callbacks(teb->Peb) : ~0u;
++        if (pending)
++        {
++            dprintf(2, "[callback-retire] QUARANTINED pending=%u; retaining sockets and JIT mappings\n", pending);
++            pthread_exit(NULL);
++        }
++        dprintf(2, "[callback-retire] DRAINED owner=%p before socket/JIT release\n", teb->Peb);
++    }
+     /* Close THIS pseudo-process's master socket — the EOF is how wineserver
+      * learns the process died (signals its process object, wakes waiters).
+      * Clear the registry slot so a stray second call can't double-close. */
+@@ -2232,12 +2302,12 @@ void process_exit_wrapper( int status )
+     if (i >= 0)
+     {
+         extern void ios_jit_reclaim_process( void *peb );
+-        void *dead_peb = ios_proc_sockets[i].peb;
++        void *dead_peb = __atomic_load_n( &ios_proc_sockets[i].peb, __ATOMIC_ACQUIRE );
+         wine_log_write("[Wine ntdll/server] process_exit_wrapper(%d): closing child fd_socket=%d",
+                        status, ios_proc_sockets[i].fd);
+         ios_fdt_note_close( ios_proc_sockets[i].fd, "exit-master", dead_peb );
+         close( ios_proc_sockets[i].fd );
+-        ios_proc_sockets[i].peb = NULL;
++        __atomic_store_n( &ios_proc_sockets[i].peb, NULL, __ATOMIC_RELEASE );
+         /* ml571: drop this pseudo-process's fd cache and close what it held.
+          * Must happen on the SAME identity used to key it, and before the JIT
+          * reclaim below reuses anything. */
+@@ -2569,7 +2639,13 @@ size_t server_init_process_child( int child_fd_socket )
+      * resolve per-process via ios_current_fd_socket(). */
+     if (fcntl( child_fd_socket, F_SETFD, FD_CLOEXEC ) == -1)
+         wine_log_write("[Wine child] WARNING: fcntl FD_CLOEXEC failed on fd %d", child_fd_socket);
+-    ios_register_proc_socket( ios_jit_current_peb(), child_fd_socket );
++    if (!ios_register_proc_socket( ios_jit_current_peb(), child_fd_socket ))
++    {
++        /* Never use owner lookup or process_exit_wrapper here: an unregistered
++         * child would fall back to the parent's master socket. */
++        close( child_fd_socket );
++        return (size_t)-1;
++    }
+ 
+     wine_log_write("[Wine child] server_init_process_child: fd_socket=%d (peb=%p)",
+                    child_fd_socket, ios_jit_current_peb());
+@@ -2632,6 +2708,11 @@ size_t server_init_process_child( int child_fd_socket )
+  */
+ void server_init_process_done(void)
+ {
++#ifdef WINE_IOS
++    /* The booting pseudo-process owns this completion and entry-point call.
++     * Another child may have changed the legacy global PEB already. */
++    PEB *peb = NtCurrentTeb()->Peb;
++#endif
+     void *teb;
+     unsigned int status;
+     int suspend;
+@@ -2712,6 +2793,24 @@ void server_init_process_done(void)
+                 mach_msg_type_number_t state_count = ARM_THREAD_STATE64_COUNT;
+                 kern_return_t kr = thread_get_state(wine_mach_thread, ARM_THREAD_STATE64,
+                                                     (thread_state_t)&state, &state_count);
++                /* Only Mach reads belong inside the suspend interval. Logging
++                 * calls localtime_r/getenv and can wait for a libc lock held by
++                 * the suspended target (observed in Steam's network helper). */
++                uint64_t frame_ptr = 0, frame_x18 = 0;
++                int have_frame_x18 = 0;
++                if (kr == KERN_SUCCESS && state.__x[18] == 0) {
++                    vm_size_t out_size = sizeof(frame_ptr);
++                    if (vm_read_overwrite(mach_task_self(), watchdog_teb_addr + 0x378,
++                                          sizeof(frame_ptr), (vm_address_t)&frame_ptr, &out_size) == KERN_SUCCESS &&
++                        out_size == sizeof(frame_ptr)) {
++                        out_size = sizeof(frame_x18);
++                        have_frame_x18 = vm_read_overwrite(mach_task_self(), frame_ptr + 0x90,
++                                          sizeof(frame_x18), (vm_address_t)&frame_x18, &out_size) == KERN_SUCCESS &&
++                                          out_size == sizeof(frame_x18);
++                    }
++                }
++                thread_resume(wine_mach_thread);
++
+                 if (kr == KERN_SUCCESS) {
+                     wine_log_write("[Wine WATCHDOG %ds] PC=0x%llx LR=0x%llx SP=0x%llx FP=0x%llx",
+                         secs,
+@@ -2740,29 +2839,13 @@ void server_init_process_done(void)
+                             secs, ios_exc_msg_count, (long long)ios_exc_x18_fixes);
+                     }
+ 
+-                    /* If x18=0, read the syscall frame from memory to check frame->x[18] */
+-                    if (state.__x[18] == 0) {
+-                        /* thread_data->syscall_frame is at TEB+0x378.
+-                         * frame->x[18] is at frame+0x90. */
+-                        uint64_t teb_addr = watchdog_teb_addr;
+-                        uint64_t frame_ptr = 0;
+-                        /* Read syscall_frame pointer from TEB+0x378 */
+-                        vm_size_t out_size = sizeof(frame_ptr);
+-                        if (vm_read_overwrite(mach_task_self(), teb_addr + 0x378,
+-                                              sizeof(frame_ptr), (vm_address_t)&frame_ptr, &out_size) == KERN_SUCCESS) {
+-                            uint64_t frame_x18 = 0;
+-                            if (vm_read_overwrite(mach_task_self(), frame_ptr + 0x90,
+-                                                  sizeof(frame_x18), (vm_address_t)&frame_x18, &out_size) == KERN_SUCCESS) {
+-                                wine_log_write("[Wine WATCHDOG %ds] x18=0 but frame->x[18]=0x%llx (frame=%p)",
+-                                    secs, (unsigned long long)frame_x18, (void*)frame_ptr);
+-                            }
+-                        }
+-                    }
++                    if (have_frame_x18)
++                        wine_log_write("[Wine WATCHDOG %ds] x18=0 but frame->x[18]=0x%llx (frame=%p)",
++                            secs, (unsigned long long)frame_x18, (void*)frame_ptr);
+                 } else {
+                     wine_log_write("[Wine WATCHDOG %ds] thread_get_state failed: %d", secs, kr);
+                 }
+ 
+-                thread_resume(wine_mach_thread);
+             };
+ 
+             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
+@@ -3087,6 +3170,8 @@ NTSTATUS WINAPI NtDuplicateObject( HANDLE source_process, HANDLE source, HANDLE
+     /* hold fd_cache_mutex to prevent the fd from being added again between the
+      * call to remove_fd_from_cache and close_handle */
+     server_enter_uninterrupted_section( &fd_cache_mutex, &sigset );
++    struct ios_fd_request_cleanup fd_cleanup = { &fd };
++    pthread_cleanup_push( ios_fd_request_aborted, &fd_cleanup );
+ 
+     /* always remove the cached fd; if the server request fails we'll just
+      * retrieve it again */
+@@ -3111,6 +3196,7 @@ NTSTATUS WINAPI NtDuplicateObject( HANDLE source_process, HANDLE source, HANDLE
+     }
+     SERVER_END_REQ;
+ 
++    pthread_cleanup_pop( 0 );
+     server_leave_uninterrupted_section( &fd_cache_mutex, &sigset );
+ 
+     if (fd != -1) close( fd );
+@@ -3155,7 +3241,7 @@ NTSTATUS WINAPI NtClose( HANDLE handle )
+     sigset_t sigset;
+     HANDLE port;
+     unsigned int ret;
+-    int fd;
++    int fd = -1;
+ 
+     if (HandleToLong( handle ) >= ~5 && HandleToLong( handle ) <= ~0)
+         return STATUS_SUCCESS;
+@@ -3163,6 +3249,8 @@ NTSTATUS WINAPI NtClose( HANDLE handle )
+     /* hold fd_cache_mutex to prevent the fd from being added again between the
+      * call to remove_fd_from_cache and close_handle */
+     server_enter_uninterrupted_section( &fd_cache_mutex, &sigset );
++    struct ios_fd_request_cleanup fd_cleanup = { &fd };
++    pthread_cleanup_push( ios_fd_request_aborted, &fd_cleanup );
+ 
+     /* always remove the cached fd; if the server request fails we'll just
+      * retrieve it again */
+@@ -3176,6 +3264,7 @@ NTSTATUS WINAPI NtClose( HANDLE handle )
+     }
+     SERVER_END_REQ;
+ 
++    pthread_cleanup_pop( 0 );
+     server_leave_uninterrupted_section( &fd_cache_mutex, &sigset );
+ 
+     if (fd != -1) close( fd );
+diff --git a/build/ntdll-unix/signal_arm64_ios.c b/build/ntdll-unix/signal_arm64_ios.c
+index 5be2a30..a4f26c9 100644
+--- a/build/ntdll-unix/signal_arm64_ios.c
++++ b/build/ntdll-unix/signal_arm64_ios.c
+@@ -537,12 +537,288 @@ static __thread int ios_my_slot = -1;
+ #define IOS_MAX_WINE_THREADS 512
+ 
+ struct ios_thread_entry {
++    uint64_t sequence;
++    uint64_t access; /* high bit closes acquisition; low bits count leases */
++    uint64_t state_access; /* independent FEX-state closure/count; nested native lease */
+     thread_t mach_thread;
+     uintptr_t teb;
+     void *trampoline;
+ };
+ static struct ios_thread_entry ios_thread_registry[IOS_MAX_WINE_THREADS];
+ static volatile int32_t ios_thread_count = 0;
++static pthread_mutex_t ios_thread_publish_mutex = PTHREAD_MUTEX_INITIALIZER;
++_Static_assert(__atomic_always_lock_free(sizeof(uint64_t), 0), "thread snapshot sequence must be lock-free");
++_Static_assert(__atomic_always_lock_free(sizeof(uintptr_t), 0), "thread snapshot pointers must be lock-free");
++
++/* Nonblocking coherent value snapshot, NOT a lifetime reference. A caller
++ * must still keep TEB/code alive while using the returned values. */
++int ios_thread_registry_snapshot(int i, uintptr_t *teb, thread_t *port, void **trampoline)
++{
++    uint64_t before, after;
++    uintptr_t t;
++    thread_t p;
++    void *tr;
++    if (i < 0 || i >= IOS_MAX_WINE_THREADS || !teb || !port || !trampoline) return 0;
++    before = __atomic_load_n(&ios_thread_registry[i].sequence, __ATOMIC_SEQ_CST);
++    if (!before || (before & 1)) return 0;
++    t = __atomic_load_n(&ios_thread_registry[i].teb, __ATOMIC_SEQ_CST);
++    p = __atomic_load_n(&ios_thread_registry[i].mach_thread, __ATOMIC_SEQ_CST);
++    tr = __atomic_load_n(&ios_thread_registry[i].trampoline, __ATOMIC_SEQ_CST);
++    after = __atomic_load_n(&ios_thread_registry[i].sequence, __ATOMIC_SEQ_CST);
++    if (before != after || !p || !t) return 0;
++    *teb = t; *port = p; *trampoline = tr;
++    return 1;
++}
++
++/* Writer must hold ios_thread_publish_mutex; readers never take that mutex. */
++#define IOS_THREAD_ACCESS_CLOSED (UINT64_C(1) << 63)
++#define IOS_THREAD_ACCESS_WRITING (UINT64_C(1) << 62)
++#define IOS_THREAD_ACCESS_COUNT (IOS_THREAD_ACCESS_WRITING - 1)
++static int ios_thread_registry_publish(int i, uintptr_t teb, thread_t port, void *trampoline)
++{
++    uint64_t expected = 0;
++    if (!__atomic_compare_exchange_n(&ios_thread_registry[i].access, &expected,
++                                     IOS_THREAD_ACCESS_WRITING, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
++        return 0; /* active reader or retired slot: never overwrite */
++    if (__atomic_load_n(&ios_thread_registry[i].state_access, __ATOMIC_SEQ_CST))
++    {
++        __atomic_fetch_and(&ios_thread_registry[i].access, ~IOS_THREAD_ACCESS_WRITING, __ATOMIC_SEQ_CST);
++        return 0; /* State closure cannot be reset by identity publication. */
++    }
++    __atomic_add_fetch(&ios_thread_registry[i].sequence, 1, __ATOMIC_SEQ_CST);
++    __atomic_store_n(&ios_thread_registry[i].teb, teb, __ATOMIC_SEQ_CST);
++    __atomic_store_n(&ios_thread_registry[i].trampoline, trampoline, __ATOMIC_SEQ_CST);
++    __atomic_store_n(&ios_thread_registry[i].mach_thread, port, __ATOMIC_SEQ_CST);
++    __atomic_add_fetch(&ios_thread_registry[i].sequence, 1, __ATOMIC_SEQ_CST);
++    __atomic_fetch_and(&ios_thread_registry[i].access, ~IOS_THREAD_ACCESS_WRITING, __ATOMIC_SEQ_CST);
++    return 1;
++}
++
++
++/* Prerequisite only: hold a lease through final TEB/code use. Value
++ * snapshots without a lease remain insufficient for reclamation. */
++static void ios_thread_registry_release(int i)
++{
++    uint64_t previous = __atomic_fetch_sub(&ios_thread_registry[i].access, 1, __ATOMIC_SEQ_CST);
++    assert(previous & IOS_THREAD_ACCESS_COUNT);
++}
++
++static int ios_thread_registry_acquire(int i, struct ios_thread_entry *value)
++{
++    uint64_t state;
++    if (i < 0 || i >= IOS_MAX_WINE_THREADS || !value) return 0;
++    state = __atomic_load_n(&ios_thread_registry[i].access, __ATOMIC_SEQ_CST);
++    /* A single attempt cannot spin behind an interrupted writer/reader. */
++    if ((state & (IOS_THREAD_ACCESS_CLOSED | IOS_THREAD_ACCESS_WRITING)) || (state & IOS_THREAD_ACCESS_COUNT) == IOS_THREAD_ACCESS_COUNT ||
++        !__atomic_compare_exchange_n(&ios_thread_registry[i].access, &state, state + 1,
++                                     0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) return 0;
++    if (!ios_thread_registry_snapshot(i, &value->teb, &value->mach_thread, &value->trampoline))
++    {
++        ios_thread_registry_release(i);
++        return 0;
++    }
++    return 1;
++}
++
++static uint64_t ios_thread_registry_retire(int i)
++{
++    if (i < 0 || i >= IOS_MAX_WINE_THREADS) return UINT64_MAX;
++    uint64_t state = __atomic_fetch_or(&ios_thread_registry[i].access, IOS_THREAD_ACCESS_CLOSED,
++                                      __ATOMIC_SEQ_CST);
++    return state & IOS_THREAD_ACCESS_WRITING ? UINT64_MAX : state & IOS_THREAD_ACCESS_COUNT;
++}
++
++/* Normal-thread caller must have successfully joined the target pthread.
++ * Closing every matching identity prevents old TEB aliases admitting readers.
++ * Pending/unknown state retains memory; this does not recycle slots or rights. */
++int ios_thread_retire_joined_teb(uintptr_t teb)
++{
++    int found = 0, drained = 1;
++    if (!teb) return 0;
++    pthread_mutex_lock(&ios_thread_publish_mutex);
++    int count = __atomic_load_n(&ios_thread_count, __ATOMIC_SEQ_CST);
++    if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
++    for (int i = 0; i < count; ++i)
++    {
++        if (__atomic_load_n(&ios_thread_registry[i].teb, __ATOMIC_SEQ_CST) != teb) continue;
++        found = 1;
++        if (ios_thread_registry_retire(i) != 0) drained = 0;
++    }
++    pthread_mutex_unlock(&ios_thread_publish_mutex);
++    return found && drained;
++}
++
++struct ios_thread_lease {
++    int slot;
++    struct ios_thread_entry value;
++};
++
++static struct ios_thread_lease ios_thread_lease_for_port(thread_t port)
++{
++    struct ios_thread_lease lease = {.slot = -1};
++    int count = __atomic_load_n(&ios_thread_count, __ATOMIC_SEQ_CST);
++    if (!port) return lease;
++    if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
++    for (int i = 0; i < count; ++i)
++    {
++        uintptr_t teb;
++        thread_t candidate;
++        void *trampoline;
++        if (!ios_thread_registry_snapshot(i, &teb, &candidate, &trampoline) || candidate != port) continue;
++        if (!ios_thread_registry_acquire(i, &lease.value)) return lease;
++        if (lease.value.mach_thread != port) { ios_thread_registry_release(i); return lease; }
++        lease.slot = i;
++        return lease;
++    }
++    return lease; /* No slot-zero fallback or borrowing another process. */
++}
++
++static struct ios_thread_lease ios_thread_lease_for_teb(uintptr_t target)
++{
++    struct ios_thread_lease lease = {.slot = -1};
++    int count = __atomic_load_n(&ios_thread_count, __ATOMIC_SEQ_CST);
++    if (!target) return lease;
++    if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
++    for (int i = 0; i < count; ++i)
++    {
++        uintptr_t teb;
++        thread_t candidate;
++        void *trampoline;
++        if (!ios_thread_registry_snapshot(i, &teb, &candidate, &trampoline) || teb != target) continue;
++        if (!ios_thread_registry_acquire(i, &lease.value))
++        {
++            /* Closed identities are immutable tombstones. A freed TEB address
++             * can belong to a later entry; busy/open failure must still stop. */
++            if (__atomic_load_n(&ios_thread_registry[i].access, __ATOMIC_SEQ_CST) & IOS_THREAD_ACCESS_CLOSED) continue;
++            return lease;
++        }
++        if (lease.value.teb != target) { ios_thread_registry_release(i); return lease; }
++        lease.slot = i;
++        return lease;
++    }
++    return lease; /* No slot-zero fallback or borrowing another process. */
++}
++
++static void ios_thread_lease_cleanup(struct ios_thread_lease *lease)
++{
++    if (lease->slot >= 0) { ios_thread_registry_release(lease->slot); lease->slot = -1; }
++}
++
++/* State users own an independent native lease until after releasing state.
++ * Audited diagnostics use this domain; the FEX destruction bridge is pending. */
++struct ios_state_lease {
++    struct ios_thread_lease native;
++    int held;
++};
++
++static struct ios_state_lease ios_state_lease_for_teb(uintptr_t teb)
++{
++    struct ios_state_lease lease = {.native = {.slot = -1}, .held = 0};
++    lease.native = ios_thread_lease_for_teb(teb);
++    if (lease.native.slot < 0) return lease;
++    uint64_t *access = &ios_thread_registry[lease.native.slot].state_access;
++    uint64_t state = __atomic_load_n(access, __ATOMIC_SEQ_CST);
++    if ((state & IOS_THREAD_ACCESS_CLOSED) || (state & ~IOS_THREAD_ACCESS_CLOSED) == IOS_THREAD_ACCESS_CLOSED - 1 ||
++        !__atomic_compare_exchange_n(access, &state, state + 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
++    {
++        ios_thread_lease_cleanup(&lease.native);
++        return lease;
++    }
++    lease.held = 1;
++    return lease;
++}
++
++static void ios_state_lease_cleanup(struct ios_state_lease *lease)
++{
++    if (lease->held)
++    {
++        uint64_t previous = __atomic_fetch_sub(&ios_thread_registry[lease->native.slot].state_access, 1, __ATOMIC_SEQ_CST);
++        assert(previous & ~IOS_THREAD_ACCESS_CLOSED);
++        lease->held = 0;
++    }
++    ios_thread_lease_cleanup(&lease->native);
++}
++
++/* Caller owns this native lease throughout close/drain observation. */
++static uint64_t ios_state_retire(const struct ios_thread_lease *native)
++{
++    if (!native || native->slot < 0 || native->slot >= IOS_MAX_WINE_THREADS) return UINT64_MAX;
++    uint64_t state = __atomic_fetch_or(&ios_thread_registry[native->slot].state_access,
++                                      IOS_THREAD_ACCESS_CLOSED, __ATOMIC_SEQ_CST);
++    return state & ~IOS_THREAD_ACCESS_CLOSED;
++}
++
++/* Return a caller-owned send right, not a borrowed registry port. The TEB
++ * dereference and right acquisition are both covered by the entry lease. */
++thread_t ios_mach_thread_for_tid(DWORD tid)
++{
++    int count = __atomic_load_n(&ios_thread_count, __ATOMIC_SEQ_CST);
++    if (!tid) return MACH_PORT_NULL;
++    if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
++    for (int i = 0; i < count; ++i)
++    {
++        struct ios_thread_lease lease __attribute__((cleanup(ios_thread_lease_cleanup))) = {.slot = -1};
++        if (!ios_thread_registry_acquire(i, &lease.value)) continue;
++        lease.slot = i;
++        if ((DWORD)(ULONG_PTR)((TEB *)lease.value.teb)->ClientId.UniqueThread != tid) continue;
++        if (mach_port_mod_refs(mach_task_self(), lease.value.mach_thread, MACH_PORT_RIGHT_SEND, 1) == KERN_SUCCESS)
++            return lease.value.mach_thread;
++    }
++    return MACH_PORT_NULL;
++}
++
++/* Native bridge primitive: caller supplies its validated owning PEB.
++ * Zero means closed/drained, a positive count means pending, UINT64_MAX
++ * means unknown/invalid. No wait, freeing, native closure or slot reuse. */
++uint64_t ios_state_close_for_owner(uintptr_t target_teb, void *owner)
++{
++    if (!target_teb || !owner) return UINT64_MAX;
++    struct ios_thread_lease native __attribute__((cleanup(ios_thread_lease_cleanup))) =
++        ios_thread_lease_for_teb(target_teb);
++    if (native.slot < 0 || ((TEB *)native.value.teb)->Peb != owner) return UINT64_MAX;
++    return ios_state_retire(&native);
++}
++
++/* Diagnostic scans retain their entire captured set. If capture races with
++ * publication/closure, skip the pass rather than infer a missing lock owner. */
++struct ios_thread_scan {
++    int count;
++    struct ios_thread_lease entries[IOS_MAX_WINE_THREADS];
++};
++
++static void ios_thread_scan_cleanup(struct ios_thread_scan *scan)
++{
++    while (scan->count) ios_thread_lease_cleanup(&scan->entries[--scan->count]);
++}
++
++static int ios_thread_scan_begin(struct ios_thread_scan *scan)
++{
++    int count = __atomic_load_n(&ios_thread_count, __ATOMIC_SEQ_CST);
++    scan->count = 0;
++    if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
++    for (int i = 0; i < count; ++i)
++    {
++        struct ios_thread_lease *lease = &scan->entries[i];
++        lease->slot = -1;
++        if (!ios_thread_registry_acquire(i, &lease->value))
++        {
++            ios_thread_scan_cleanup(scan);
++            return 0;
++        }
++        lease->slot = i;
++        scan->count++;
++    }
++    return 1;
++}
++
++/* A rejected snapshot is represented by an empty value. This does not
++ * retain the pointed-to TEB or trampoline after the snapshot returns. */
++static struct ios_thread_entry ios_thread_registry_value(int i)
++{
++    struct ios_thread_entry value = {0};
++    ios_thread_registry_snapshot(i, &value.teb, &value.mach_thread, &value.trampoline);
++    return value;
++}
+ 
+ /* Exact-match registry probe — NO slot-0 fallback.
+  *
+@@ -565,21 +841,22 @@ int ios_thread_registry_count(void)
+ uintptr_t ios_thread_registry_teb(int i)
+ {
+     if (i < 0 || i >= IOS_MAX_WINE_THREADS) return 0;
+-    return ios_thread_registry[i].teb;
++    return ios_thread_registry_value(i).teb;
+ }
+ 
+ thread_t ios_thread_registry_mach(int i)
+ {
+     if (i < 0 || i >= IOS_MAX_WINE_THREADS) return 0;
+-    return ios_thread_registry[i].mach_thread;
++    return ios_thread_registry_value(i).mach_thread;
+ }
+ 
+ static int ios_thread_is_registered(thread_t mach_thread)
+ {
++    if (!mach_thread) return 0;
+     int count = __sync_fetch_and_add(&ios_thread_count, 0);
+     if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
+     for (int i = 0; i < count; i++)
+-        if (ios_thread_registry[i].mach_thread == mach_thread) return 1;
++        if (ios_thread_registry_value(i).mach_thread == mach_thread) return 1;
+     return 0;
+ }
+ 
+@@ -597,7 +874,7 @@ static int ios_teb_is_registered(uintptr_t teb)
+     if (!teb) return 0;
+     if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
+     for (int i = 0; i < count; i++)
+-        if (ios_thread_registry[i].teb == teb) return 1;
++        if (ios_thread_registry_value(i).teb == teb) return 1;
+     return 0;
+ }
+ 
+@@ -607,13 +884,15 @@ static int ios_lookup_thread(thread_t mach_thread, uintptr_t *teb_out, void **tr
+     if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
+     for (int i = 0; i < count; i++)
+     {
+-        if (ios_thread_registry[i].mach_thread == mach_thread)
++        struct ios_thread_entry value = ios_thread_registry_value(i);
++        if (value.mach_thread && value.mach_thread == mach_thread)
+         {
+-            *teb_out = ios_thread_registry[i].teb;
+-            *tramp_out = ios_thread_registry[i].trampoline;
++            *teb_out = value.teb;
++            *tramp_out = value.trampoline;
+             return 1;
+         }
+     }
++    struct ios_thread_entry fallback = ios_thread_registry_value(0);
+     /* Fallback: use first registered thread */
+     /* ml390 (task #66): a thread that registered CORRECTLY (0184: idx=75 port
+      * 0x4493 teb ok) later resolved to the slot-0 TEB here — either the
+@@ -626,13 +905,13 @@ static int ios_lookup_thread(thread_t mach_thread, uintptr_t *teb_out, void **tr
+         {
+             miss_n++;
+             ERR( "[reg-miss] #%d port=0x%x not in registry (count=%d) -> slot-0 fallback teb=%p\n",
+-                 miss_n, mach_thread, count, count > 0 ? (void *)ios_thread_registry[0].teb : NULL );
++                 miss_n, mach_thread, count, (void *)fallback.teb );
+         }
+     }
+-    if (count > 0)
++    if (count > 0 && fallback.mach_thread)
+     {
+-        *teb_out = ios_thread_registry[0].teb;
+-        *tramp_out = ios_thread_registry[0].trampoline;
++        *teb_out = fallback.teb;
++        *tramp_out = fallback.trampoline;
+         return 1;
+     }
+     *teb_out = 0;
+@@ -656,12 +935,12 @@ static int ios_lookup_thread(thread_t mach_thread, uintptr_t *teb_out, void **tr
+  * the ml404 __ulock_wait signature (WAITING + x0==0x1000001) — lock address
+  * (x1), lock word (owner name for os_unfair_lock), and an 8-frame fp walk.
+  * Each thread reported once (dedupe by port), 60 reports max. */
+-static void ios_lock_census(void)
++static void ios_lock_census(const struct ios_thread_scan *scan)
+ {
+     static int total_logged;
+     static thread_t seen[64];
+     static int nseen;
+-    int count = __sync_fetch_and_add(&ios_thread_count, 0);
++    int count = scan->count;
+     int i, s;
+     if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
+ 
+@@ -678,8 +957,9 @@ static void ios_lock_census(void)
+         static int hold_logged;
+         for (i = count - 1; i >= 0 && hold_logged < 40; i--)
+         {
+-            thread_t cand = ios_thread_registry[i].mach_thread;
+-            uintptr_t cteb = (uintptr_t)ios_thread_registry[i].teb;
++            struct ios_thread_entry value = scan->entries[i].value;
++            thread_t cand = value.mach_thread;
++            uintptr_t cteb = value.teb;
+             uint64_t held = 0;
+             unsigned int ctid = 0;
+             mach_vm_size_t mgot = 0;
+@@ -741,9 +1021,10 @@ static void ios_lock_census(void)
+                     {
+                         struct thread_basic_info lbi;
+                         mach_msg_type_number_t lcnt = THREAD_BASIC_INFO_COUNT;
+-                        if (r == i || (uintptr_t)ios_thread_registry[r].teb != cteb) continue;
+-                        if (ios_thread_registry[r].mach_thread &&
+-                            thread_info( ios_thread_registry[r].mach_thread, THREAD_BASIC_INFO,
++                        struct ios_thread_entry other = scan->entries[r].value;
++                        if (r == i || other.teb != cteb) continue;
++                        if (other.mach_thread &&
++                            thread_info( other.mach_thread, THREAD_BASIC_INFO,
+                                          (thread_info_t)&lbi, &lcnt ) == KERN_SUCCESS)
+                             live = 1;
+                     }
+@@ -842,7 +1123,8 @@ static void ios_lock_census(void)
+     if (total_logged >= 60) return;
+     for (i = count - 1; i >= 0; i--)
+     {
+-        thread_t cand = ios_thread_registry[i].mach_thread;
++        struct ios_thread_entry value = scan->entries[i].value;
++        thread_t cand = value.mach_thread;
+         arm_thread_state64_t st;
+         mach_msg_type_number_t cnt = ARM_THREAD_STATE64_COUNT;
+         struct thread_basic_info bi;
+@@ -877,7 +1159,7 @@ static void ios_lock_census(void)
+         if (nseen < 64) seen[nseen++] = cand;
+         dprintf(2, "[lock-census] idx=%d port=0x%x teb=%p pc=0x%llx lr=0x%llx x1=0x%llx "
+                 "x2=0x%llx lockval=0x%x bt: %llx %llx %llx %llx %llx %llx %llx %llx\n",
+-                i, cand, (void *)ios_thread_registry[i].teb,
++                i, cand, (void *)value.teb,
+                 (unsigned long long)arm_thread_state64_get_pc( st ),
+                 (unsigned long long)st.__lr,
+                 (unsigned long long)st.__x[1],
+@@ -903,11 +1185,15 @@ extern void ios_alert_waiter_dump(void); /* ml440 (#74): >60s parkers + their lo
+ void ios_pump_sample(void)
+ {
+     static int samples;
+-    static int nbeacons;
+-    static thread_t pump_port[IOS_PUMP_MAX];   /* 0 = needs (re-)resolve */
+-    static uintptr_t pump_teb[IOS_PUMP_MAX];
++    int nbeacons = 0;
++    thread_t pump_port[IOS_PUMP_MAX] = {0};   /* 0 = needs (re-)resolve */
++    uintptr_t pump_teb[IOS_PUMP_MAX] = {0};
+     int i, b;
+-    int count = __sync_fetch_and_add(&ios_thread_count, 0);
++    struct ios_thread_scan scan __attribute__((cleanup(ios_thread_scan_cleanup)));
++    ios_beacon_teb_count = 0;
++    memset(ios_beacon_teb_list, 0, sizeof(ios_beacon_teb_list));
++    if (!ios_thread_scan_begin(&scan)) return;
++    int count = scan.count;
+     if (count > IOS_MAX_WINE_THREADS) count = IOS_MAX_WINE_THREADS;
+ 
+     ios_alert_ring_dump();   /* ml439: static ring during a parked-stall = wakes dying PE-side */
+@@ -925,9 +1211,10 @@ void ios_pump_sample(void)
+             mach_msg_type_number_t scnt = THREAD_BASIC_INFO_COUNT;
+             uint64_t stamp = 0;
+             mach_vm_size_t sgot = 0;
+-            uintptr_t steb = ios_thread_registry[si].teb;
+-            if (!ios_thread_registry[si].mach_thread || !steb) continue;
+-            if (thread_info( ios_thread_registry[si].mach_thread, THREAD_BASIC_INFO,
++            struct ios_thread_entry value = scan.entries[si].value;
++            uintptr_t steb = value.teb;
++            if (!value.mach_thread || !steb) continue;
++            if (thread_info( value.mach_thread, THREAD_BASIC_INFO,
+                              (thread_info_t)&sbi, &scnt ) != KERN_SUCCESS) continue;
+             if (mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(steb + 0x16e8), 8,
+                                         (mach_vm_address_t)&stamp, &sgot ) != KERN_SUCCESS || sgot != 8) continue;
+@@ -959,14 +1246,14 @@ void ios_pump_sample(void)
+         }
+         ios_orphan_check( stamps, ns );
+     }
+-    ios_lock_census();
++    ios_lock_census(&scan);
+     if (samples >= 120) return;
+     /* discover beacon TEBs (ml399: server thread and pump can differ) */
+     if (nbeacons < IOS_PUMP_MAX)
+     {
+         for (i = 0; i < count && nbeacons < IOS_PUMP_MAX; i++)
+         {
+-            uintptr_t teb = ios_thread_registry[i].teb;
++            uintptr_t teb = scan.entries[i].value.teb;
+             uint64_t val = 0;
+             vm_size_t got = 0;
+             int known = 0;
+@@ -999,10 +1286,11 @@ void ios_pump_sample(void)
+         if (pump_port[b]) continue;
+         for (i = count - 1; i >= 0; i--)
+         {
+-            thread_t cand = ios_thread_registry[i].mach_thread;
++            struct ios_thread_entry value = scan.entries[i].value;
++            thread_t cand = value.mach_thread;
+             struct thread_basic_info bi;
+             mach_msg_type_number_t bcnt = THREAD_BASIC_INFO_COUNT;
+-            if (ios_thread_registry[i].teb != pump_teb[b] || !cand) continue;
++            if (value.teb != pump_teb[b] || !cand) continue;
+             if (thread_info( cand, THREAD_BASIC_INFO, (thread_info_t)&bi, &bcnt ) != KERN_SUCCESS)
+                 continue;
+             pump_port[b] = cand;
+@@ -1201,6 +1489,12 @@ static void *ios_mach_exception_thread( void *arg )
+ 
+         thread_t thread = req->thread.name;
+         int handled = 0;
++        struct ios_thread_lease request_lease __attribute__((cleanup(ios_thread_lease_cleanup))) =
++            ios_thread_lease_for_port(thread);
++        /* Keep the exact identity through the entire request/reply scope.
++         * Unknown/closed/busy owners are declined rather than using slot0. */
++        if (request_lease.slot < 0) goto agepad_mach_reply;
++
+ 
+         /* 2026-07-03 storm probe: ~40K Mach exceptions PER PRESENT measured
+          * in the menu phase (~all of the 1.4s frame time at ~33us each).
+@@ -1664,7 +1958,8 @@ static void *ios_mach_exception_thread( void *arg )
+         /* Look up per-thread TEB and trampoline for the faulting thread */
+         uintptr_t thread_teb = 0;
+         void *thread_trampoline = NULL;
+-        ios_lookup_thread( thread, &thread_teb, &thread_trampoline );
++        thread_teb = request_lease.value.teb;
++        thread_trampoline = request_lease.value.trampoline;
+ 
+         /* Get faulting thread's register state */
+         arm_thread_state64_t state;
+@@ -3760,9 +4055,12 @@ skip_reclaim_band: ;
+                  * fault PC ranges with guest RIPs offline. */
+                 {
+                     uintptr_t teb_q = 0; void *tramp_q = NULL;
+-                    ios_lookup_thread(thread, &teb_q, &tramp_q);
++                    teb_q = request_lease.value.teb;
++                    tramp_q = request_lease.value.trampoline;
++                    struct ios_state_lease state_lease_q
++                        __attribute__((cleanup(ios_state_lease_cleanup))) = ios_state_lease_for_teb(teb_q);
+                     void *fex_state_q = NULL;
+-                    if (teb_q)
++                    if (state_lease_q.held)
+                     {
+                         void *cpuarea = *(void**)(teb_q + 0x1788);
+                         if (cpuarea) fex_state_q = *(void**)((char*)cpuarea + 0x30);
+@@ -3854,6 +4152,17 @@ skip_reclaim_band: ;
+                             {
+                                 mach_vm_address_t ra = (mach_vm_address_t)(fpage - 0x8000);
+                                 int i;
++                                /* Capture the caller even after the global first-fault
++                                 * log budget is exhausted. No reads through guest pointers. */
++                                dprintf(STDERR_FILENO,
++                                    "[AgePad-stuck-context] thread=%u pc=%p lr=%p fp=%p "
++                                    "x0=%p x1=%p x2=%p x3=%p\n",
++                                    (unsigned int)thread,
++                                    (void *)(uintptr_t)fault_pc_check,
++                                    (void *)(uintptr_t)__darwin_arm_thread_state64_get_lr(state),
++                                    (void *)(uintptr_t)__darwin_arm_thread_state64_get_fp(state),
++                                    (void *)(uintptr_t)state.__x[0], (void *)(uintptr_t)state.__x[1],
++                                    (void *)(uintptr_t)state.__x[2], (void *)(uintptr_t)state.__x[3]);
+                                 dprintf(STDERR_FILENO,
+                                     "[fault-stuck] page 0x%llx faulted %u times with NO progress "
+                                     "(pc=0x%llx sp=0x%llx) -- region map around it:\n",
+@@ -4735,9 +5044,12 @@ skip_reclaim_band: ;
+                      * for first 3 faults OR any interesting RIP. */
+                     uintptr_t teb_out_pre = 0;
+                     void *tramp_out_pre = NULL;
+-                    ios_lookup_thread(thread, &teb_out_pre, &tramp_out_pre);
++                    teb_out_pre = request_lease.value.teb;
++                    tramp_out_pre = request_lease.value.trampoline;
++                    struct ios_state_lease state_lease_pre
++                        __attribute__((cleanup(ios_state_lease_cleanup))) = ios_state_lease_for_teb(teb_out_pre);
+                     void *fex_state_pre = NULL;
+-                    if (teb_out_pre)
++                    if (state_lease_pre.held)
+                     {
+                         void *cpuarea = *(void**)(teb_out_pre + 0x1788);
+                         if (cpuarea) fex_state_pre = *(void**)((char*)cpuarea + 0x30);
+@@ -5102,6 +5414,7 @@ skip_reclaim_band: ;
+             }
+         }
+ 
++agepad_mach_reply:;
+         /* Build reply */
+         ios_exc_reply_t reply;
+         reply.head.msgh_bits = MACH_MSGH_BITS( MACH_MSGH_BITS_REMOTE(req->head.msgh_bits), 0 );
+@@ -5261,6 +5574,7 @@ static void ios_setup_mach_exception_handler( thread_t pe_thread, uintptr_t teb,
+      * ml384: replace an existing entry for the same port first — the kernel
+      * recycles thread port names, and a stale entry earlier in the array would
+      * shadow the new registration in ios_lookup_thread (first match wins). */
++    pthread_mutex_lock(&ios_thread_publish_mutex);
+     int idx, reg_count = __sync_fetch_and_add(&ios_thread_count, 0);
+     if (reg_count > IOS_MAX_WINE_THREADS) reg_count = IOS_MAX_WINE_THREADS;
+     for (idx = 0; idx < reg_count; idx++)
+@@ -5288,10 +5602,12 @@ static void ios_setup_mach_exception_handler( thread_t pe_thread, uintptr_t teb,
+             ios_thread_registry[idx].teb != teb)
+             ERR( "[thread-registry] REPLACE idx=%d port=0x%x old_teb=%p new_teb=%p\n",
+                  idx, pe_thread, (void *)ios_thread_registry[idx].teb, (void *)teb );
+-        ios_thread_registry[idx].teb = teb;
+-        ios_thread_registry[idx].trampoline = trampoline;
+-        __sync_synchronize();
+-        ios_thread_registry[idx].mach_thread = pe_thread;
++        if (!ios_thread_registry_publish(idx, teb, pe_thread, trampoline))
++        {
++            pthread_mutex_unlock(&ios_thread_publish_mutex);
++            ERR("[thread-registry] QUARANTINED replacement with active readers or retired identity\n");
++            pthread_exit(NULL);
++        }
+         /* ml401 (tasks #60/#66): EVERY registry port name proved
+          * MACH_SEND_INVALID_DEST when the census sampler tried to use it —
+          * something deallocates the mach_thread_self() ref after we store the
+@@ -5308,6 +5624,8 @@ static void ios_setup_mach_exception_handler( thread_t pe_thread, uintptr_t teb,
+         }
+     }
+ 
++    pthread_mutex_unlock(&ios_thread_publish_mutex);
++
+     /* Set exception port for this thread (shared port).
+      * ml353: also claim EXC_BAD_INSTRUCTION. udf-class faults (executing
+      * zeroed/garbage memory) previously bypassed us entirely and went
+@@ -8375,7 +8693,10 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+                      * Two rules restored: (1) only look at TSD 275 on a thread we
+                      * actually registered, (2) SPEND THE BUDGET FIRST -- increment
+                      * before the risky deref, so a fault can cost at most 6 tries. */
+-                    if (rspq < 6 && ios_teb_is_registered(teb_r))
++                    struct ios_state_lease diagnostic_lease
++                        __attribute__((cleanup(ios_state_lease_cleanup))) = {.native = {.slot = -1}, .held = 0};
++                    if (rspq < 6) diagnostic_lease = ios_state_lease_for_teb(teb_r);
++                    if (diagnostic_lease.held)
+                     {
+                         void *cpuarea_r;
+                         rspq++;                       /* spend it BEFORE we can fault */
+@@ -9119,14 +9440,74 @@ static int ios_emulate_store(ucontext_t *ctx, uint32_t insn, uintptr_t rw_addr)
+  * no-writeback addressing forms are accepted (unsigned offset, register
+  * offset, unscaled LDUR/STUR, signed-offset LDP/STP) — pre/post-index
+  * would need a base-register update and FEX doesn't emit them for guest
+- * memory ops. Atomic/exclusive/SIMD forms return 0 so the caller keeps
++ * memory ops. Selected128-bit stores are handled explicitly below. Other
++ * atomic/exclusive/SIMD forms return 0 so the caller keeps
+  * the existing 80000002 path for FEX's unaligned-atomic machinery.
+  */
++/* Proximity alone is not stack exhaustion: a pthread stack can end exactly
++ * where the emulator allocation begins. Only classify a missing/no-access
++ * page below the limit as a guard fault. Mapping-query failure is inconclusive. */
++static int ios_emulator_guard_fault(uintptr_t fault, uintptr_t limit)
++{
++    mach_vm_address_t base = fault;
++    mach_vm_size_t length = 0;
++    vm_region_basic_info_data_64_t info;
++    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
++    mach_port_t object = MACH_PORT_NULL;
++    kern_return_t kr;
++    if (!limit || fault >= limit || limit - fault > 0x4000) return 0;
++    kr = mach_vm_region(mach_task_self(), &base, &length, VM_REGION_BASIC_INFO_64,
++                        (vm_region_info_t)&info, &count, &object);
++    if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
++    if (kr != KERN_SUCCESS) return 0;
++    return base > fault || info.protection == VM_PROT_NONE;
++}
++
++/* A readable target need not be writable (for example a trapped code page).
++ * Check every region touched before copying, including the second half of STP.
++ * This snapshot does not pin mappings against concurrent protection changes. */
++static int ios_unaligned_store_writable(uintptr_t addr, size_t size)
++{
++    uintptr_t end;
++    if (!size || addr > UINTPTR_MAX - size) return 0;
++    end = addr + size;
++    while (addr < end)
++    {
++        mach_vm_address_t base = addr;
++        mach_vm_size_t length = 0;
++        vm_region_basic_info_data_64_t info;
++        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
++        mach_port_t object = MACH_PORT_NULL;
++        kern_return_t kr = mach_vm_region(mach_task_self(), &base, &length,
++                                          VM_REGION_BASIC_INFO_64,
++                                          (vm_region_info_t)&info, &count, &object);
++        if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
++        if (kr != KERN_SUCCESS || base > addr || !length ||
++            length > UINTPTR_MAX - base || base + length <= addr ||
++            !(info.protection & VM_PROT_WRITE)) return 0;
++        addr = base + length < end ? base + length : end;
++    }
++    return 1;
++}
++
++/* Return -1 for a protected store, 0 for unsupported, 1 for emulated. */
+ static int ios_emulate_unaligned_guest_access(ucontext_t *ctx, uint32_t insn, uintptr_t addr)
+ {
+     int rt = insn & 0x1F;
+ 
+-    if ((insn >> 26) & 1) return 0;  /* SIMD/FP: not handled here */
++    /* STR Qt unsigned offset and STUR Qt unscaled offset, no writeback.
++     * Decode before the generic SIMD rejection. The fault address already
++     * includes the instruction offset; copy exactly one 128-bit register. */
++    if ((insn & 0xffc00000) == 0x3d800000 ||
++        (insn & 0xffe00c00) == 0x3c800000)
++    {
++        const void *value = &ctx->uc_mcontext->__ns.__v[rt];
++        if (!ios_unaligned_store_writable(addr, 16)) return -1;
++        memcpy((void *)addr, value, 16);
++        return 1;
++    }
++
++    if ((insn >> 26) & 1) return 0;  /* Other SIMD/FP forms unsupported. */
+ 
+     /* Load/store register — three no-writeback addressing forms, common
+      * size/opc decode:
+@@ -9147,6 +9528,11 @@ static int ios_emulate_unaligned_guest_access(ucontext_t *ctx, uint32_t insn, ui
+         if (opc == 0)                               /* store */
+         {
+             uint64_t v = ios_get_reg(ctx, rt);
++            if (!ios_unaligned_store_writable(addr, nbytes)) return -1;
++            if (getenv("AGEPAD_SIGNED_NTDLL"))
++                dprintf(2, "[AgePad-unaligned-store] pc=%p insn=%08x addr=%p bytes=%u value=%llx\n",
++                        (void *)(uintptr_t)PC_sig(ctx), insn, (void *)addr, nbytes,
++                        (unsigned long long)v);
+             memcpy((void *)addr, &v, nbytes);
+         }
+         else                                        /* load */
+@@ -9178,6 +9564,7 @@ static int ios_emulate_unaligned_guest_access(ucontext_t *ctx, uint32_t insn, ui
+         if (!L)
+         {
+             uint64_t v1 = ios_get_reg(ctx, rt), v2 = ios_get_reg(ctx, rt2);
++            if (!ios_unaligned_store_writable(addr, 2 * nb)) return -1;
+             memcpy((void *)addr, &v1, nb);
+             memcpy((void *)(addr + nb), &v2, nb);
+         }
+@@ -9197,35 +9584,6 @@ static int ios_emulate_unaligned_guest_access(ucontext_t *ctx, uint32_t insn, ui
+         return 1;
+     }
+ 
+-    /* iOS-Madeira ml593: STUR/LDUR Qt (128-bit SIMD, UNSCALED immediate)
+-     *   00 111 1 00 1x 0 imm9 00 Rn Rt   — 0x3c800000 (store) / 0x3cc00000 (load),
+-     *                                       bits[11:10] == 00 marks unscaled.
+-     *
+-     * THIS IS THE INSTRUCTION THAT KILLED THE FIRST SUCCESSFUL STEAM LOGIN
+-     * (ml592, db 7164). insn=0x3c9f00c0 = `stur q0,[x6,#-16]` to 0x7075e00fc6
+-     * (6 mod 16) on steamwebhelper's main thread while libcef brought up the
+-     * post-login UI. This decoder emulated 140 unaligned accesses that run and
+-     * refused exactly one — the first SIMD-width store it ever saw — which
+-     * became an unhandled SIGBUS and, since every Windows process here is a
+-     * thread in ONE Mach task, took the whole app down seconds after
+-     * `[Logged On]`.
+-     *
+-     * ⚠️ NO BASE-REGISTER WRITEBACK. 0x3c9f00c0 is the UNSCALED form; the
+-     * post-indexed `str q0,[x6],#-16` is 0x3c9f04c0 (bits[11:10] == 01). I first
+-     * decoded this as post-indexed, which would have added a bogus -16 to x6 on
+-     * every emulated store — silent translated-state corruption, far worse than
+-     * the crash it "fixed". Sol caught it; both encodings were then assembled to
+-     * confirm. addr already carries the imm9 offset, so the access needs nothing
+-     * but the copy. */
+-    if ((insn & 0xffa00c00) == 0x3c800000)
+-    {
+-        int is_load = (insn >> 22) & 1;
+-        void *v = &((ucontext_t *)ctx)->uc_mcontext->__ns.__v[rt];
+-
+-        if (is_load) memcpy( v, (const void *)addr, 16 );
+-        else         memcpy( (void *)addr, v, 16 );
+-        return 1;
+-    }
+ 
+     return 0;
+ }
+@@ -9237,6 +9595,14 @@ static int ios_emulate_unaligned_guest_access(ucontext_t *ctx, uint32_t insn, ui
+  *
+  * Handler for SIGBUS.
+  */
++/* RCpc acquire loads have bit22 clear, unlike ordinary LDR. Keep the
++ * existing fallback for other encodings; this is not a complete decoder. */
++static BOOL agepad_bus_instruction_is_store( uint32_t insn )
++{
++    if ((insn & 0x3ffffc00u) == 0x38bfc000u) return FALSE; /* LDAPR B/H/W/X */
++    return (insn & 0x0a000000u) == 0x08000000u && !(insn & 0x00400000u);
++}
++
+ static void bus_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+ {
+     EXCEPTION_RECORD rec = { EXCEPTION_DATATYPE_MISALIGNMENT };
+@@ -9506,9 +9872,8 @@ static void bus_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+             vrec.ExceptionAddress = (void *)PC_sig(bus_ctx);
+             {
+                 uint32_t f_insn = *(uint32_t *)(uintptr_t)PC_sig(bus_ctx);
+-                /* loads have bit22 set in the ld/st register/immediate classes;
+-                 * good enough to label the fault direction for wine's repair */
+-                if ((f_insn & 0x0a000000) == 0x08000000 && !(f_insn & 0x00400000))
++                /* Account for RCpc acquire loads before the legacy bit22 heuristic. */
++                if (agepad_bus_instruction_is_store( f_insn ))
+                     vrec.ExceptionInformation[0] = EXCEPTION_WRITE_FAULT;
+             }
+ 
+@@ -9863,8 +10228,9 @@ static void bus_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+                  * reconstruction path for c0000005 and rewrites the record to
+                  * the true guest RIP (proven in ml419's fault #27 flow). */
+                 rec = vrec;
+-                ERR("BUS->AV: unreadable target addr=%p pc=%p rw=%d rev=ml420\n",
+-                    siginfo->si_addr, pc, (int)vrec.ExceptionInformation[0]);
++                ERR("BUS->AV: unreadable target addr=%p pc=%p rw=%d insn=%08x rev=agepad214\n",
++                    siginfo->si_addr, pc, (int)vrec.ExceptionInformation[0],
++                    *(const uint32_t *)(uintptr_t)PC_sig(bus_ctx));
+                 goto bus_fatal;
+             }
+             /* iOS-Madeira ml479 (#83): readable target + BUS_ADRALN — emulate
+@@ -9892,7 +10258,16 @@ static void bus_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+                  * only the log lines are rate-limited, and every line carries
+                  * the totals so silence can never be mistaken for zero. */
+                 static unsigned long ua_emu_n, ua_simd_n, ua_other_n;
+-                if (ios_emulate_unaligned_guest_access(bus_ctx, a_insn, (uintptr_t)siginfo->si_addr))
++                int emulated = ios_emulate_unaligned_guest_access(bus_ctx, a_insn, (uintptr_t)siginfo->si_addr);
++                if (emulated < 0)
++                {
++                    rec = vrec;
++                    rec.ExceptionInformation[0] = EXCEPTION_WRITE_FAULT;
++                    ERR("[unaligned-protected-store] delivering AV addr=%p pc=%p insn=%08x\n",
++                        siginfo->si_addr, pc, a_insn);
++                    goto bus_fatal;
++                }
++                if (emulated > 0)
+                 {
+                     if (++ua_emu_n <= 16 || (ua_emu_n % 4096) == 0)
+                         ERR("[unaligned-guest] emulated insn=0x%08x addr=%p pc=%p "
+@@ -10008,9 +10383,8 @@ bus_fatal:
+         uint64_t sbase  = so_area ? (uint64_t)so_area->EmulatorStackBase : 0;
+         uint64_t fault  = (uint64_t)(uintptr_t)siginfo->si_addr;
+ 
+-        /* Just below the limit = ran off the bottom. One page of slack covers a
+-         * multi-register push that straddles the boundary. */
+-        if (slimit && fault < slimit && fault + 0x4000 >= slimit)
++        /* Preserve alignment/AV classification for adjacent mapped memory. */
++        if (ios_emulator_guard_fault(fault, slimit))
+         {
+             static unsigned long so_n;
+             unsigned long n = ++so_n;
+diff --git a/build/ntdll-unix/thread_ios.c b/build/ntdll-unix/thread_ios.c
+index e7ba3b4..85be8cd 100644
+--- a/build/ntdll-unix/thread_ios.c
++++ b/build/ntdll-unix/thread_ios.c
+@@ -1111,16 +1111,18 @@ static void contexts_from_server( CONTEXT *context, struct context_data server_c
+  */
+ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
+ {
++    /* Keep the validated TEB through cleanup, including after clearing TSD. */
++    TEB *teb = NtCurrentTeb();
+     /* iOS-Madeira ml558: a NATIVE (non-wine) thread can reach here.
+      *
+      * ml557 died exactly this way: a native thread faulted, the [fault-stuck]
+-     * breaker diverted it to abort_thread -> here, NtCurrentTeb() was NULL, and
++     * breaker diverted it to abort_thread -> here, teb was NULL, and
+      * `ntdll_get_thread_data()->alert_fd` faulted at 0x394. That fault storms,
+      * the breaker diverts to abort_thread AGAIN, and we recurse until the stack
+      * is gone -- 5,000+ iterations, sp walking down ~0x70 each time. A thread
+      * with no wine TEB owns no wine fds, so there is simply nothing to close;
+      * exiting quietly is both correct and the only way out of the loop. */
+-    if (!NtCurrentTeb())
++    if (!teb)
+     {
+         static unsigned long noteb_n;
+         if (++noteb_n <= 8)
+@@ -1172,15 +1174,15 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
+      * callback/context must also be PEB-keyed — ios_resolve_fex_exports latches
+      * the FIRST libarm64ecfex.dll mapping globally, but there are several
+      * pseudo-process instances in this one Mach task. */
+-    if (NtCurrentTeb())
++    if (teb)
+     {
+-        unsigned int tid = (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread;
++        unsigned int tid = (unsigned int)(ULONG_PTR)teb->ClientId.UniqueThread;
+         unsigned long long pre_stamp =
+-            *(volatile unsigned long long *)((char *)NtCurrentTeb() + 0x16f8);
++            *(volatile unsigned long long *)((char *)teb + 0x16f8);
+         unsigned int pre_depth =
+-            *(volatile unsigned int *)((char *)NtCurrentTeb() + 0x16f0);
++            *(volatile unsigned int *)((char *)teb + 0x16f0);
+         unsigned int rwx_read =
+-            *(volatile unsigned char *)((char *)NtCurrentTeb() + 0x1700) ? 1u : 0u;
++            *(volatile unsigned char *)((char *)teb + 0x1700) ? 1u : 0u;
+ 
+         /* ml614: gate on actually holding something. ml613 ran this block on EVERY
+          * thread exit once the export resolved, even with pre_stamp == 0. */
+@@ -1194,20 +1196,17 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
+              * PEB-keyed: pick the callback belonging to THIS pseudo-process, because
+              * each has its own FEX context and its own CodeInvalidationMutex.
+              * Runs while the TEB is still valid and before TSD 275 is cleared. */
+-            extern unsigned int (*ios_hold_release_lookup(void *peb))(void *, unsigned long long *,
+-                                                                      unsigned int *, unsigned int *);
+-            void *peb = NtCurrentTeb()->Peb;
+-            unsigned int (*cb)(void *, unsigned long long *, unsigned int *, unsigned int *) =
+-                ios_hold_release_lookup( peb );
++            extern int ios_release_exit_holds(void *, void *, unsigned long long *,
++                                               unsigned int *, unsigned int *, unsigned int *);
++            void *peb = teb->Peb;
+             unsigned long long stamp = 0;
+             unsigned int depth = 0, flags = 0, r = 0;
+-
+-            if (cb) r = cb( NtCurrentTeb(), &stamp, &depth, &flags );
++            int called = ios_release_exit_holds(teb, peb, &stamp, &depth, &flags, &r);
+ 
+             dprintf(2, "[exit-hold] ml618 tid=%04x peb=%p stamp=0x%llx depth=%u rwx_read=%u -> %s"
+                        "released=0x%x (%s%s%s%s)\n",
+                     tid, peb, pre_stamp, pre_depth, rwx_read,
+-                    cb ? "" : "NO CALLBACK FOR THIS PEB — STILL LEAKED; ",
++                    called ? "" : "NO CALLBACK FOR THIS PEB — STILL LEAKED; ",
+                     r,
+                     (r & 1) ? "shared " : "",
+                     (r & 2) ? "rwx-exclusive " : "",
+@@ -1226,11 +1225,11 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
+          * still set is leaking that hold — every later invalidation writer
+          * parks forever behind it. Log-only: names the leaker + the mutex. */
+         {
+-            uint64_t held_lock = *(volatile uint64_t *)((char *)NtCurrentTeb() + 0x16f8);
++            uint64_t held_lock = *(volatile uint64_t *)((char *)teb + 0x16f8);
+             if (held_lock)
+                 dprintf(2, "[exit-hold] tid=%04x teb=%p EXITING while holding FEX shared lock @0x%llx — read hold LEAKED\n",
+-                        (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread,
+-                        NtCurrentTeb(), (unsigned long long)held_lock);
++                        (unsigned int)(ULONG_PTR)teb->ClientId.UniqueThread,
++                        teb, (unsigned long long)held_lock);
+         }
+         /* ml173: tell the VA layer this thread is gone so its leaked 512MB steered
+          * reserves can be released (see ios_steer_reclaim_dead in virtual_ios.c).
+@@ -1238,7 +1237,7 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
+          * reclaiming them safe. */
+         {
+             extern void ios_thread_died( unsigned tid );
+-            ios_thread_died( (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread );
++            ios_thread_died( (unsigned)(ULONG_PTR)teb->ClientId.UniqueThread );
+         }
+     }
+     pthread_exit( UIntToPtr(status) );
+@@ -1722,8 +1721,13 @@ done:
+  */
+ void abort_thread( int status )
+ {
++    LONG remaining;
+     pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
+-    if (InterlockedDecrement( &nb_threads ) <= 0) abort_process( status );
++    remaining = InterlockedDecrement( &nb_threads );
++    if (getenv("AGEPAD_SIGNED_NTDLL"))
++        dprintf(2, "[AgePad-abort-thread] pthread=%p status=%x remaining=%ld caller=%p\n",
++                (void *)pthread_self(), status, (long)remaining, __builtin_return_address(0));
++    if (remaining <= 0) abort_process( status );
+     pthread_exit_wrapper( status );
+ }
+ 
+@@ -1733,6 +1737,9 @@ void abort_thread( int status )
+  */
+ void abort_process( int status )
+ {
++    if (getenv("AGEPAD_SIGNED_NTDLL"))
++        dprintf(2, "[AgePad-abort-process] pthread=%p status=%x count=%ld caller=%p\n",
++                (void *)pthread_self(), status, (long)InterlockedCompareExchange(&nb_threads, 0, 0), __builtin_return_address(0));
+     _exit( get_unix_exit_code( status ));
+ }
+ 
+@@ -1755,8 +1762,25 @@ static DECLSPEC_NORETURN void exit_thread( int status )
+ 
+         if (thread_data->pthread_id)
+         {
+-            pthread_join( thread_data->pthread_id, NULL );
+-            virtual_free_teb( teb );
++            int joined = pthread_join( thread_data->pthread_id, NULL );
++            if (joined)
++                ERR("[thread-reclaim] retained teb=%p: pthread_join failed (%d)\n", teb, joined);
++            else
++            {
++                extern int ios_thread_retire_joined_teb(uintptr_t);
++                /* Enable alongside the experimental callback-retirement path.
++                 * Pending readers retain this allocation; no unsafe retry/free. */
++                if (!getenv("AGEPAD_RETIRE_FEX_CALLBACKS") ||
++                    ios_thread_retire_joined_teb((uintptr_t)teb))
++                {
++                    if (getenv("AGEPAD_RETIRE_FEX_CALLBACKS"))
++                        ERR("[thread-reclaim] joined-drained teb=%p tid=%04x before-free\n",
++                            teb, (unsigned)(ULONG_PTR)teb->ClientId.UniqueThread);
++                    virtual_free_teb( teb );
++                }
++                else
++                    ERR("[thread-reclaim] retained joined teb=%p: native readers pending or identity unknown\n", teb);
++            }
+         }
+     }
+     pthread_exit_wrapper( status );
+@@ -2000,9 +2024,7 @@ NTSTATUS WINAPI NtAlertThread( HANDLE handle )
+ 
+ #include <dlfcn.h>
+ 
+-extern int ios_thread_registry_count(void);
+-extern uintptr_t ios_thread_registry_teb(int i);
+-extern thread_t ios_thread_registry_mach(int i);
++extern thread_t ios_mach_thread_for_tid(DWORD tid);
+ 
+ /* ml559 helpers for [xterm-where]: resolve a wine thread HANDLE to the Mach
+  * thread we registered for it. The registry is keyed by mach_thread and stores
+@@ -2016,7 +2038,6 @@ static BOOL ios_terminate_is_self( HANDLE handle )
+ static thread_t ios_mach_thread_for_handle( HANDLE handle )
+ {
+     DWORD tid = 0;
+-    int i, count;
+ 
+     SERVER_START_REQ( get_thread_info )
+     {
+@@ -2027,14 +2048,7 @@ static thread_t ios_mach_thread_for_handle( HANDLE handle )
+     SERVER_END_REQ;
+     if (!tid) return 0;
+ 
+-    count = ios_thread_registry_count();
+-    for (i = 0; i < count; i++)
+-    {
+-        uintptr_t teb = ios_thread_registry_teb( i );
+-        if (teb && (DWORD)(ULONG_PTR)((TEB *)teb)->ClientId.UniqueThread == tid)
+-            return ios_thread_registry_mach( i );
+-    }
+-    return 0;
++    return ios_mach_thread_for_tid(tid); /* caller owns returned send right */
+ }
+ 
+ 
+@@ -2084,6 +2098,7 @@ NTSTATUS WINAPI NtTerminateThread( HANDLE handle, LONG exit_code )
+                             : "(no image — guest/JIT code; system-lock theory refuted for this kill)" );
+             }
+         }
++        if (vt) mach_port_deallocate(mach_task_self(), vt);
+     }
+ 
+     SERVER_START_REQ( terminate_thread )
+diff --git a/build/ntdll-unix/virtual_ios.c b/build/ntdll-unix/virtual_ios.c
+index 20e987d..151ad16 100644
+--- a/build/ntdll-unix/virtual_ios.c
++++ b/build/ntdll-unix/virtual_ios.c
+@@ -1323,17 +1323,19 @@ static void ios_bigres_commit( void *addr, size_t size )
+  * leak" is the ALLOC vs FREE count for >=16MB band regions. Pairs with the
+  * [thr-term] probes in xtajit64 (same rev). */
+ static unsigned ios_span_alloc_n, ios_span_free_n;
+-static void ios_span_census( void *base, size_t size, int is_free )
++/* These are syscall events, not distinct reservations: commit-only calls
++ * are included and releases are observed before their result is known. */
++static void ios_span_census( void *base, size_t size, int is_free, ULONG type )
+ {
+     uintptr_t a = (uintptr_t)base;
+     unsigned n;
+     if (a < 0x7c00000000ULL || a >= 0x8000000000ULL || size < 0x1000000) return;
+     n = is_free ? ++ios_span_free_n : ++ios_span_alloc_n;
+     if (n <= 40 || !(n & 15))
+-        dprintf(2, "[span-census] %s #%u %p+0x%lx tid=%04x live=%d rev=ml435\n",
+-                is_free ? "FREE" : "ALLOC", n, base, (unsigned long)size,
++        dprintf(2, "[span-census] %s #%u %p+0x%lx tid=%04x call_balance=%d type=%lx rev=agepad201\n",
++                is_free ? "RELEASE_ATTEMPT" : "ALLOC_SUCCESS", n, base, (unsigned long)size,
+                 NtCurrentTeb() ? (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread : 0,
+-                (int)ios_span_alloc_n - (int)ios_span_free_n);
++                (int)ios_span_alloc_n - (int)ios_span_free_n, (unsigned long)type);
+ }
+ 
+ /* iOS-Madeira ml462 (#77): reserve->release CYCLE tracker. The ml461 run died
+@@ -2396,7 +2398,8 @@ uint64_t ios_jit_reverse_translate( uint64_t addr, uint64_t *module_base )
+  * too. Without this, late-loaded DLLs (e.g. dlopen after process init)
+  * would have unregistered alias ranges and FEX would emit NoExecOp for
+  * code in their copies. */
+-static void (*ios_jit_alias_pushback_cb)(unsigned long long, unsigned long long, unsigned long long) = NULL;
++static NTSTATUS ios_register_owned_callback(void *peb, unsigned int kind, void *callback);
++static int ios_deliver_alias(void *peb, unsigned long long pe, unsigned long long jit, unsigned long long size);
+ 
+ void ios_jit_add_mapping(void *pe_base, void *jit_base, size_t size)
+ {
+@@ -2480,10 +2483,16 @@ void ios_jit_add_mapping(void *pe_base, void *jit_base, size_t size)
+      * (via the unix_ios_push_jit_aliases unix-call), forward this new
+      * mapping to it too. Early mappings (added before xtajit64 loads) are
+      * picked up by the iteration in unix_ios_push_jit_aliases. */
+-    if (ios_jit_alias_pushback_cb)
+-        ios_jit_alias_pushback_cb((unsigned long long)(uintptr_t)pe_base,
+-                                  (unsigned long long)(uintptr_t)jit_base,
+-                                  (unsigned long long)size);
++    TEB *teb = NtCurrentTeb();
++    if (teb)
++    {
++        int delivered = ios_deliver_alias(teb->Peb, (unsigned long long)(uintptr_t)pe_base,
++                                          (unsigned long long)(uintptr_t)jit_base, (unsigned long long)size);
++        const char *trace = getenv("AGEPAD_RETIRE_FEX_CALLBACKS");
++        if (trace && !strcmp(trace, "1"))
++            dprintf(2, "[alias-delivery] owner=%p pe=%p jit=%p size=%zu delivered=%d\n",
++                    teb->Peb, pe_base, jit_base, size, delivered);
++    }
+ }
+ 
+ /* unix_ios_push_jit_aliases handler. Called from PE-side ntdll's
+@@ -2652,16 +2661,97 @@ void ios_resolve_fex_exports( void )
+  * FEX context and its own CodeInvalidationMutex. Using one global callback
+  * would release against the wrong context. */
+ #define IOS_HOLD_RELEASE_MAX 32
+-static struct { void *peb; unsigned int (*cb)(void *, unsigned long long *, unsigned int *, unsigned int *); }
+-    ios_hold_release[IOS_HOLD_RELEASE_MAX];
++static struct {
++    void *peb;
++    unsigned int (*cb)(void *, unsigned long long *, unsigned int *, unsigned int *);
++    unsigned int (*cleanup)(void *);
++    unsigned int (*pending)(void *);
++    void (*alias)(unsigned long long, unsigned long long, unsigned long long);
++    unsigned int in_flight;
++    unsigned int retiring;
++} ios_hold_release[IOS_HOLD_RELEASE_MAX];
+ static int ios_hold_release_n;
++static pthread_mutex_t ios_hold_release_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+-unsigned int (*ios_hold_release_lookup(void *peb))(void *, unsigned long long *, unsigned int *, unsigned int *)
++/* Entries remain stable tombstones until the complete process lifetime is proved.
++ * Never expose an untracked function pointer beyond the registry lock. */
++static int ios_callback_acquire(void *peb, unsigned int kind, void **callback)
+ {
+-    int i;
+-    for (i = 0; i < ios_hold_release_n; i++)
+-        if (ios_hold_release[i].peb == peb) return ios_hold_release[i].cb;
+-    return NULL;
++    int slot = -1;
++    *callback = NULL;
++    pthread_mutex_lock(&ios_hold_release_mutex);
++    for (int i = 0; i < ios_hold_release_n; i++)
++        if (ios_hold_release[i].peb == peb)
++        {
++            if (!ios_hold_release[i].retiring && ios_hold_release[i].in_flight != ~0u)
++            {
++                *callback = kind == 1 ? (void *)ios_hold_release[i].cb :
++                            kind == 2 ? (void *)ios_hold_release[i].cleanup :
++                            kind == 3 ? (void *)ios_hold_release[i].pending :
++                            kind == 5 ? (void *)ios_hold_release[i].alias : NULL;
++                if (*callback) { ios_hold_release[i].in_flight++; slot = i; }
++            }
++            break;
++        }
++    pthread_mutex_unlock(&ios_hold_release_mutex);
++    return slot;
++}
++
++static void ios_callback_release(int slot)
++{
++    pthread_mutex_lock(&ios_hold_release_mutex);
++    ios_hold_release[slot].in_flight--;
++    pthread_mutex_unlock(&ios_hold_release_mutex);
++}
++
++/* Nonblocking: caller must stop all process work before retirement. Zero only
++ * certifies this registry, not native thread exit or other callback systems.
++ * No slot/PEB reuse here; old calls retain their stable entry until release. */
++unsigned int ios_retire_process_callbacks(void *peb)
++{
++    unsigned int pending = ~0u;
++    pthread_mutex_lock(&ios_hold_release_mutex);
++    for (int i = 0; i < ios_hold_release_n; i++)
++        if (ios_hold_release[i].peb == peb)
++        {
++            ios_hold_release[i].retiring = 1;
++            pending = ios_hold_release[i].in_flight;
++            break;
++        }
++    pthread_mutex_unlock(&ios_hold_release_mutex);
++    return pending;
++}
++
++int ios_release_exit_holds(void *teb, void *peb, unsigned long long *stamp,
++                           unsigned int *depth, unsigned int *flags, unsigned int *result)
++{
++    void *callback;
++    int slot = ios_callback_acquire(peb, 1, &callback);
++    if (slot < 0) return 0;
++    *result = ((unsigned int (*)(void *, unsigned long long *, unsigned int *, unsigned int *))callback)
++                (teb, stamp, depth, flags);
++    ios_callback_release(slot);
++    return 1;
++}
++
++unsigned int ios_cleanup_terminated_waiter(void *teb, void *peb)
++{
++    void *callback;
++    int slot = ios_callback_acquire(peb, 2, &callback);
++    if (slot < 0) return 9;
++    unsigned int result = ((unsigned int (*)(void *))callback)(teb);
++    ios_callback_release(slot);
++    return result;
++}
++
++unsigned int ios_pending_thread_cleanup(void *teb, void *peb)
++{
++    void *callback;
++    int slot = ios_callback_acquire(peb, 3, &callback);
++    if (slot < 0) return ~0u;
++    unsigned int result = ((unsigned int (*)(void *))callback)(teb);
++    ios_callback_release(slot);
++    return result;
+ }
+ 
+ struct ios_register_hold_release_args
+@@ -2675,36 +2765,91 @@ struct ios_register_hold_release_args
+ NTSTATUS unixcall_ios_register_hold_release(void *args)
+ {
+     struct ios_register_hold_release_args *p = args;
+-    int i;
+-
+-    if (!p || p->size != sizeof(*p) || p->version != 1 || !p->peb || !p->callback)
+-    {
+-        dprintf(2, "[hold-release] ml618 REJECTED registration (size=%u want=%u version=%u peb=%p cb=%p)\n",
+-                p ? p->size : 0, (unsigned)sizeof(*p), p ? p->version : 0,
+-                p ? p->peb : NULL, p ? p->callback : NULL);
++    if (!p || p->size != sizeof(*p) || p->version < 1 || (p->version > 4 && p->version != 6) || !p->peb)
+         return STATUS_INVALID_PARAMETER;
++    /* Command6: callback field carries a target TEB, never a code pointer.
++     * Only exact STATUS_SUCCESS certifies drained. STATUS_PENDING is nonzero
++     * despite NT_SUCCESS() accepting it; caller must not proceed to teardown.
++     * No PE caller is wired yet. Disabled support is explicitly unsupported. */
++    if (p->version == 6)
++    {
++        extern uint64_t ios_state_close_for_owner(uintptr_t, void *);
++        const char *enabled = getenv("AGEPAD_RETIRE_FEX_STATE");
++        uint64_t pending;
++        if (!p->callback || !NtCurrentTeb() || NtCurrentTeb()->Peb != p->peb)
++            return STATUS_INVALID_PARAMETER;
++        if (!enabled || strcmp(enabled, "1")) return STATUS_NOT_SUPPORTED;
++        pending = ios_state_close_for_owner((uintptr_t)p->callback, p->peb);
++        if (pending == UINT64_MAX) return STATUS_INVALID_PARAMETER;
++        return pending ? STATUS_PENDING : STATUS_SUCCESS;
++    }
++    /* Version4 is a command, not registration. Same sized ABI; NULL callback
++     * is mandatory. Caller must target the last translator TLS/entry boundary.
++     * A failed drain must never return to the destructor sequence. */
++    if (p->version == 4)
++    {
++        const char *enabled = getenv("AGEPAD_RETIRE_FEX_CALLBACKS");
++        if (p->callback || !NtCurrentTeb() || NtCurrentTeb()->Peb != p->peb)
++            return STATUS_INVALID_PARAMETER;
++        if (enabled && !strcmp(enabled, "1"))
++        {
++            unsigned int pending = ios_retire_process_callbacks(p->peb);
++            if (pending)
++            {
++                dprintf(2, "[callback-retire-early] QUARANTINED pending=%u before translator destructors\n", pending);
++                pthread_exit(NULL);
++            }
++            dprintf(2, "[callback-retire-early] DRAINED owner=%p before translator destructors\n", p->peb);
++        }
++        return STATUS_SUCCESS;
+     }
++    if (!p->callback) return STATUS_INVALID_PARAMETER;
++    return ios_register_owned_callback(p->peb, p->version, p->callback);
++}
++
++/* Internal kind5 is alias delivery, not a new public registration ABI version. */
++static NTSTATUS ios_register_owned_callback(void *peb, unsigned int kind, void *callback)
++{
++    int i;
++    if (!peb || !callback || (kind != 1 && kind != 2 && kind != 3 && kind != 5))
++        return STATUS_INVALID_PARAMETER;
++    pthread_mutex_lock(&ios_hold_release_mutex);
+     for (i = 0; i < ios_hold_release_n; i++)
+-        if (ios_hold_release[i].peb == p->peb)
++        if (ios_hold_release[i].peb == peb) break;
++    if (i == ios_hold_release_n)
++    {
++        if (i == IOS_HOLD_RELEASE_MAX)
+         {
+-            ios_hold_release[i].cb = p->callback;
+-            dprintf(2, "[hold-release] ml618 re-registered peb=%p cb=%p slot=%d\n", p->peb, p->callback, i);
+-            return STATUS_SUCCESS;
++            pthread_mutex_unlock(&ios_hold_release_mutex);
++            return STATUS_INSUFFICIENT_RESOURCES;
+         }
+-    if (ios_hold_release_n >= IOS_HOLD_RELEASE_MAX)
++        ios_hold_release[i].peb = peb;
++        ios_hold_release_n++;
++    }
++    if (ios_hold_release[i].retiring)
+     {
+-        dprintf(2, "[hold-release] ml618 TABLE FULL (%d) — peb=%p will leak holds\n",
+-                ios_hold_release_n, p->peb);
+-        return STATUS_INSUFFICIENT_RESOURCES;
++        pthread_mutex_unlock(&ios_hold_release_mutex);
++        return STATUS_INVALID_PARAMETER;
+     }
+-    ios_hold_release[ios_hold_release_n].peb = p->peb;
+-    ios_hold_release[ios_hold_release_n].cb  = p->callback;
+-    ios_hold_release_n++;
+-    dprintf(2, "[hold-release] ml618 registered peb=%p cb=%p (%d live)\n",
+-            p->peb, p->callback, ios_hold_release_n);
++    if (kind == 1) ios_hold_release[i].cb = callback;
++    else if (kind == 2) ios_hold_release[i].cleanup = callback;
++    else if (kind == 3) ios_hold_release[i].pending = callback;
++    else ios_hold_release[i].alias = callback;
++    pthread_mutex_unlock(&ios_hold_release_mutex);
++    dprintf(2, "[hold-release] registered version=%u owner=%p slot=%d\n", kind, peb, i);
+     return STATUS_SUCCESS;
+ }
+ 
++static int ios_deliver_alias(void *peb, unsigned long long pe, unsigned long long jit, unsigned long long size)
++{
++    void *callback;
++    int slot = ios_callback_acquire(peb, 5, &callback);
++    if (slot < 0) return 0;
++    ((void (*)(unsigned long long, unsigned long long, unsigned long long))callback)(pe, jit, size);
++    ios_callback_release(slot);
++    return 1;
++}
++
+ NTSTATUS unixcall_ios_push_jit_aliases(void *args)
+ {
+     /* ml613: the ml549 stash that used to live here read a->rip_from_hostpc, a
+@@ -2713,7 +2858,11 @@ NTSTATUS unixcall_ios_push_jit_aliases(void *args)
+     struct ios_push_jit_aliases_args *params = args;
+     int i;
+     if (!params || !params->callback) return STATUS_INVALID_PARAMETER;
+-    ios_jit_alias_pushback_cb = params->callback;
++    TEB *teb = NtCurrentTeb();
++    NTSTATUS status;
++    if (!teb || !teb->Peb) return STATUS_INVALID_PARAMETER;
++    status = ios_register_owned_callback(teb->Peb, 5, params->callback);
++    if (status) return status;
+     /* Drain current table to the callback. Child-owned copies are skipped:
+      * they share pe_base with the parent entry and pushing both would
+      * double-register the alias range in FEX (x86-64 children under FEX
+@@ -2721,9 +2870,10 @@ NTSTATUS unixcall_ios_push_jit_aliases(void *args)
+     for (i = 0; i < ios_jit_mapping_count; i++)
+     {
+         if (ios_jit_mappings[i].owner_peb) continue;
+-        params->callback((unsigned long long)(uintptr_t)ios_jit_mappings[i].pe_base,
+-                         (unsigned long long)(uintptr_t)ios_jit_mappings[i].jit_base,
+-                         (unsigned long long)ios_jit_mappings[i].size);
++        if (!ios_deliver_alias(teb->Peb, (unsigned long long)(uintptr_t)ios_jit_mappings[i].pe_base,
++                              (unsigned long long)(uintptr_t)ios_jit_mappings[i].jit_base,
++                              (unsigned long long)ios_jit_mappings[i].size))
++            return STATUS_INVALID_PARAMETER;
+     }
+     /* ml613: the guaranteed init path — resolve both FEX exports here, where the
+      * emulator module is certainly mapped, instead of from a diagnostic probe
+@@ -5504,6 +5654,7 @@ extern const void *crypt32_unix_call_funcs[];
+  * tables — nsiproxy.sys is not shipped, PE nsi.dll falls back to this
+  * when \\.\Nsi can't be opened. See nsi_unixlib_ios.c */
+ extern const void *nsi_unix_call_funcs[];
++extern const void *dnsapi_unix_call_funcs[];
+ 
+ /* iOS-Madeira ml494 (#61 text wall): dwrite's unix side (freetype glyph
+  * rasterisation). Without it every __wine_unix_call from dwrite.dll failed,
+@@ -5520,6 +5671,15 @@ extern const void *dwrite_unix_call_funcs[];
+  * which win32u_unix_lib_init() populates via KeAddSystemServiceTable. */
+ extern NTSTATUS win32u_unix_lib_init(void);
+ #endif
++/* Local Simulator JIT service; indices 0..5 preserve FEXUnixLib's ABI. */
++static NTSTATUS agepad_jit_service(void *args);
++static NTSTATUS agepad_jit_unsupported(void *args) { return STATUS_NOT_SUPPORTED; }
++static const unixlib_entry_t agepad_fex_unix_funcs[] = {
++    agepad_jit_unsupported, agepad_jit_unsupported, agepad_jit_unsupported,
++    agepad_jit_unsupported, agepad_jit_unsupported, agepad_jit_unsupported,
++    agepad_jit_service
++};
++
+ static NTSTATUS load_builtin_unixlib( void *module, BOOL wow, const void **funcs )
+ {
+     NTSTATUS (*entry)(void) = NULL;
+@@ -5603,6 +5763,10 @@ static NTSTATUS load_builtin_unixlib( void *module, BOOL wow, const void **funcs
+             dprintf(2, "[unixlib] module %p (%s) -> dwrite_unix_call_funcs (%p) rev=ml494\n",
+                 module, match, (void *)dwrite_unix_call_funcs);
+             status = STATUS_SUCCESS;
++        } else if (match && strstr(match, "dnsapi.dll")) {
++            *funcs = (const void *)dnsapi_unix_call_funcs;
++            dprintf(2, "[unixlib] module %p (%s) -> dnsapi_unix_call_funcs\n", module, match);
++            status = STATUS_SUCCESS;
+         } else if (match && strstr(match, "nsi.dll")) {
+             *funcs = (const void *)nsi_unix_call_funcs;
+             dprintf(2, "[unixlib] module %p (%s) -> nsi_unix_call_funcs (%p) rev=ml472\n",
+@@ -5625,6 +5789,11 @@ static NTSTATUS load_builtin_unixlib( void *module, BOOL wow, const void **funcs
+                               module, match);
+             }
+             status = STATUS_SUCCESS;
++        } else if (getenv("AGEPAD_SIGNED_NTDLL") && match &&
++                   (strstr(match, "libarm64ecfex") || strstr(match, "xtajit64"))) {
++            *funcs = agepad_fex_unix_funcs;
++            dprintf(2, "[AgePad-JIT] registered FEX native table for %s\n", match);
++            status = STATUS_SUCCESS;
+         } else if (match && strstr(match, "opengl32")) {
+             pthread_once( &ios_stub_tables_once, ios_init_stub_tables );
+             *funcs = (const void *)ios_gl_stub_unix_call_table;
+@@ -7469,6 +7638,21 @@ static void *ios_share_probe_thread(void *arg)
+  * legitimately log on normal threads stay silent on that one. */
+ volatile int ios_in_mach_exc;
+ 
++/* Diagnostic-only selection: exercise TXM fallback on Simulator for exactly
++ * the two source-owned late-load DLLs. No game or ordinary image is selected.
++ * Called under the same view-lifetime rules as mprotect_exec. */
++static int agepad_test_force_late_image_copy(void *base, size_t size)
++{
++    const char *enabled = getenv("AGEPAD_TEST_FORCE_LATE_IMAGE_COPY");
++    struct file_view *view;
++    const char *name;
++    if (!enabled || strcmp(enabled, "1") || ios_in_mach_exc) return 0;
++    view = find_view(base, size);
++    if (!view || !(view->protect & SEC_IMAGE)) return 0;
++    name = ios_pe_module_name(view->base, view->size);
++    return !strcmp(name, "agepad-late-one.dll") || !strcmp(name, "agepad-late-two.dll");
++}
++
+ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
+ {
+     /* ml247: catch WHO narrows maxprot on pool pages.
+@@ -7699,7 +7883,10 @@ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
+          * actually granting EXEC — pages stay RW only. Verify by querying the
+          * actual page protection via Mach vm_region_64; only return early if
+          * EXEC was truly granted. */
+-        if (!mprotect( base, size, unix_prot ))
++        int force_late_copy = agepad_test_force_late_image_copy(base, size);
++        if (force_late_copy)
++            dprintf(2, "[force-late-copy] selected base=%p size=%zu; exercising image-copy fallback\n", base, size);
++        if (!force_late_copy && !mprotect( base, size, unix_prot ))
+         {
+             mach_vm_address_t addr = (mach_vm_address_t)base;
+             mach_vm_size_t reg_size = 0;
+@@ -9706,6 +9893,22 @@ static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
+             unsigned int skips0 = ios_va_scan_skips;
+ 
+             ptr = map_free_area( start, end, host_size, top_down, unix_prot, align_mask );
++            /* Separate budget: guest-window failures must not hide FEX span
++             * failures. Capture scan state before any later census changes it. */
++            if (!ptr && (ULONG_PTR)start >= 0x7c00000000ULL &&
++                (ULONG_PTR)end <= 0x8000000000ULL)
++            {
++                static unsigned fex_scan_failures;
++                if (fex_scan_failures++ < 64)
++                    dprintf(2, "[AgePad-fex-scan-failure] start=%p end=%p size=%lx host_size=%lx align=%lx top_down=%u tries=%u skips=%u seen=%p..%p views=%u maxgap=%lx stop=%s firstfail=%p errno=%d tid=%lx\n",
++                            start, end, (unsigned long)size, (unsigned long)host_size,
++                            (unsigned long)(align_mask + 1), (unsigned)top_down,
++                            ios_va_scan_tries - tries0, ios_va_scan_skips - skips0,
++                            ios_scan_base, ios_scan_end, ios_scan_views,
++                            (unsigned long)ios_scan_maxgap, ios_scan_stop_name(ios_scan_stop),
++                            ios_scan_fail_addr, ios_scan_fail_errno,
++                            (unsigned long)NtCurrentTeb()->ClientId.UniqueThread);
++            }
+             /* [va-scan] the ml116/ml117 probe: a healthy scan costs a handful of
+              * tryfixed calls. Hundreds means we are grinding unmappable VA;
+              * ptr==NULL is the silent STATUS_NO_MEMORY that handed rpmalloc a
+@@ -12116,6 +12319,227 @@ NTSTATUS virtual_map_module( HANDLE mapping, void **module, SIZE_T *size, SECTIO
+ /***********************************************************************
+  *           virtual_create_builtin_view
+  */
++#ifdef WINE_IOS
++/* Signed containers have already applied base relocations. Populate the same
++ * ARM64EC code bitmap as virtual_map_image, using relocated CHPE pointers. */
++static NTSTATUS agepad_signed_ec_ranges(struct file_view *view, IMAGE_NT_HEADERS *nt,
++                                        struct pe_image_info *info)
++{
++    char *base = view->base;
++    SIZE_T size = info->map_size;
++    const IMAGE_DATA_DIRECTORY *dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG];
++    const IMAGE_LOAD_CONFIG_DIRECTORY *cfg;
++    const IMAGE_ARM64EC_METADATA *metadata;
++    const IMAGE_CHPE_RANGE_ENTRY *map;
++    ULONG_PTR meta_offset;
++    unsigned int marked = 0;
++    if (!dir->VirtualAddress || dir->VirtualAddress > size || dir->Size > size - dir->VirtualAddress ||
++        dir->Size < offsetof(IMAGE_LOAD_CONFIG_DIRECTORY, CHPEMetadataPointer) + sizeof(ULONGLONG))
++        return STATUS_INVALID_IMAGE_FORMAT;
++    cfg = (void *)(base + dir->VirtualAddress);
++    if (cfg->Size < offsetof(IMAGE_LOAD_CONFIG_DIRECTORY, CHPEMetadataPointer) + sizeof(ULONGLONG))
++        return STATUS_INVALID_IMAGE_FORMAT;
++    meta_offset = cfg->CHPEMetadataPointer - (ULONG_PTR)base;
++    if (meta_offset > size || sizeof(*metadata) > size - meta_offset) return STATUS_INVALID_IMAGE_FORMAT;
++    metadata = (void *)(base + meta_offset);
++    if (!metadata->CodeMapCount || metadata->CodeMap > size ||
++        metadata->CodeMapCount > (size - metadata->CodeMap) / sizeof(*map)) return STATUS_INVALID_IMAGE_FORMAT;
++    map = (void *)(base + metadata->CodeMap);
++    for (ULONG i = 0; i < metadata->CodeMapCount; ++i)
++        if ((map[i].StartOffset & ~3u) > size || map[i].Length > size - (map[i].StartOffset & ~3u))
++            return STATUS_INVALID_IMAGE_FORMAT;
++    if (!arm64ec_view) alloc_arm64ec_map();
++    commit_arm64ec_map(view);
++    NtCurrentTeb()->Peb->EcCodeBitMap = arm64ec_view->base;
++    for (ULONG i = 0; i < metadata->CodeMapCount; ++i)
++        if ((map[i].StartOffset & 3) == 1)
++        {
++            set_arm64ec_range(base + (map[i].StartOffset & ~3u), map[i].Length);
++            ++marked;
++        }
++    info->is_hybrid = TRUE;
++    dprintf(2, "[signed-ec-map] base=%p native_ranges=%u bitmap=%p\n", base, marked, arm64ec_view->base);
++    return marked ? STATUS_SUCCESS : STATUS_INVALID_IMAGE_FORMAT;
++}
++#endif
++
++/* Diagnostic pool only: one owner, bounded monotonic allocations, released
++ * ranges quarantined until process exit. No alias mappings, no device claim.
++ * Keep fixed-width arguments in sync with FEX UnixLib/FEXUnixLib.h. */
++struct agepad_jit_args { uint32_t version, operation; uint64_t address, size, result; };
++_Static_assert(sizeof(struct agepad_jit_args) == 32, "JIT service ABI");
++static void (*agepad_jit_protect)(int);
++static void *agepad_jit_pool;
++static void *agepad_jit_owner;
++static SIZE_T agepad_jit_used;
++static SIZE_T agepad_jit_capacity = 64 * 1024 * 1024;
++static __thread unsigned int agepad_jit_depth;
++static __thread BOOL agepad_jit_needs_full_flush;
++static unsigned long long agepad_jit_full_flushes, agepad_jit_explicit_flushes;
++static struct { void *base; SIZE_T size; BOOL released; void *owner; BOOL reusable; } agepad_jit_chunks[4096];
++extern BOOL agepad_signed_owner_registered(void *owner);
++static unsigned int agepad_jit_count;
++/* Requires virtual_mutex, blocked server signals and an active JIT write scope.
++ * Only exact full releases qualify; partial release markers stay quarantined.
++ * Reuse stays within the owning pseudo-process and never splits a chunk. */
++static void *agepad_jit_reuse_chunk(void *owner, SIZE_T size)
++{
++    for (unsigned int i = 0; i < agepad_jit_count; ++i)
++    {
++        if (agepad_jit_chunks[i].owner != owner || !agepad_jit_chunks[i].released ||
++            !agepad_jit_chunks[i].reusable || agepad_jit_chunks[i].size != size) continue;
++        void *base = agepad_jit_chunks[i].base;
++        memset(base, 0, size);
++        __builtin___clear_cache(base, (char *)base + size);
++        agepad_jit_chunks[i].released = FALSE;
++        agepad_jit_chunks[i].reusable = FALSE;
++        return base;
++    }
++    return NULL;
++}
++
++/* Called with virtual_mutex held and server signals blocked. The pool is a
++ * process-lifetime MAP_JIT mapping; snapshot its monotonic extent before dropping
++ * the metadata lock. Never restore signals until executable protection is back.
++ * Opt-in experiment: this does not reduce the range or omit any cache flush. */
++static void agepad_jit_flush_extent(void *pool, SIZE_T size, BOOL unlock_metadata)
++{
++    if (unlock_metadata) mutex_unlock(&virtual_mutex);
++    if (pool) __builtin___clear_cache(pool, (char *)pool + size);
++    agepad_jit_protect(1);
++    if (unlock_metadata) mutex_lock(&virtual_mutex);
++}
++
++static NTSTATUS agepad_jit_service(void *opaque)
++{
++    struct agepad_jit_args *a = opaque;
++    NTSTATUS status = STATUS_SUCCESS;
++    sigset_t sigset;
++    struct file_view *view;
++    void *owner = NtCurrentTeb()->Peb;
++    if (!a || a->version != 1) return STATUS_NOT_SUPPORTED;
++#if !TARGET_OS_SIMULATOR
++    return STATUS_NOT_SUPPORTED;
++#endif
++    /* getenv holds a process-wide libc lock. Do not let SIGUSR1 suspend us
++     * inside it and run an APC that needs this mutex/server response. */
++    server_enter_uninterrupted_section(&virtual_mutex, &sigset);
++    if (!getenv("AGEPAD_SIGNED_NTDLL")) { status = STATUS_NOT_SUPPORTED; goto done; }
++    a->result = 0;
++    if (!agepad_jit_protect) agepad_jit_protect = dlsym(RTLD_DEFAULT, "pthread_jit_write_protect_np");
++    if (!agepad_jit_protect) { status = STATUS_NOT_SUPPORTED; goto done; }
++    if (agepad_jit_owner && agepad_jit_owner != owner &&
++        (!getenv("AGEPAD_SIGNED_CHILD_NTDLL") || !agepad_signed_owner_registered(owner))) {
++        status = STATUS_ACCESS_DENIED; goto done;
++    }
++    switch (a->operation)
++    {
++    case 0: a->result = 0x4147504a495431ULL; break;
++    case 2:
++        if (agepad_jit_depth == UINT_MAX) { status = STATUS_INVALID_PARAMETER; break; }
++        if (!agepad_jit_depth++) { agepad_jit_needs_full_flush = FALSE; agepad_jit_protect(0); }
++        break;
++    case 6:
++        a->result = getenv("AGEPAD_EXPLICIT_LINK_FLUSH") ? 1 : 0;
++        break;
++    case 3:
++    case 7:
++        if (a->operation == 7 && !getenv("AGEPAD_EXPLICIT_LINK_FLUSH")) { status = STATUS_NOT_SUPPORTED; break; }
++        if (!agepad_jit_depth) { status = STATUS_INVALID_PARAMETER; break; }
++        if (a->operation == 3) agepad_jit_needs_full_flush = TRUE;
++        if (!--agepad_jit_depth) {
++            if (agepad_jit_needs_full_flush) {
++                const char *unlock = getenv("AGEPAD_UNLOCKED_JIT_FLUSH");
++                agepad_jit_flush_extent(agepad_jit_pool, agepad_jit_used,
++                                        unlock && unlock[0] == '1' && !unlock[1]);
++                ++agepad_jit_full_flushes;
++            } else {
++                ++agepad_jit_explicit_flushes;
++                agepad_jit_protect(1);
++            }
++            unsigned long long total = agepad_jit_full_flushes + agepad_jit_explicit_flushes;
++            if (getenv("AGEPAD_EXPLICIT_LINK_FLUSH") && !(total & (total - 1)))
++                dprintf(2, "[AgePad-JIT-flush] full=%llu explicit_only=%llu\n", agepad_jit_full_flushes, agepad_jit_explicit_flushes);
++        }
++        break;
++    case 1:
++        if (!agepad_jit_pool) {
++            const char *setting = getenv("AGEPAD_JIT_POOL_MIB");
++            if (setting) {
++                char *end;
++                unsigned long mib = strtoul(setting, &end, 10);
++                if (!*setting || *end || (mib != 64 && mib != 128 && mib != 256 && mib != 512 && mib != 1024)) {
++                    status = STATUS_INVALID_PARAMETER; break;
++                }
++                agepad_jit_capacity = (SIZE_T)mib * 1024 * 1024;
++            }
++        }
++        if (!agepad_jit_depth || a->address || !a->size || a->size > agepad_jit_capacity || agepad_jit_count == 4096) {
++            status = STATUS_INVALID_PARAMETER; break;
++        }
++        if (!agepad_jit_pool) {
++            void *pool = mmap(NULL, agepad_jit_capacity, PROT_READ | PROT_WRITE | PROT_EXEC,
++                              MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
++            if (pool == MAP_FAILED) { dprintf(2, "[AgePad-JIT] mmap failed errno=%d\n", errno); status = STATUS_NO_MEMORY; break; }
++            if (find_view_range(pool, agepad_jit_capacity)) { munmap(pool, agepad_jit_capacity); status = STATUS_CONFLICTING_ADDRESSES; break; }
++            status = create_view(&view, pool, agepad_jit_capacity,
++                                VPROT_SYSTEM | VPROT_COMMITTED | VPROT_READ | VPROT_WRITE | VPROT_EXEC);
++            if (status) { munmap(pool, agepad_jit_capacity); break; }
++            if (!arm64ec_view) alloc_arm64ec_map();
++            commit_arm64ec_map(view);
++            NtCurrentTeb()->Peb->EcCodeBitMap = arm64ec_view->base;
++            set_arm64ec_range(pool, agepad_jit_capacity);
++            agepad_jit_pool = pool; agepad_jit_owner = owner;
++            dprintf(2, "[AgePad-JIT] MAP_JIT pool=%p size=%zu owner=%p\n", pool, agepad_jit_capacity, owner);
++        }
++        {
++            SIZE_T size = (a->size + host_page_mask) & ~host_page_mask;
++            const char *reuse = getenv("AGEPAD_REUSE_JIT_CHUNKS");
++            if (reuse && reuse[0] == '1' && !reuse[1]) {
++                void *recycled = agepad_jit_reuse_chunk(owner, size);
++                if (recycled) {
++                    a->result = (ULONG_PTR)recycled;
++                    dprintf(2, "[AgePad-JIT] reuse base=%p size=%zu owner=%p\n", recycled, size, owner);
++                    break;
++                }
++            }
++            if (size > agepad_jit_capacity - agepad_jit_used) { status = STATUS_NO_MEMORY; break; }
++            a->result = (ULONG_PTR)agepad_jit_pool + agepad_jit_used;
++            agepad_jit_chunks[agepad_jit_count].base = (void *)(ULONG_PTR)a->result;
++            agepad_jit_chunks[agepad_jit_count].owner = owner;
++            agepad_jit_chunks[agepad_jit_count++].size = size;
++            agepad_jit_used += size;
++            dprintf(2, "[AgePad-JIT] allocate base=%p size=%zu depth=%u\n", (void *)(ULONG_PTR)a->result, size, agepad_jit_depth);
++        }
++        break;
++    case 4:
++        for (unsigned int i = 0; i < agepad_jit_count; ++i)
++        {
++            const ULONG_PTR start = (ULONG_PTR)agepad_jit_chunks[i].base;
++            if (agepad_jit_chunks[i].owner == owner && !agepad_jit_chunks[i].released &&
++                a->address >= start && a->address - start < agepad_jit_chunks[i].size &&
++                a->size <= agepad_jit_chunks[i].size - (a->address - start)) {
++                a->result = 1; break;
++            }
++        }
++        break;
++    case 5:
++        status = STATUS_INVALID_PARAMETER;
++        for (unsigned int i = 0; i < agepad_jit_count; ++i)
++            if (agepad_jit_chunks[i].owner == owner && (ULONG_PTR)agepad_jit_chunks[i].base == a->address && !agepad_jit_chunks[i].released &&
++                a->size <= agepad_jit_chunks[i].size) {
++                agepad_jit_chunks[i].reusable = a->size == agepad_jit_chunks[i].size;
++                agepad_jit_chunks[i].released = TRUE; status = STATUS_SUCCESS;
++                dprintf(2, "[AgePad-JIT] quarantined allocation=%p\n", agepad_jit_chunks[i].base); break;
++            }
++        break;
++    default: status = STATUS_NOT_SUPPORTED;
++    }
++done:
++    server_leave_uninterrupted_section(&virtual_mutex, &sigset);
++    return status;
++}
++
+ NTSTATUS virtual_create_builtin_view( void *module, const UNICODE_STRING *nt_name,
+                                       struct pe_image_info *info, void *so_handle )
+ {
+@@ -12150,6 +12574,19 @@ NTSTATUS virtual_create_builtin_view( void *module, const UNICODE_STRING *nt_nam
+             set_page_vprot( (char *)base + sec[i].VirtualAddress, sec[i].Misc.VirtualSize, flags );
+         }
+ 
++#ifdef WINE_IOS
++        if (getenv("AGEPAD_SIGNED_NTDLL"))
++        {
++            status = agepad_signed_ec_ranges(view, nt, info);
++            if (status)
++            {
++                delete_view(view);
++                server_leave_uninterrupted_section(&virtual_mutex, &sigset);
++                return status;
++            }
++        }
++#endif
++
+         SERVER_START_REQ( map_builtin_view )
+         {
+             wine_server_add_data( req, info, sizeof(*info) );
+@@ -14663,7 +15100,7 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
+         if (is_jumbo) ios_jumbo_census( jumbo_hint, jumbo_size, st ? NULL : *ret, (unsigned)st );
+         if (!st && *size_ptr >= 0x10000000 && *size_ptr < 0x40000000 && (type & MEM_RESERVE))
+             ios_bigres_note( *ret, *size_ptr );
+-        if (!st) ios_span_census( *ret, *size_ptr, 0 );   /* ml435 (#73) */
++        if (!st) ios_span_census( *ret, *size_ptr, 0, type );   /* ml435 (#73) */
+ 
+         /* iOS-Madeira ml310 (task #54): SYSCALL-BOUNDARY census of arena-band allocations.
+          *
+@@ -15462,10 +15899,22 @@ NTSTATUS WINAPI NtAllocateVirtualMemoryEx( HANDLE process, PVOID *ret, SIZE_T *s
+         st = allocate_virtual_memory( ret, size_ptr, type, protect,
+                                       limit_low, limit_high, align, attributes );
+ 
++        /* Failure-only census after allocate_virtual_memory releases its lock.
++         * Distinguish constrained host-span failure from unchecked allocator NULL. */
++        if (st && limit_low && (type & MEM_RESERVE))
++        {
++            static unsigned constrained_failures;
++            if (__atomic_fetch_add(&constrained_failures, 1, __ATOMIC_RELAXED) < 64)
++                dprintf(2, "[AgePad-constrained-alloc-failure] status=%08x size=%lx low=%lx high=%lx align=%lx tid=%lx\n",
++                        (unsigned)st, (unsigned long)jumbo_size, (unsigned long)limit_low,
++                        (unsigned long)limit_high, (unsigned long)align,
++                        NtCurrentTeb() ? (unsigned long)NtCurrentTeb()->ClientId.UniqueThread : 0);
++        }
++
+         if (is_jumbo) ios_jumbo_census( jumbo_hint, jumbo_size, st ? NULL : *ret, (unsigned)st );
+         if (!st && *size_ptr >= 0x10000000 && *size_ptr < 0x40000000 && (type & MEM_RESERVE))
+             ios_bigres_note( *ret, *size_ptr );
+-        if (!st) ios_span_census( *ret, *size_ptr, 0 );   /* ml435 (#73) */
++        if (!st) ios_span_census( *ret, *size_ptr, 0, type );   /* ml435 (#73) */
+ 
+         /* iOS-Madeira ml310 (task #54): SYSCALL-BOUNDARY census of arena-band allocations.
+          *
+@@ -15616,7 +16065,7 @@ NTSTATUS WINAPI NtFreeVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T *si
+     if ((type & MEM_RELEASE) && (uintptr_t)base >= 0x7c00000000ULL)
+     {
+         struct file_view *sfv = find_view( base, 0 );
+-        ios_span_census( base, sfv ? sfv->size : size, 1 );
++        ios_span_census( base, sfv ? sfv->size : size, 1, type );
+     }
+     /* ml438 (#74): a MEM_RELEASE of a live tail EC-buffer carve has no wine
+      * view — before this rev it error'd (FEXCore ignored it) and the tail
+diff --git a/build/win32u-unix/build.sh b/build/win32u-unix/build.sh
+index 1b70aa6..c50e553 100755
+--- a/build/win32u-unix/build.sh
++++ b/build/win32u-unix/build.sh
+@@ -13,9 +13,12 @@ REPO_ROOT="$(cd "$BUILD_DIR/../.." && pwd)"
+ WINE_SRC="$REPO_ROOT/wine"
+ WINE_BUILD="$WINE_SRC/build-macos"
+ NTDLL_SHIMS="$REPO_ROOT/build/ntdll-unix/shims"
+-SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+-OBJ_DIR="$BUILD_DIR/obj"
+-APP_LIB="$REPO_ROOT/app/Madeira/libwin32u_unix.a"
++SDK_NAME="${AGEPAD_SDK:-iphoneos}"
++SDK=$(xcrun --sdk "$SDK_NAME" --show-sdk-path)
++TARGET="arm64-apple-ios17.0"
++if [ "$SDK_NAME" = iphonesimulator ]; then TARGET="$TARGET-simulator"; fi
++OBJ_DIR="$BUILD_DIR/obj-$SDK_NAME"
++APP_LIB="${AGEPAD_APP_LIB:-$REPO_ROOT/app/Madeira/libwin32u_unix.a}"
+ 
+ mkdir -p "$OBJ_DIR"
+ 
+@@ -24,6 +27,7 @@ FAILED=0
+ FAILED_FILES=""
+ 
+ FREETYPE_DIR="$REPO_ROOT/build/freetype-ios"
++FREETYPE_LIB="${AGEPAD_FREETYPE_LIB:-$FREETYPE_DIR/build/libfreetype.a}"
+ 
+ compile_one() {
+     local src=$1
+@@ -31,8 +35,8 @@ compile_one() {
+     shift 2
+     echo -n "  $name... "
+ 
+-    if xcrun -sdk iphoneos clang \
+-        -arch arm64 -isysroot "$SDK" -miphoneos-version-min=17.0 \
++    if xcrun -sdk "$SDK_NAME" clang \
++        -target "$TARGET" -isysroot "$SDK" \
+         -O2 -fPIC -fvisibility=hidden -fno-stack-protector -fno-strict-aliasing \
+         -Wno-implicit-function-declaration -Wno-int-conversion \
+         -include "$BUILD_DIR/config_ios.h" \
+@@ -136,9 +140,9 @@ echo "=== Building libwin32u_unix.a ==="
+ ar rcs "$OBJ_DIR/libwin32u_unix.a" "$OBJ_DIR"/*.o
+ 
+ # Merge the static freetype so the app link needs no project changes.
+-if [ -f "$FREETYPE_DIR/build/libfreetype.a" ]; then
++if [ -f "$FREETYPE_LIB" ]; then
+     libtool -static -o "$OBJ_DIR/libwin32u_unix.a" \
+-        "$OBJ_DIR/libwin32u_unix.a" "$FREETYPE_DIR/build/libfreetype.a" 2>/dev/null
++        "$OBJ_DIR/libwin32u_unix.a" "$FREETYPE_LIB" 2>/dev/null
+     echo "merged libfreetype.a"
+ else
+     echo "WARNING: no libfreetype.a — fonts will be disabled"
+diff --git a/build/wineserver/mach_ios.c b/build/wineserver/mach_ios.c
+index b038bf6..93ab9ad 100644
+--- a/build/wineserver/mach_ios.c
++++ b/build/wineserver/mach_ios.c
+@@ -375,16 +375,29 @@ extern int __pthread_kill( mach_port_t, int );
+ int send_thread_signal( struct thread *thread, int sig )
+ {
+     int ret = -1;
++    int attempted = 0;
++    kern_return_t extraction = KERN_SUCCESS;
+     mach_port_t process_port = get_process_port( thread->process );
+ 
++#ifdef WINE_IOS
++    /* Embedded guest processes share our host task. The launchd tracing
++     * handshake is unavailable, so a missing trace port must not discard
++     * their async callbacks. Never use our task for a foreign host PID;
++     * keep this fallback local to signals, not process memory operations. */
++    if (!process_port && thread->unix_pid == getpid())
++        process_port = mach_task_self();
++#endif
++
+     if (thread->unix_pid != -1 && process_port)
+     {
+         mach_msg_type_name_t type;
+         mach_port_t port;
+ 
+-        if (!mach_port_extract_right( process_port, thread->unix_tid,
+-                                      MACH_MSG_TYPE_COPY_SEND, &port, &type ))
++        extraction = mach_port_extract_right( process_port, thread->unix_tid,
++                                              MACH_MSG_TYPE_COPY_SEND, &port, &type );
++        if (!extraction)
+         {
++            attempted = 1;
+             ret = __pthread_kill( port, sig );
+             mach_port_deallocate( mach_task_self(), port );
+         }
+@@ -398,6 +411,16 @@ int send_thread_signal( struct thread *thread, int sig )
+     }
+     if (debug_level && ret != -1)
+         fprintf( stderr, "%04x: *sent signal* signal=%d\n", thread->id, sig );
++#ifdef WINE_IOS
++    {
++        int saved_errno = errno;
++        if (agepad_server_startup_trace)
++            fprintf(stderr, "[AgePad-signal] thread=%x process_port=%u unix_pid=%d unix_tid=%d signal=%d extract=%d attempted=%d ret=%d errno=%d\n",
++                    thread->id, process_port, thread->unix_pid, thread->unix_tid,
++                    sig, extraction, attempted, ret, saved_errno);
++        errno = saved_errno;
++    }
++#endif
+     return (ret != -1);
+ }
+ 
+@@ -622,6 +645,17 @@ int ios_fill_thread_context( struct thread *thread,
+     mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+     kern_return_t kr;
+     int have_native = 0;
++    static int ctx_frame_env = -1;
++
++    /* The target shares libc locks with this server. Resolve configuration
++     * before suspending it: it may be inside getenv holding the environment
++     * lock, which would prevent us from ever reaching thread_resume. */
++    if (ctx_frame_env < 0)
++    {
++        const char *e = getenv( "MADEIRA_CTX_FRAME" );
++        ctx_frame_env = (e && e[0] == '1') ? 1 : 0;
++    }
++
+ 
+     if (thread->unix_pid == -1 || thread->unix_tid == (unsigned int)-1) return 0;
+     if (mach_port_extract_right( mach_task_self(), thread->unix_tid,
+@@ -671,12 +705,6 @@ int ios_fill_thread_context( struct thread *thread,
+      * through to the old behaviour rather than inventing state. */
+     if (have_native)
+     {
+-        static int ctx_frame_env = -1;
+-        if (ctx_frame_env < 0)
+-        {
+-            const char *e = getenv( "MADEIRA_CTX_FRAME" );
+-            ctx_frame_env = (e && e[0] == '1') ? 1 : 0;
+-        }
+         if (ctx_frame_env && thread->teb)
+         {
+             uint64_t frame = 0, kstack = 0;
+@@ -817,6 +845,25 @@ int ios_fill_thread_context( struct thread *thread,
+ }
+ #endif  /* WINE_IOS */
+ 
++/* Signed guests share this host task. Keep debugger-port behavior unchanged:
++ * only memory requests already authorized by the server's handle access check
++ * may use this opt-in path. Never suspend our own task to copy memory. */
++static int agepad_shared_memory_target(struct process *process)
++{
++#ifdef WINE_IOS
++    extern BOOL agepad_signed_owner_registered(void *owner);
++    const char *enabled = getenv("AGEPAD_SHARED_PROCESS_MEMORY");
++    return enabled && enabled[0] == '1' && !enabled[1] &&
++           getenv("AGEPAD_SIGNED_NTDLL") && current && current->process &&
++           !process->is_terminating && process->running_threads &&
++           process->unix_pid == getpid() && current->process->unix_pid == getpid() &&
++           agepad_signed_owner_registered((void *)(uintptr_t)process->peb) &&
++           agepad_signed_owner_registered((void *)(uintptr_t)current->process->peb);
++#else
++    return 0;
++#endif
++}
++
+ /* read data from a process memory space */
+ int read_process_memory( struct process *process, client_ptr_t ptr, data_size_t size, char *dest )
+ {
+@@ -824,6 +871,15 @@ int read_process_memory( struct process *process, client_ptr_t ptr, data_size_t
+     mach_vm_size_t bytes_read;
+     mach_port_t process_port = get_process_port( process );
+ 
++    if (agepad_shared_memory_target(process))
++    {
++        ret = mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)ptr,
++                                    (mach_vm_size_t)size, (mach_vm_address_t)dest, &bytes_read);
++        if (ret == KERN_SUCCESS && bytes_read != size) { set_error(STATUS_PARTIAL_COPY); return 0; }
++        mach_set_error(ret);
++        return ret == KERN_SUCCESS;
++    }
++
+     if (!process_port)
+     {
+         set_error( STATUS_ACCESS_DENIED );
+@@ -850,6 +906,15 @@ int write_process_memory( struct process *process, client_ptr_t ptr, data_size_t
+ 
+     if (written) *written = 0;
+ 
++    if (agepad_shared_memory_target(process))
++    {
++        ret = mach_vm_write(mach_task_self(), (mach_vm_address_t)ptr,
++                            (mach_vm_offset_t)src, (mach_msg_type_number_t)size);
++        mach_set_error(ret);
++        if (ret == KERN_SUCCESS && written) *written = size;
++        return ret == KERN_SUCCESS;
++    }
++
+     if (!process_port)
+     {
+         set_error( STATUS_ACCESS_DENIED );
+diff --git a/build/ntdll-unix/agepad_signed_ntdll.h b/build/ntdll-unix/agepad_signed_ntdll.h
+new file mode 100644
+index 0000000..6b4f35d
+--- /dev/null
++++ b/build/ntdll-unix/agepad_signed_ntdll.h
+@@ -0,0 +1,203 @@
++/* Local, opt-in single-process experiment. Included by Wine loader_ios.c.
++ * This registers an already signed PE container without remapping its text.
++ * It is not a replacement for the normal PE loader or process isolation. */
++/* base, size, writable split, owning PEB; zero base terminates unused slots. */
++#define AGEPAD_SIGNED_IMAGE_CAPACITY 256
++#define AGEPAD_CHILD_BANK_CAPACITY 16
++static ULONG_PTR agepad_signed_image_table[AGEPAD_SIGNED_IMAGE_CAPACITY][4];
++static pthread_mutex_t agepad_signed_load_mutex = PTHREAD_MUTEX_INITIALIZER;
++static pthread_mutex_t agepad_child_bank_mutex = PTHREAD_MUTEX_INITIALIZER;
++static void *agepad_child_bank_owners[AGEPAD_CHILD_BANK_CAPACITY];
++/* Banks are never recycled in this prototype: exited guests may leave live
++ * callbacks or native threads. Exhaustion fails instead of sharing data. */
++static unsigned int agepad_child_bank(void *owner, BOOL reserve)
++{
++    unsigned int slot = 0;
++    pthread_mutex_lock(&agepad_child_bank_mutex);
++    for (unsigned int i = 0; i < AGEPAD_CHILD_BANK_CAPACITY; ++i)
++        if (agepad_child_bank_owners[i] == owner) { slot = i + 1; break; }
++    if (!slot && reserve)
++        for (unsigned int i = 0; i < AGEPAD_CHILD_BANK_CAPACITY; ++i)
++            if (!agepad_child_bank_owners[i]) { agepad_child_bank_owners[i] = owner; slot = i + 1; break; }
++    pthread_mutex_unlock(&agepad_child_bank_mutex);
++    return slot;
++}
++BOOL agepad_signed_owner_registered(void *owner)
++{
++    for (unsigned int i = 0; i < AGEPAD_SIGNED_IMAGE_CAPACITY; ++i)
++        if (__atomic_load_n(&agepad_signed_image_table[i][0], __ATOMIC_ACQUIRE) && agepad_signed_image_table[i][3] == (ULONG_PTR)owner) return TRUE;
++    return FALSE;
++}
++
++static NTSTATUS agepad_load_signed_ntdll_locked(const char *path, UNICODE_STRING *name, void **result, BOOL ntdll_slots, struct pe_image_info *image_result)
++{
++    static struct { void *handle, *base, *owner; struct pe_image_info info; } retained[AGEPAD_SIGNED_IMAGE_CAPACITY];
++    static unsigned int retained_count;
++    unsigned char *base, *data;
++    IMAGE_DOS_HEADER *dos;
++    IMAGE_NT_HEADERS *nt;
++    IMAGE_DATA_DIRECTORY *dir;
++    struct pe_image_info info = {0};
++    SIZE_T split, size, offset, end;
++    unsigned int fixed = 0;
++    UINT_PTR delta;
++    NTSTATUS status;
++    void *handle;
++    handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
++    if (!handle) { dprintf(2, "[signed-ntdll] dlopen: %s\n", dlerror()); return STATUS_DLL_NOT_FOUND; }
++    base = dlsym(handle, "agepad_pe_base");
++    data = dlsym(handle, "agepad_pe_data");
++    if (!base || !data || data <= base) goto invalid;
++    for (unsigned int i = 0; i < retained_count; ++i)
++    {
++        if (retained[i].base != base) continue;
++        dlclose(handle);
++        if (retained[i].owner != NtCurrentTeb()->Peb) return STATUS_NOT_SUPPORTED;
++        *result = base;
++        if (image_result) *image_result = retained[i].info;
++        return STATUS_SUCCESS;
++    }
++    if (retained_count == AGEPAD_SIGNED_IMAGE_CAPACITY) { dlclose(handle); return STATUS_NOT_SUPPORTED; }
++    split = data - base;
++    dos = (void *)base;
++    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < 0 || (SIZE_T)dos->e_lfanew + sizeof(*nt) > split) goto invalid;
++    nt = (void *)(base + dos->e_lfanew);
++    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) goto invalid;
++    size = nt->OptionalHeader.SizeOfImage;
++    if (size <= split || size > 64 * 1024 * 1024) goto invalid;
++    dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
++    offset = dir->VirtualAddress; end = offset + dir->Size;
++    if (end > size || end < offset) goto invalid;
++    delta = (UINT_PTR)base - nt->OptionalHeader.ImageBase;
++    /* Validate every site before changing any data. */
++    for (int apply = 0; apply < 2; ++apply)
++    {
++        offset = dir->VirtualAddress;
++        while (offset < end)
++        {
++            IMAGE_BASE_RELOCATION *block = (void *)(base + offset);
++            WORD *entries = (void *)(block + 1);
++            if (end - offset < sizeof(*block) || block->SizeOfBlock < sizeof(*block) ||
++                block->SizeOfBlock > end - offset || block->SizeOfBlock % 2) goto invalid;
++            for (SIZE_T i = 0; i < (block->SizeOfBlock - sizeof(*block)) / 2; ++i)
++            {
++                SIZE_T site = (SIZE_T)block->VirtualAddress + (entries[i] & 4095);
++                if (!(entries[i] >> 12)) continue;
++                if ((entries[i] >> 12) != IMAGE_REL_BASED_DIR64 || site < split || site > size - 8) goto invalid;
++                if (apply) { UINT64 value; memcpy(&value, base + site, 8); value += delta; memcpy(base + site, &value, 8); ++fixed; }
++            }
++            offset += block->SizeOfBlock;
++        }
++    }
++    /* All slots written by load_ntdll_functions must be writable data. */
++    if (ntdll_slots)
++    {
++        const char *slots[] = {"__wine_syscall_dispatcher", "__wine_unix_call_dispatcher",
++            "__wine_unixlib_handle", "__wine_unix_call_dispatcher_arm64ec",
++            "ios_teb_tsd_offset", "agepad_direct_teb_check", "p_ios_jit_translate_addr", "p_ios_jit_reverse_translate_addr", "agepad_signed_images"};
++        const IMAGE_EXPORT_DIRECTORY *exports = get_module_data_dir(base, IMAGE_DIRECTORY_ENTRY_EXPORT, NULL);
++        if (!exports) goto invalid;
++        for (unsigned int i = 0; i < sizeof(slots)/sizeof(slots[0]); ++i)
++        {
++            unsigned char *slot = find_named_export(base, exports, slots[i]);
++            if (!slot || slot < data || slot > base + size - sizeof(void *)) goto invalid;
++        }
++    }
++    info.base = (UINT_PTR)base; /* actual dyld mapping, never PE preferred base */
++    info.entry_point = nt->OptionalHeader.AddressOfEntryPoint;
++    info.map_size = size;
++    info.stack_size = nt->OptionalHeader.SizeOfStackReserve;
++    info.stack_commit = nt->OptionalHeader.SizeOfStackCommit;
++    info.subsystem = nt->OptionalHeader.Subsystem;
++    info.subsystem_minor = nt->OptionalHeader.MinorSubsystemVersion;
++    info.subsystem_major = nt->OptionalHeader.MajorSubsystemVersion;
++    info.osversion_major = nt->OptionalHeader.MajorOperatingSystemVersion;
++    info.osversion_minor = nt->OptionalHeader.MinorOperatingSystemVersion;
++    info.image_charact = nt->FileHeader.Characteristics;
++    info.dll_charact = nt->OptionalHeader.DllCharacteristics;
++    info.machine = nt->FileHeader.Machine;
++    info.contains_code = TRUE;
++    info.wine_builtin = TRUE;
++    info.header_size = nt->OptionalHeader.SizeOfHeaders;
++    info.file_size = size;
++    info.checksum = nt->OptionalHeader.CheckSum;
++    status = virtual_create_builtin_view(base, name, &info, handle);
++    dprintf(2, "[signed-ntdll] register base=%p split=%zx size=%zx relocations=%u status=%lx\n", base, split, size, fixed, (unsigned long)status);
++    if (status) { dlclose(handle); return status; }
++    agepad_signed_image_table[retained_count][1] = size;
++    agepad_signed_image_table[retained_count][2] = split;
++    agepad_signed_image_table[retained_count][3] = (ULONG_PTR)NtCurrentTeb()->Peb;
++    __atomic_store_n(&agepad_signed_image_table[retained_count][0], (ULONG_PTR)base, __ATOMIC_RELEASE);
++    retained[retained_count].handle = handle;
++    retained[retained_count].base = base;
++    retained[retained_count].owner = NtCurrentTeb()->Peb;
++    retained[retained_count++].info = info;
++    if (image_result) *image_result = info;
++    dprintf(2, "[signed-dll] registered %s\n", path);
++    *result = base;
++    return STATUS_SUCCESS;
++invalid:
++    dprintf(2, "[signed-ntdll] rejected container layout or dispatcher slots\n");
++    dlclose(handle);
++    return STATUS_INVALID_IMAGE_FORMAT;
++}
++
++static NTSTATUS agepad_load_signed_ntdll(const char *path, UNICODE_STRING *name, void **result, BOOL ntdll_slots, struct pe_image_info *image_result)
++{
++    NTSTATUS status;
++    pthread_mutex_lock(&agepad_signed_load_mutex);
++    status = agepad_load_signed_ntdll_locked(path, name, result, ntdll_slots, image_result);
++    pthread_mutex_unlock(&agepad_signed_load_mutex);
++    return status;
++}
++
++/* Prerequisite check only: no child PEB is created or registered here. */
++static int agepad_check_child_ntdll_storage(void *root)
++{
++    const char *dir = getenv("AGEPAD_SIGNED_DLL_DIR");
++    char *path;
++    void *handle;
++    unsigned char *child, *child_data;
++    const IMAGE_EXPORT_DIRECTORY *root_exports, *child_exports;
++    unsigned int *root_slot, *child_slot, before, fresh;
++    IMAGE_DOS_HEADER *dos;
++    IMAGE_NT_HEADERS *nt;
++    SIZE_T split;
++    if (!dir || asprintf(&path, "%s/ntdll-child-1.dll.dylib", dir) < 0) return -1;
++    handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
++    free(path);
++    if (!handle) { dprintf(2, "[AgePad-child-storage] dlopen failed: %s\n", dlerror()); return -1; }
++    child = dlsym(handle, "agepad_pe_base");
++    child_data = dlsym(handle, "agepad_pe_data");
++    if (!child || !child_data || child == root || child_data <= child) goto fail;
++    split = child_data - child;
++    dos = (void *)child;
++    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < 0 || (SIZE_T)dos->e_lfanew + sizeof(*nt) > split) goto fail;
++    nt = (void *)(child + dos->e_lfanew);
++    if (nt->Signature != IMAGE_NT_SIGNATURE || split != agepad_signed_image_table[0][2] ||
++        nt->OptionalHeader.SizeOfImage != agepad_signed_image_table[0][1] || memcmp(root, child, split)) goto fail;
++    root_exports = get_module_data_dir(root, IMAGE_DIRECTORY_ENTRY_EXPORT, NULL);
++    child_exports = get_module_data_dir(child, IMAGE_DIRECTORY_ENTRY_EXPORT, NULL);
++    if (!root_exports || !child_exports) goto fail;
++    root_slot = find_named_export(root, root_exports, "ios_teb_tsd_offset");
++    child_slot = find_named_export(child, child_exports, "ios_teb_tsd_offset");
++    if (!root_slot || !child_slot || (unsigned char *)child_slot < child_data ||
++        (unsigned char *)child_slot > child + nt->OptionalHeader.SizeOfImage - sizeof(*child_slot)) goto fail;
++    before = *root_slot; fresh = *child_slot;
++    if (!before || fresh != 0) goto fail;
++    *(volatile unsigned int *)child_slot = before ^ 0x5a5a5a5a;
++    if (*(volatile unsigned int *)root_slot != before || *(volatile unsigned int *)child_slot != (before ^ 0x5a5a5a5a)) {
++        *child_slot = fresh;
++        goto fail;
++    }
++    *child_slot = fresh;
++    if (*root_slot != before || memcmp(root, child, split)) goto fail;
++    dprintf(2, "[AgePad-child-storage] PASS root=%p child=%p root_tsd=%x child_tsd=%x identical_native_prefix=%zx independent_data=1; no child execution\n",
++            root, child, *root_slot, *child_slot, split);
++    dlclose(handle);
++    return 0;
++fail:
++    dprintf(2, "[AgePad-child-storage] FAIL distinct signed storage check\n");
++    dlclose(handle);
++    return -1;
++}
+diff --git a/build/ntdll-unix/nsi_unicast_ios.c b/build/ntdll-unix/nsi_unicast_ios.c
+new file mode 100644
+index 0000000..8f1cdbb
+--- /dev/null
++++ b/build/ntdll-unix/nsi_unicast_ios.c
+@@ -0,0 +1,201 @@
++/*
++ * nsiproxy.sys ipv4 and ipv6 modules
++ *
++ * Copyright 2003, 2006, 2011 Juan Lang
++ * Copyright 2021 Huw Davies
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License as published by the Free Software Foundation; either
++ * version 3 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++/* Portable unicast subset of Wine nsiproxy.sys/ip.c at pinned repository revision. */
++#include "config.h"
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <ifaddrs.h>
++#include "ntstatus.h"
++#include "windef.h"
++#include "winbase.h"
++#include "winternl.h"
++#define USE_WS_PREFIX
++#include "winsock2.h"
++#include "ws2ipdef.h"
++#include "ifdef.h"
++#include "nldef.h"
++#include "netiodef.h"
++#include "wine/nsi.h"
++#include "wine/debug.h"
++#include "../../wine/dlls/nsiproxy.sys/unix_private.h"
++WINE_DEFAULT_DEBUG_CHANNEL(nsi);
++static inline UINT nsi_popcount( UINT m )
++{
++#ifdef HAVE___BUILTIN_POPCOUNT
++    return __builtin_popcount( m );
++#else
++    m -= m >> 1 & 0x55555555;
++    m = (m & 0x33333333) + (m >> 2 & 0x33333333);
++    return ((m + (m >> 4)) & 0x0f0f0f0f) * 0x01010101 >> 24;
++#endif
++}
++
++static UINT mask_v4_to_prefix( struct in_addr *addr )
++{
++    return nsi_popcount( addr->s_addr );
++}
++
++static UINT mask_v6_to_prefix( struct in6_addr *addr )
++{
++    UINT ret;
++
++    ret = nsi_popcount( *(UINT *)addr->s6_addr );
++    ret += nsi_popcount( *(UINT *)(addr->s6_addr + 4) );
++    ret += nsi_popcount( *(UINT *)(addr->s6_addr + 8) );
++    ret += nsi_popcount( *(UINT *)(addr->s6_addr + 12) );
++    return ret;
++}
++
++static ULONG64 get_boot_time( void )
++{
++    SYSTEM_TIMEOFDAY_INFORMATION ti;
++
++    NtQuerySystemInformation( SystemTimeOfDayInformation, &ti, sizeof(ti), NULL );
++    return ti.BootTime.QuadPart;
++}
++
++static void unicast_fill_entry( struct ifaddrs *entry, void *key, struct nsi_ip_unicast_rw *rw,
++                                struct nsi_ip_unicast_dynamic *dyn, struct nsi_ip_unicast_static *stat )
++{
++    struct nsi_ipv6_unicast_key placeholder, *key6 = key;
++    struct nsi_ipv4_unicast_key *key4 = key;
++    UINT scope_id = 0;
++
++    if (!key)
++    {
++        key6 = &placeholder;
++        key4 = (struct nsi_ipv4_unicast_key *)&placeholder;
++    }
++
++    convert_unix_name_to_luid( entry->ifa_name, &key6->luid );
++
++    if (entry->ifa_addr->sa_family == AF_INET)
++    {
++        memcpy( &key4->addr, &((struct sockaddr_in *)entry->ifa_addr)->sin_addr, sizeof(key4->addr) );
++        key4->pad = 0;
++    }
++    else if (entry->ifa_addr->sa_family == AF_INET6)
++    {
++        memcpy( &key6->addr, &((struct sockaddr_in6 *)entry->ifa_addr)->sin6_addr, sizeof(key6->addr) );
++        scope_id = ((struct sockaddr_in6 *)entry->ifa_addr)->sin6_scope_id;
++    }
++
++    if (rw)
++    {
++        rw->preferred_lifetime = 60000;
++        rw->valid_lifetime = 60000;
++
++        if (key6->luid.Info.IfType != IF_TYPE_SOFTWARE_LOOPBACK)
++        {
++            rw->prefix_origin = IpPrefixOriginDhcp;
++            rw->suffix_origin = IpSuffixOriginDhcp;
++        }
++        else
++        {
++            rw->prefix_origin = IpPrefixOriginManual;
++            rw->suffix_origin = IpSuffixOriginManual;
++        }
++        if (entry->ifa_netmask && entry->ifa_netmask->sa_family == AF_INET)
++            rw->on_link_prefix = mask_v4_to_prefix( &((struct sockaddr_in *)entry->ifa_netmask)->sin_addr );
++        else if (entry->ifa_netmask && entry->ifa_netmask->sa_family == AF_INET6)
++            rw->on_link_prefix = mask_v6_to_prefix( &((struct sockaddr_in6 *)entry->ifa_netmask)->sin6_addr );
++        else rw->on_link_prefix = 0;
++        rw->unk[0] = 0;
++        rw->unk[1] = 0;
++    }
++
++    if (dyn)
++    {
++        dyn->scope_id = scope_id;
++        dyn->dad_state = IpDadStatePreferred;
++    }
++
++    if (stat) stat->creation_time = get_boot_time();
++}
++
++static NTSTATUS ip_unicast_enumerate_all( int family, void *key_data, UINT key_size, void *rw_data, UINT rw_size,
++                                          void *dynamic_data, UINT dynamic_size,
++                                          void *static_data, UINT static_size, UINT_PTR *count )
++{
++    UINT num = 0;
++    NTSTATUS status = STATUS_SUCCESS;
++    BOOL want_data = key_size || rw_size || dynamic_size || static_size;
++    struct ifaddrs *addrs, *entry;
++
++    TRACE( "%p %d %p %d %p %d %p %d %p\n", key_data, key_size, rw_data, rw_size,
++           dynamic_data, dynamic_size, static_data, static_size, count );
++
++    if (getifaddrs( &addrs )) return STATUS_NO_MORE_ENTRIES;
++
++    for (entry = addrs; entry; entry = entry->ifa_next)
++    {
++        if (!entry->ifa_addr || entry->ifa_addr->sa_family != family) continue;
++
++        if (num < *count)
++        {
++            unicast_fill_entry( entry, key_data, rw_data, dynamic_data, static_data );
++            key_data = (BYTE *)key_data + key_size;
++            rw_data = (BYTE *)rw_data + rw_size;
++            dynamic_data = (BYTE *)dynamic_data + dynamic_size;
++            static_data = (BYTE *)static_data + static_size;
++        }
++        num++;
++    }
++
++    freeifaddrs( addrs );
++
++    if (!want_data || num <= *count) *count = num;
++    else status = STATUS_BUFFER_OVERFLOW;
++
++    return status;
++}
++
++static NTSTATUS ipv4_unicast_enumerate_all( void *key_data, UINT key_size, void *rw_data, UINT rw_size,
++                                            void *dynamic_data, UINT dynamic_size,
++                                            void *static_data, UINT static_size, UINT_PTR *count )
++{
++    return ip_unicast_enumerate_all( AF_INET, key_data, key_size, rw_data, rw_size,
++                                     dynamic_data, dynamic_size, static_data, static_size, count );
++}
++
++static NTSTATUS ipv6_unicast_enumerate_all( void *key_data, UINT key_size, void *rw_data, UINT rw_size,
++                                            void *dynamic_data, UINT dynamic_size,
++                                            void *static_data, UINT static_size, UINT_PTR *count )
++{
++    return ip_unicast_enumerate_all( AF_INET6, key_data, key_size, rw_data, rw_size,
++                                     dynamic_data, dynamic_size, static_data, static_size, count );
++}
++
++
++NTSTATUS agepad_unicast_enumerate(struct nsi_enumerate_all_ex *p, BOOL ipv6)
++{
++    UINT key_size = ipv6 ? sizeof(struct nsi_ipv6_unicast_key) : sizeof(struct nsi_ipv4_unicast_key);
++    if ((p->key_size && p->key_size != key_size) ||
++        (p->rw_size && p->rw_size != sizeof(struct nsi_ip_unicast_rw)) ||
++        (p->dynamic_size && p->dynamic_size != sizeof(struct nsi_ip_unicast_dynamic)) ||
++        (p->static_size && p->static_size != sizeof(struct nsi_ip_unicast_static))) return STATUS_INVALID_PARAMETER;
++    return ip_unicast_enumerate_all(ipv6 ? AF_INET6 : AF_INET,
++        p->key_size ? p->key_data : NULL, p->key_size,
++        p->rw_size ? p->rw_data : NULL, p->rw_size,
++        p->dynamic_size ? p->dynamic_data : NULL, p->dynamic_size,
++        p->static_size ? p->static_data : NULL, p->static_size, &p->count);
++}
+diff --git a/build/ntdll-unix/nsi_routes_ios.c b/build/ntdll-unix/nsi_routes_ios.c
+new file mode 100644
+index 0000000..b296a73
+--- /dev/null
++++ b/build/ntdll-unix/nsi_routes_ios.c
+@@ -0,0 +1,112 @@
++/* Darwin route-dump to Wine NSI adapter. ABI offsets verified against the
++ * Xcode 26.5 macOS SDK net/route.h; iOS exposes sysctl but omits that header.
++ * Failure to read or decode the table remains a failure, not an empty result. */
++#include "config.h"
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <sys/sysctl.h>
++#include <net/if.h>
++#include <netinet/in.h>
++#include <errno.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "ntstatus.h"
++#include "windef.h"
++#include "winbase.h"
++#include "winternl.h"
++#define USE_WS_PREFIX
++#include "winsock2.h"
++#include "ws2ipdef.h"
++#include "ifdef.h"
++#include "nldef.h"
++#include "netiodef.h"
++#include "wine/nsi.h"
++#include "../../wine/dlls/nsiproxy.sys/unix_private.h"
++
++/* rt_msghdr is 92 bytes: length@0, version@2, type@3, index@4,
++ * flags@8, address bitmap@12, errno@24, metrics.hopcount@44. */
++static unsigned route_u32(const unsigned char *p) { unsigned v; memcpy(&v,p,4); return v; }
++static unsigned route_u16(const unsigned char *p) { unsigned short v; memcpy(&v,p,2); return v; }
++
++NTSTATUS agepad_route_enumerate(struct nsi_enumerate_all_ex *p, BOOL ipv6)
++{
++    int family = ipv6 ? AF_INET6 : AF_INET;
++    int mib[6] = {CTL_NET, PF_ROUTE, 0, family, NET_RT_DUMP, 0};
++    unsigned keysz = ipv6 ? sizeof(struct nsi_ipv6_forward_key) : sizeof(struct nsi_ipv4_forward_key);
++    unsigned dynsz = ipv6 ? sizeof(struct nsi_ipv6_forward_dynamic) : sizeof(struct nsi_ipv4_forward_dynamic);
++    size_t bytes=0, pos=0;
++    unsigned char *data;
++    UINT_PTR rows=0, capacity=p->count;
++    NTSTATUS status=STATUS_SUCCESS;
++    BOOL want=p->key_size||p->rw_size||p->dynamic_size||p->static_size;
++    if ((p->key_size && p->key_size!=keysz) ||
++        (p->rw_size && p->rw_size!=sizeof(struct nsi_ip_forward_rw)) ||
++        (p->dynamic_size && p->dynamic_size!=dynsz) ||
++        (p->static_size && p->static_size!=sizeof(struct nsi_ip_forward_static))) return STATUS_INVALID_PARAMETER;
++    if (sysctl(mib,6,NULL,&bytes,NULL,0)) {
++        dprintf(2,"[nsi-route] family=%d size-query errno=%d\n",family,errno);
++        return STATUS_NOT_SUPPORTED;
++    }
++    if (bytes>64*1024*1024) return STATUS_NO_MEMORY;
++    if (!bytes) {p->count=0;return STATUS_SUCCESS;}
++    data=malloc(bytes);if(!data)return STATUS_NO_MEMORY;
++    if(sysctl(mib,6,data,&bytes,NULL,0)){free(data);return STATUS_UNSUCCESSFUL;}
++    while(pos<bytes) {
++        const unsigned char *m=data+pos,*addr[8]={0};
++        unsigned len,flags,bitmap,i,off=92,prefix_len=0,index;
++        unsigned char prefix[16]={0},gateway[16]={0},mask[16]={0};
++        unsigned width=ipv6?16:4,addr_offset=ipv6?8:4;
++        char ifname[IF_NAMESIZE];NET_LUID luid;
++        BOOL have_mask=FALSE;
++        if(bytes-pos<92){status=STATUS_INVALID_PARAMETER;break;}
++        len=route_u16(m);if(len<92||len>bytes-pos){status=STATUS_INVALID_PARAMETER;break;}
++        flags=route_u32(m+8);bitmap=route_u32(m+12);index=route_u16(m+4);
++        if(m[2]!=5){status=STATUS_NOT_SUPPORTED;break;}
++        if(m[3]!=4 || route_u32(m+24) || !(flags&1) || (flags&8) || (flags&0x800000)) {pos+=len;continue;}
++        if(bitmap&~255u){status=STATUS_NOT_SUPPORTED;break;}
++        for(i=0;i<8;i++)if(bitmap&(1u<<i)) {
++            unsigned size,step;
++            if(off+2>len){status=STATUS_INVALID_PARAMETER;break;}
++            size=m[off];step=size?((size+3)&~3u):4;
++            if(step>len-off){status=STATUS_INVALID_PARAMETER;break;}
++            addr[i]=m+off;off+=step;
++        }
++        if(status)break;
++        if(!addr[0]||addr[0][1]!=family||addr[0][0]<addr_offset+width){pos+=len;continue;}
++        memcpy(prefix,addr[0]+addr_offset,width);
++        if(addr[1] && addr[1][1]==family && addr[1][0]>=addr_offset+width)
++            memcpy(gateway,addr[1]+addr_offset,width);
++        else if((flags&2) && addr[1]) {status=STATUS_NOT_SUPPORTED;break;}
++        if(addr[2]) {
++            unsigned available=addr[2][0]>addr_offset?addr[2][0]-addr_offset:0;
++            if(available>width){status=STATUS_INVALID_PARAMETER;break;}
++            memcpy(mask,addr[2]+(available?addr_offset:0),available);have_mask=TRUE;
++        }
++        if(flags&4)prefix_len=width*8;
++        else if(have_mask) {
++            BOOL zero=FALSE;unsigned bit;
++            for(i=0;i<width;i++)for(bit=128;bit;bit>>=1) {
++                if(mask[i]&bit){if(zero){status=STATUS_INVALID_PARAMETER;break;}prefix_len++;}
++                else zero=TRUE;
++            }
++            if(status)break;
++        }
++        if(!if_indextoname(index,ifname)||!convert_unix_name_to_luid(ifname,&luid)){status=STATUS_NOT_FOUND;break;}
++        if(want && rows<capacity) {
++            if(p->key_size) {
++                void *key=(BYTE *)p->key_data+rows*p->key_size;memset(key,0,p->key_size);
++                if(ipv6){struct nsi_ipv6_forward_key *k=key;k->luid=k->luid2=luid;k->prefix_len=prefix_len;memcpy(&k->prefix,prefix,16);memcpy(&k->next_hop,gateway,16);}
++                else {struct nsi_ipv4_forward_key *k=key;k->luid=k->luid2=luid;k->prefix_len=prefix_len;memcpy(&k->prefix,prefix,4);memcpy(&k->next_hop,gateway,4);}
++            }
++            if(p->rw_size){struct nsi_ip_forward_rw *rw=(void *)((BYTE *)p->rw_data+rows*p->rw_size);memset(rw,0,sizeof(*rw));rw->metric=route_u32(m+44);rw->protocol=(flags&2)?MIB_IPPROTO_NETMGMT:MIB_IPPROTO_LOCAL;rw->valid_lifetime=rw->preferred_lifetime=~0u;rw->immortal=1;rw->loopback=luid.Info.IfType==IF_TYPE_SOFTWARE_LOOPBACK;}
++            if(p->dynamic_size)memset((BYTE *)p->dynamic_data+rows*p->dynamic_size,0,p->dynamic_size);
++            if(p->static_size){struct nsi_ip_forward_static *st=(void *)((BYTE *)p->static_data+rows*p->static_size);st->origin=NlroManual;st->if_index=index;}
++        }
++        rows++;pos+=len;
++    }
++    free(data);
++    if(!status){if(!want||rows<=capacity)p->count=rows;else status=STATUS_BUFFER_OVERFLOW;}
++    dprintf(2,"[nsi-route] family=%d status=%x rows=%llu\n",family,(UINT)status,(unsigned long long)rows);
++    return status;
++}
+diff --git a/build/win32u-unix/class_ios.c b/build/win32u-unix/class_ios.c
+index f6d4e80..8f7f44d 100644
+--- a/build/win32u-unix/class_ios.c
++++ b/build/win32u-unix/class_ios.c
+@@ -1369,45 +1369,42 @@ static void register_builtins(void)
+  */
+ void register_builtin_classes(void)
+ {
+-    /* iOS-Madeira: all pseudo-processes share this unix-side image, so a
+-     * pthread_once here registers the builtin classes only for the FIRST
+-     * process — but the wineserver tracks window classes per process, so
+-     * every later pseudo-process fails any builtin-control create with
+-     * STATUS_INVALID_HANDLE (grab_class).  Steam's update UI (STATIC/
+-     * BUTTON/msctls_progress32 children) was the first victim.
+-     * Register once per pseudo-process instead, keyed on (pid, peb) so a
+-     * reused PEB address or ptid alone can't false-positive.  On table
+-     * overflow we simply re-register: the server rejects duplicates with
+-     * CLASS_ALREADY_EXISTS, which register_builtin tolerates.
+-     * The mutex is held across register_builtins to mirror pthread_once's
+-     * blocking semantics for concurrent first callers (dedicated lock —
+-     * winproc_lock is taken inside NtUserRegisterClassExWOW). */
++    /* The unix image is shared, but builtin classes belong to a guest process.
++     * Never hold the registry lock across guest callbacks: another process may
++     * need to initialize its own classes while that callback is waiting. */
+     static pthread_mutex_t builtin_lock = PTHREAD_MUTEX_INITIALIZER;
+-    static struct { DWORD pid; void *peb; } done[128];
+-    static unsigned int done_count;
++    static struct { DWORD pid; void *peb; pthread_once_t once; } entries[128];
++    static const pthread_once_t once_init = PTHREAD_ONCE_INIT;
++    static unsigned int entry_count;
+     DWORD pid = HandleToULong( NtCurrentTeb()->ClientId.UniqueProcess );
+     void *peb = NtCurrentTeb()->Peb;
++    pthread_once_t *once = NULL;
+     unsigned int i;
+ 
+     pthread_mutex_lock( &builtin_lock );
+-    for (i = 0; i < done_count; i++)
++    for (i = 0; i < entry_count; i++)
++        if (entries[i].pid == pid && entries[i].peb == peb) break;
++    if (i < ARRAYSIZE(entries))
+     {
+-        if (done[i].pid == pid && done[i].peb == peb)
++        if (i == entry_count)
+         {
+-            pthread_mutex_unlock( &builtin_lock );
+-            return;
++            entries[i].pid = pid;
++            entries[i].peb = peb;
++            entries[i].once = once_init;
++            entry_count++;
+         }
++        once = &entries[i].once;
+     }
+-    register_builtins();
+-    if (done_count < ARRAYSIZE(done))
++    pthread_mutex_unlock( &builtin_lock );
++
++    if (once) pthread_once( once, register_builtins );
++    else
+     {
+-        done[done_count].pid = pid;
+-        done[done_count].peb = peb;
+-        done_count++;
++        /* Preserve the existing capacity fallback; never serialize guest
++         * callbacks under the process registry lock. */
++        dprintf(2, "[builtin-classes] registry FULL: pid=%04x re-registering\n", (int)pid);
++        register_builtins();
+     }
+-    else dprintf(2, "[builtin-classes] registry FULL — pid=%04x will re-register per call\n", (int)pid);
+-    dprintf(2, "[builtin-classes] registered builtin classes for pid=%04x peb=%p\n", (int)pid, peb);
+-    pthread_mutex_unlock( &builtin_lock );
+ }
+ 
+ /***********************************************************************
+diff --git a/build/wineserver/main_ios.c b/build/wineserver/main_ios.c
+index bfc4538..288faa6 100644
+--- a/build/wineserver/main_ios.c
++++ b/build/wineserver/main_ios.c
+@@ -8,6 +8,8 @@
+ /* Our replacement that adds logging */
+ int wineserver_main(int argc, char *argv[])
+ {
++    if (!agepad_server_init_log_stream()) return 1;
++    agepad_server_init_trace();
+     ws_log("[wineserver] starting init...");
+     setvbuf( stderr, NULL, _IOLBF, 0 );
+     server_argv0 = argv[0];
+diff --git a/build/crypto-unix/crypt32_unixlib_ios.c b/build/crypto-unix/crypt32_unixlib_ios.c
+index 29df7a5..ee2e15c 100644
+--- a/build/crypto-unix/crypt32_unixlib_ios.c
++++ b/build/crypto-unix/crypt32_unixlib_ios.c
+@@ -28,6 +28,7 @@
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <dlfcn.h>
++#include <pthread.h>
+ #include <sys/stat.h>
+ /* iOS-Madeira: SecTrustSettingsCopyCertificates / SecItemExport are
+  * macOS-only — the iOS SDK has no API to enumerate system root CAs at
+@@ -850,26 +851,58 @@ static void load_root_certs(void)
+         import_certs_from_path( CRYPT_knownLocations[i], TRUE );
+ }
+ 
++/* The Unix library is shared by guest processes. Retain the immutable CA
++ * list and track enumeration independently; consuming it globally makes the
++ * next guest interpret an empty host list as removal of every imported root. */
++struct root_enum_cursor
++{
++    struct root_enum_cursor *next;
++    void *peb;
++    struct list *position;
++};
++static struct root_enum_cursor *root_enum_cursors;
++static pthread_mutex_t root_enum_mutex = PTHREAD_MUTEX_INITIALIZER;
++
+ static NTSTATUS enum_root_certs( void *args )
+ {
+     struct enum_root_certs_params *params = args;
+     static BOOL loaded;
+-    struct list *ptr;
++    struct root_enum_cursor *cursor;
+     struct root_cert *cert;
++    void *peb = NtCurrentTeb()->Peb;
++    NTSTATUS status = STATUS_SUCCESS;
+ 
+-    if (!loaded) load_root_certs();
+-    loaded = TRUE;
+-
+-    if (!(ptr = list_head( &root_cert_list ))) return STATUS_NO_MORE_ENTRIES;
+-    cert = LIST_ENTRY( ptr, struct root_cert, entry );
++    pthread_mutex_lock(&root_enum_mutex);
++    if (!loaded)
++    {
++        load_root_certs();
++        /* An unavailable host bundle is not an authoritative empty trust list.
++         * Do not create an EOF cursor or latch failure for later guests. */
++        if (!list_head(&root_cert_list)) { status = STATUS_UNSUCCESSFUL; goto done; }
++        loaded = TRUE;
++    }
++    for (cursor = root_enum_cursors; cursor; cursor = cursor->next)
++        if (cursor->peb == peb) break;
++    if (!cursor)
++    {
++        if (!(cursor = calloc(1, sizeof(*cursor))))
++        { status = STATUS_NO_MEMORY; goto done; }
++        cursor->peb = peb;
++        cursor->position = list_head(&root_cert_list);
++        cursor->next = root_enum_cursors;
++        root_enum_cursors = cursor;
++    }
++    if (!cursor->position) { status = STATUS_NO_MORE_ENTRIES; goto done; }
++    cert = LIST_ENTRY(cursor->position, struct root_cert, entry);
+     *params->needed = cert->size;
+     if (cert->size <= params->size)
+     {
+-        memcpy( params->buffer, cert->data, cert->size );
+-        list_remove( &cert->entry );
+-        free( cert );
++        memcpy(params->buffer, cert->data, cert->size);
++        cursor->position = list_next(&root_cert_list, cursor->position);
+     }
+-    return STATUS_SUCCESS;
++done:
++    pthread_mutex_unlock(&root_enum_mutex);
++    return status;
+ }
+ 
+ const unixlib_entry_t __wine_unix_call_funcs[] =

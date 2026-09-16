@@ -1,0 +1,2067 @@
+diff --git a/FEXCore/Source/Interface/Core/Core.cpp b/FEXCore/Source/Interface/Core/Core.cpp
+index 61552a182..73821e6d8 100644
+--- a/FEXCore/Source/Interface/Core/Core.cpp
++++ b/FEXCore/Source/Interface/Core/Core.cpp
+@@ -1,3 +1,20 @@
++#include <FEXCore/Utils/AgePadStartupTrace.h>
++#include <FEXCore/Utils/AgePadJITScope.h>
++alignas(8) bool agepad_cache_hit_explicit_flush = false;
++alignas(8) bool agepad_explicit_invalidation_flush = false;
++alignas(8) bool agepad_explicit_compile_flush = false;
++alignas(8) bool agepad_explicit_memory_flush = false;
++alignas(8) bool agepad_dispatch_pending_work = false;
++#if defined(__APPLE__) || (defined(_WIN32) && defined(FEX_IOS_HOST))
++void (*agepad_jit_write_enter)(void) = nullptr;
++void (*agepad_jit_write_leave)(void) = nullptr;
++void (*agepad_jit_write_leave_explicit)(void) = nullptr;
++// Register once before creating/executing threads. No runtime mutation.
++extern "C" void agepad_set_jit_write_hooks(void (*enter)(void), void (*leave)(void)) {
++  agepad_jit_write_enter = enter;
++  agepad_jit_write_leave = leave;
++}
++#endif
+ // SPDX-License-Identifier: MIT
+ /*
+ $info$
+@@ -450,6 +467,7 @@ void ContextImpl::SetFlagsFromCompactedEFLAGS(FEXCore::Core::InternalThreadState
+ }
+ 
+ bool ContextImpl::InitCore() {
++  AgePadJITWriteScope agepad_write_scope;
+   // Initialize the CPU core signal handlers & DispatcherConfig
+   Dispatcher = FEXCore::CPU::Dispatcher::Create(this);
+ 
+@@ -526,6 +544,7 @@ void ContextImpl::InitializeCompiler(FEXCore::Core::InternalThreadState* Thread)
+ 
+ FEXCore::Core::InternalThreadState*
+ ContextImpl::CreateThread(uint64_t InitialRIP, uint64_t StackPointer, const FEXCore::Core::CPUState* NewThreadState) {
++  AgePadJITWriteScope agepad_write_scope;
+   LogMan::Msg::EFmt("[TI-IC] createthread-enter");
+   FEXCore::Core::InternalThreadState* Thread = new FEXCore::Core::InternalThreadState {
+     .CTX = this,
+@@ -921,6 +940,10 @@ ContextImpl::GenerateIR(FEXCore::Core::InternalThreadState* Thread, uint64_t Gue
+       for (size_t i = 0; i < InstsInBlock; ++i) {
+         uint64_t InstAddress = Block.Entry + BlockInstructionsLength;
+ 
++        if (const uint64_t TraceRVA = AgePadStartupTrace::Match(InstAddress)) {
++          Thread->OpDispatcher->EmitAgePadStartupTrace(TraceRVA);
++        }
++
+         // ml623: does THIS block contain the instruction under investigation?
+         if (FEX_MadeiraIRCapTarget && InstAddress == FEX_MadeiraIRCapTarget) {
+           FEX_MadeiraIRCapMark(GuestRIP);
+@@ -1358,6 +1381,9 @@ static void IosMonoTryActivate(ContextImpl* CTX, FEXCore::Core::InternalThreadSt
+ #endif
+ 
+ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_t GuestRIP, uint64_t MaxInst) {
++  // Lookup retains RW access; actual compilation and pending-work callbacks
++  // contribute nested conservative scopes when this experiment is enabled.
++  AgePadJITWriteScope agepad_write_scope(agepad_cache_hit_explicit_flush);
+   if constexpr (BLOCK_DEBUGGING) {
+     // Block debugging logic is hand-written and needs to be handled with care.
+     // Force MaxInst to only be one in this case.
+@@ -1365,6 +1391,7 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+ 
+     // If the entrypoint is part of the single step targets then single step it.
+     if (BlockDebuggerTracker.IsSingleStepTarget(GuestRIP)) {
++      AgePadJITWriteScope agepad_single_step_scope(false, agepad_cache_hit_explicit_flush);
+       return CompileSingleStep(Frame, GuestRIP);
+     }
+   }
+@@ -1393,10 +1420,12 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+    * is in the log. If that gap is large, the answer is a dispatcher hook and the
+    * log will say so outright. */
+   if (MonoBackpatcherBridgeArmed()) {
++    AgePadJITWriteScope agepad_mono_scope(false, agepad_cache_hit_explicit_flush);
+     IosMonoTryActivate(this, Thread);
+   }
+ #endif
+ 
++#ifdef FEX_IOS_HOST
+   /* iOS-Madeira ml304 (task #51): REPORT CallbackPtr ENTRY ON ITS OWN, not via the bogus-RIP path.
+    *
+    * ml302 proved the JITCallback prologue writes the bad State.rip, and ml303 added an LR witness --
+@@ -1448,6 +1477,7 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+     }
+   }
+ 
++#endif
+   /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs. After a
+    * NULL-vtable virtual call (`call [rax+8]` with rax=0), control flow
+    * lands at RIP=0x8, which then loops compiling thousands of garbage
+@@ -1887,6 +1917,7 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+                         Frame ? Frame->State.L1Mask : 0,
+                         (T && T->LookupCache) ? T->LookupCache->GetL1Pointer() : 0);
+ 
++#ifdef ENABLE_FEX_ALLOCATOR
+       /* iOS-Madeira ml622: drain the rpmalloc remote-free CAS snapshot HERE —
+        * outside rpmalloc, where formatting is safe. The allocator side only ever
+        * copies scalars into a POD and sets a flag; it must never format, because
+@@ -1911,6 +1942,7 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+                             Snap.fail_changed, Snap.fail_unchanged, Snap.fail_invalid);
+         }
+       }
++#endif
+     }
+   }
+ 
+@@ -2055,7 +2087,12 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+   if (IosUnpublished) {
+     static std::atomic<int> UnpubLogCount {0};
+     if (UnpubLogCount.fetch_add(1, std::memory_order_relaxed) < 40) {
++      const uint64_t agepad_teb = FEXCore::Utils::WritePriorityMutex::IosDeliveryProbeTeb();
+       LogMan::Msg::EFmt("[fexlock] UNPUB-COMPILE rip=0x{:x} rev=ml455", GuestRIP);
++      LogMan::Msg::EFmt("[AgePad-unpub] teb=0x{:x} shared_depth={} shared_owner=0x{:x} emission_owner=0x{:x} unpub_depth={} return=0x{:x}",
++        agepad_teb, *reinterpret_cast<uint32_t*>(agepad_teb + 0x16f0),
++        *reinterpret_cast<uint64_t*>(agepad_teb + 0x16f8), *reinterpret_cast<uint64_t*>(agepad_teb + 0x16e8),
++        *reinterpret_cast<uint64_t*>(agepad_teb + 0x16d0), reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+     }
+   } else {
+     // Invalidate might take a unique lock on this, to guarantee that during invalidation no code gets compiled
+@@ -2078,6 +2115,10 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+   }
+ #endif
+ 
++  // Ordinary emission performs a checked flush of its final instruction range.
++  // Other nested conservative scopes still force a full flush on outer exit.
++  AgePadJITWriteScope agepad_compile_scope(agepad_explicit_compile_flush, agepad_cache_hit_explicit_flush);
++
+   // iOS-Madeira: cache miss reached — count as true compile.
+   __sync_add_and_fetch(&g_cb_real_compiles, 1);
+ 
+diff --git a/FEXCore/Source/Interface/Core/Dispatcher/Dispatcher.cpp b/FEXCore/Source/Interface/Core/Dispatcher/Dispatcher.cpp
+index 8b9cd2e57..337a42741 100644
+--- a/FEXCore/Source/Interface/Core/Dispatcher/Dispatcher.cpp
++++ b/FEXCore/Source/Interface/Core/Dispatcher/Dispatcher.cpp
+@@ -1,3 +1,4 @@
++#include <FEXCore/Utils/AgePadJITScope.h>
+ // SPDX-License-Identifier: MIT
+ 
+ // libkern/OSCacheControl.h is for cache invalidation when building NATIVE
+@@ -246,6 +247,27 @@ void Dispatcher::EmitDispatcher() {
+ 
+   ARMEmitter::ForwardLabel NoBlock;
+ 
++#if defined(ARCHITECTURE_arm64ec) && defined(FEX_IOS_HOST)
++  if (agepad_dispatch_pending_work) {
++    // Wine work-list ABI offsets are asserted in signal_arm64ec.c. Route
++    // pending notifications through the existing spill/PreCompile path before
++    // accepting a cached translation. No new runtime call ABI here.
++    ARMEmitter::ForwardLabel NoPendingWork;
++    mrs(TMP1, ARMEmitter::SystemRegister::TPIDRRO_EL0);
++    and_(ARMEmitter::Size::i64Bit, TMP1, TMP1, ~7ULL);
++    ldr(TMP1, TMP1, IosTebTsdOffset);
++    ldr(TMP1, TMP1, TEB_PEB_OFFSET);
++    ldr(TMP1, TMP1, 0x338); // PEB.ChpeV2ProcessInfo
++    (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &NoPendingWork);
++    ldr(TMP1, TMP1, 0x10); // CHPEV2_PROCESS_INFO.CrossProcessWorkList
++    (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &NoPendingWork);
++    add(ARMEmitter::Size::i64Bit, TMP1, TMP1, 8); // work_list.first
++    ldar(TMP2.W(), TMP1);
++    (void)cbnz(ARMEmitter::Size::i32Bit, TMP2, &NoBlock);
++    (void)Bind(&NoPendingWork);
++  }
++#endif
++
+   /* iOS-Madeira 2026-07-03 perf: probe the L1 cache FIRST at loop top.
+    *
+    * Upstream's loop-top lookup goes straight to the L2 page table, which
+@@ -700,10 +722,10 @@ void Dispatcher::EmitDispatcher() {
+       ARMEmitter::ForwardLabel l_callret_ok;
+       ldr(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+       sub(ARMEmitter::Size::i64Bit, TMP1, REG_CALLRET_SP, TMP1);
+-      lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, 24);
++      lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, FEXCore::Core::InternalThreadState::CALLRET_STACK_SHIFT);
+       (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &l_callret_ok);
+       ldr(REG_CALLRET_SP, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+-      add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, 0x400000);
++      add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, FEXCore::Core::InternalThreadState::CALLRET_DEFAULT_OFFSET);
+       (void)Bind(&l_callret_ok);
+     }
+ #endif
+diff --git a/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp b/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
+index 20955a1ed..488e14fae 100644
+--- a/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/BranchOps.cpp
+@@ -193,12 +193,12 @@ DEF_OP(ExitFunction) {
+            * and falls through to the L1 lookup, which is always correct. A reset costs
+            * mispredictions, nothing else. */
+           ldr(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+-          add(ARMEmitter::Size::i64Bit, TMP1, TMP1, 0x200000);
++          add(ARMEmitter::Size::i64Bit, TMP1, TMP1, FEXCore::Core::InternalThreadState::CALLRET_LIVE_OFFSET);
+           sub(ARMEmitter::Size::i64Bit, TMP1, REG_CALLRET_SP, TMP1);
+-          lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, 22);
++          lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, FEXCore::Core::InternalThreadState::CALLRET_LIVE_SHIFT);
+           (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &l_callret_ok);
+           ldr(REG_CALLRET_SP, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+-          add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, 0x400000);
++          add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, FEXCore::Core::InternalThreadState::CALLRET_DEFAULT_OFFSET);
+           (void)Bind(&l_callret_ok);
+         }
+ #endif
+@@ -253,12 +253,12 @@ DEF_OP(ExitFunction) {
+         ARMEmitter::ForwardLabel l_callret_ok;
+         /* iOS-Madeira ml263: tightened to a 4MB window -- see the first CALL push site. */
+         ldr(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+-        add(ARMEmitter::Size::i64Bit, TMP1, TMP1, 0x200000);
++        add(ARMEmitter::Size::i64Bit, TMP1, TMP1, FEXCore::Core::InternalThreadState::CALLRET_LIVE_OFFSET);
+         sub(ARMEmitter::Size::i64Bit, TMP1, REG_CALLRET_SP, TMP1);
+-        lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, 22);
++        lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, FEXCore::Core::InternalThreadState::CALLRET_LIVE_SHIFT);
+         (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &l_callret_ok);
+         ldr(REG_CALLRET_SP, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+-        add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, 0x400000);
++        add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, FEXCore::Core::InternalThreadState::CALLRET_DEFAULT_OFFSET);
+         (void)Bind(&l_callret_ok);
+       }
+ #endif
+@@ -333,12 +333,12 @@ DEF_OP(ExitFunction) {
+         ARMEmitter::ForwardLabel l_callret_ok;
+         /* iOS-Madeira ml263: tightened to a 4MB window -- see the first CALL push site. */
+         ldr(TMP1, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+-        add(ARMEmitter::Size::i64Bit, TMP1, TMP1, 0x200000);
++        add(ARMEmitter::Size::i64Bit, TMP1, TMP1, FEXCore::Core::InternalThreadState::CALLRET_LIVE_OFFSET);
+         sub(ARMEmitter::Size::i64Bit, TMP1, REG_CALLRET_SP, TMP1);
+-        lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, 22);
++        lsr(ARMEmitter::Size::i64Bit, TMP1, TMP1, FEXCore::Core::InternalThreadState::CALLRET_LIVE_SHIFT);
+         (void)cbz(ARMEmitter::Size::i64Bit, TMP1, &l_callret_ok);
+         ldr(REG_CALLRET_SP, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.callret_sp_base));
+-        add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, 0x400000);
++        add(ARMEmitter::Size::i64Bit, REG_CALLRET_SP, REG_CALLRET_SP, FEXCore::Core::InternalThreadState::CALLRET_DEFAULT_OFFSET);
+         (void)Bind(&l_callret_ok);
+       }
+ #endif
+diff --git a/FEXCore/Source/Interface/Core/JIT/JIT.cpp b/FEXCore/Source/Interface/Core/JIT/JIT.cpp
+index 58a228537..a9c2d7f4e 100644
+--- a/FEXCore/Source/Interface/Core/JIT/JIT.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/JIT.cpp
+@@ -1,3 +1,4 @@
++#include <FEXCore/Utils/AgePadJITScope.h>
+ // SPDX-License-Identifier: MIT
+ /*
+ $info$
+@@ -27,7 +28,7 @@ extern "C" long NtFlushInstructionCache(void* Handle, const void* Addr, unsigned
+ namespace {
+ inline void IOSFlushOneInstr(void* RWAddr, void* RXAddr) {
+   (void)RWAddr; // dcache clean by RX VA reaches the same physical lines (PIPT)
+-  NtFlushInstructionCache(reinterpret_cast<void*>(~0ull), RXAddr, 4);
++  if (NtFlushInstructionCache(reinterpret_cast<void*>(~0ull), RXAddr, 4)) __builtin_trap();
+ }
+ }  // namespace
+ #endif
+@@ -520,6 +521,10 @@ void Arm64JITCore::Op_Unhandled(const IR::IROp_Header* IROp, IR::Ref Node) {
+ }
+ 
+ static void DirectBlockDelinker(FEXCore::Context::ExitFunctionLinkData* Record, bool Call) {
++  // Invalidation/teardown may invoke this callback outside the linker scope.
++  // This callback flushes its only instruction write below. Without the opt-in
++  // explicit-flush hook, the scope still uses the conservative native flush.
++  AgePadJITWriteScope agepad_write_scope(true);
+   uintptr_t JumpThunkStartAddress = reinterpret_cast<uintptr_t>(Record) - 0x10;
+   uintptr_t CallerAddress = JumpThunkStartAddress + Record->CallerOffset;
+   auto BranchOffset = JumpThunkStartAddress / 4 - CallerAddress / 4;
+@@ -547,6 +552,10 @@ static void DirectBlockDelinker(FEXCore::Context::ExitFunctionLinkData* Record,
+ }
+ 
+ static void IndirectBlockDelinker(FEXCore::Context::ExitFunctionLinkData* Record) {
++  // Invalidation/teardown may invoke this callback outside the linker scope.
++  // This callback flushes its only instruction write below. Without the opt-in
++  // explicit-flush hook, the scope still uses the conservative native flush.
++  AgePadJITWriteScope agepad_write_scope(true);
+   uintptr_t JumpThunkStartAddress = reinterpret_cast<uintptr_t>(Record) - 0x10;
+   uint32_t BranchInst = 0;
+   ARMEmitter::Emitter BranchEmit(reinterpret_cast<uint8_t*>(&BranchInst), 4);
+@@ -569,6 +578,9 @@ static void IndirectBlockDelinker(FEXCore::Context::ExitFunctionLinkData* Record
+ }
+ 
+ uint64_t Arm64JITCore::ExitFunctionLink(FEXCore::Core::CpuStateFrame* Frame, FEXCore::Context::ExitFunctionLinkData* Record) {
++  // Both instruction-patch paths explicitly flush four bytes below. Nested
++  // compilation retains the native conservative flush requirement.
++  AgePadJITWriteScope agepad_write_scope(true);
+   auto Thread = Frame->Thread;
+   bool TFSet = Thread->CurrentFrame->State.flags[X86State::RFLAG_TF_RAW_LOC];
+   uintptr_t HostCode {};
+@@ -1230,7 +1242,7 @@ CPUBackend::CompiledCode Arm64JITCore::CompileCode(uint64_t Entry, uint64_t Size
+      * use is same-thread-sequenced.  Loud capped log names the re-entry. */
+     uint64_t IosStampTeb = 0;
+     bool IosNestedS = false;
+-    __asm volatile("mov %0, x18" : "=r"(IosStampTeb));
++    IosStampTeb = FEXCore::Utils::WritePriorityMutex::IosDeliveryProbeTeb();
+     if (IosStampTeb && *reinterpret_cast<uint64_t*>(IosStampTeb + 0x16e8) ==
+                          reinterpret_cast<uint64_t>(&CodeBuffers.CodeBufferWriteMutex)) {
+       IosNestedS = true;
+@@ -1408,7 +1420,9 @@ CPUBackend::CompiledCode Arm64JITCore::CompileCode(uint64_t Entry, uint64_t Size
+   // boundary. The kernel IPI in the blessed flush closes that window;
+   // dcache clean by RX VA reaches the physical lines dirtied via the
+   // RW alias (PIPT). Pool RX pages are readable, so dc-by-RX is safe.
+-  NtFlushInstructionCache(reinterpret_cast<void*>(~0ull), CodeBegin, CodeOnlySize);
++  // Do not publish a block if its explicit instruction-cache flush failed.
++  // The conservative outer scope is retained until all emission paths are audited.
++  if (NtFlushInstructionCache(reinterpret_cast<void*>(~0ull), CodeBegin, CodeOnlySize)) __builtin_trap();
+ #else
+   ClearICache(CodeBegin, CodeOnlySize);
+ #endif
+diff --git a/FEXCore/Source/Interface/Core/OpcodeDispatcher.h b/FEXCore/Source/Interface/Core/OpcodeDispatcher.h
+index 482ccce8a..1fb0dc9fc 100644
+--- a/FEXCore/Source/Interface/Core/OpcodeDispatcher.h
++++ b/FEXCore/Source/Interface/Core/OpcodeDispatcher.h
+@@ -122,6 +122,18 @@ struct DispatchTableEntry {
+ 
+ class OpDispatchBuilder final : public IREmitter {
+ public:
++  // Emits real execution-time Print operations, never compile-time register snapshots.
++  // Marker followed by RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R14, R15.
++  void EmitAgePadStartupTrace(uint64_t RVA) {
++    _Print(Constant(0xA6E3000000000000ULL | RVA));
++    for (const auto Reg : {X86State::REG_RAX, X86State::REG_RCX, X86State::REG_RDX,
++                           X86State::REG_RBX, X86State::REG_RSP, X86State::REG_RBP,
++                           X86State::REG_RSI, X86State::REG_RDI, X86State::REG_R14,
++                           X86State::REG_R15, X86State::REG_R8, X86State::REG_R9}) {
++      _Print(LoadGPRRegister(Reg, OpSize::i64Bit));
++    }
++  }
++
+   Ref GetNewJumpBlock(uint64_t RIP) {
+     auto it = JumpTargets.find(RIP);
+     LOGMAN_THROW_A_FMT(it != JumpTargets.end(), "Couldn't find block generated for 0x{:x}", RIP);
+diff --git a/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp b/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp
+index 3d63fa254..b3c2aa333 100644
+--- a/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp
++++ b/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp
+@@ -121,8 +121,17 @@ static constexpr uint32_t GetRmReg(uint32_t Instr) {
+   return (Instr >> RM_OFFSET) & REGISTER_MASK;
+ }
+ 
++#if defined(_WIN32) && defined(FEX_IOS_HOST)
++extern "C" long NtFlushInstructionCache(void* Handle, const void* Addr, unsigned long long Size);
++#endif
+ static void ClearICache(void* Begin, std::size_t Length) {
++#if defined(_WIN32) && defined(FEX_IOS_HOST)
++  // The signed Simulator adapter needs the native, checked cache operation
++  // before publishing the patched instruction pair to another thread.
++  if (NtFlushInstructionCache(reinterpret_cast<void*>(~0ull), Begin, Length)) __builtin_trap();
++#else
+   __builtin___clear_cache(static_cast<char*>(Begin), static_cast<char*>(Begin) + Length);
++#endif
+ }
+ 
+ static __uint128_t LoadAcquire128(uint64_t Addr) {
+@@ -704,6 +713,7 @@ static void IosLogUnimplementedCASPAL(uint32_t Size, uint64_t* GPRs, uint32_t Ad
+    * which we DUAL-MAP (RW alias + RX alias). Aliased mappings are exactly where atomics
+    * can fault despite correct alignment. Report what the region actually is, so "guest
+    * data in a dual-mapped pool page" is distinguishable from ordinary private memory. */
++#ifdef _WIN32
+   MEMORY_BASIC_INFORMATION mbi {};
+   const char* type = "?";
+   if (VirtualQuery(reinterpret_cast<LPCVOID>(GPRs[AddressReg]), &mbi, sizeof(mbi))) {
+@@ -714,6 +724,10 @@ static void IosLogUnimplementedCASPAL(uint32_t Size, uint64_t* GPRs, uint32_t Ad
+                     Size, AddressReg, GPRs[AddressReg], GPRs[AddressReg] & 15,
+                     (GPRs[AddressReg] & 15) ? "yes" : "no", mbi.BaseAddress, mbi.RegionSize,
+                     mbi.Protect, type, mbi.State);
++#else
++  LogMan::Msg::EFmt("[caspal128] MISALIGNED-UNSUPPORTED Size={} addrReg=x{} addr={:#x} misalign={}; Windows region query unavailable",
++                    Size, AddressReg, GPRs[AddressReg], GPRs[AddressReg] & 15);
++#endif
+ }
+ 
+ static bool HandleCASPAL(uint32_t Instr, uint64_t* GPRs, uint32_t* StrictSplitLockMutex) {
+diff --git a/FEXCore/include/FEXCore/Debug/InternalThreadState.h b/FEXCore/include/FEXCore/Debug/InternalThreadState.h
+index cbded16d8..cb25203bb 100644
+--- a/FEXCore/include/FEXCore/Debug/InternalThreadState.h
++++ b/FEXCore/include/FEXCore/Debug/InternalThreadState.h
+@@ -109,44 +109,23 @@ struct alignas(FEXCore::Utils::FEX_PAGE_SIZE) InternalThreadState : public FEXCo
+   ///< Data pointer for exclusive use by the frontend
+   void* FrontendPtr;
+ 
+-  // iOS-Madeira 2026-05-13: bumped 4MB → 16MB. SEH unwinds through translated
+-  // code on iOS don't pop FEX callret entries (FEX has no SEH-aware callret
+-  // cleanup yet), so caught faults leak entries. With 9700+ caught faults
+-  // observed in Thumper FMOD worker, the original 4MB filled up. 16MB buys
+-  // ~1M entries — enough to survive normal game runtimes that have a few
+-  // hundred per-thread caught faults. Real fix: callret-aware SEH unwind.
+-  static constexpr size_t CALLRET_STACK_SIZE {0x1000000};
+-
+-  // iOS-Madeira ml609/ml610: NAMED bounds for the window the CALL/RET guard enforces.
+-  //
+-  // The default sp sits at base + SIZE/4 = base+4MB and the predictor grows DOWN
+-  // from there; BranchOps.cpp bounds sp to [base+2MB, base+6MB).
+-  //
+-  // ⚠️ These are NAMED because several sites derive their own bounds from
+-  // CALLRET_STACK_SIZE (/4 for the default location, +SIZE for the end). Changing
+-  // CALLRET_STACK_SIZE alone does NOT move the window — fix these together.
+-  //
+-  // ⛔ THIS WINDOW IS NOT THE LIVE SET, AND MUST NOT BE USED TO SIZE A CLEAR.
+-  // ml609 assumed it was and clipped ResetCallRetStack() to it; the build
+-  // regressed by ~388MB of `fex` band at a matched cycle and still died of
+-  // jetsam. Two reasons, both checkable in source:
+-  //
+-  //   (a) Dispatcher.cpp's JITCallback sentinel push tests only
+-  //       (sp - base) >> 24 — the WHOLE 16MB — so the callback path is not
+-  //       bounded by this window at all. (What fraction of the 16MB it really
+-  //       touches is measured by [dc-census] in wine's decommit_pages().)
+-  //
+-  //   (b) The clear RECLAIMS rather than dirties. VirtualDontNeed() is
+-  //       MEM_DECOMMIT + MEM_COMMIT, and on this (non-pool-aliased) range wine's
+-  //       decommit_pages() does anon_mmap_fixed() — a fresh MAP_ANON|MAP_FIXED
+-  //       that drops the physical pages and installs zero-fill-on-demand. The
+-  //       recommit only restores access. So a full-size clear RETURNS memory,
+-  //       and shrinking it strands the remainder resident.
+-  //
+-  // Clear CALLRET_STACK_SIZE. These constants describe the guard, not the cost.
+-  static constexpr size_t CALLRET_DEFAULT_OFFSET {CALLRET_STACK_SIZE / 4};        // 4MB: initial sp
+-  static constexpr size_t CALLRET_LIVE_OFFSET {CALLRET_STACK_SIZE / 8};           // 2MB: guard low bound
+-  static constexpr size_t CALLRET_LIVE_SIZE {CALLRET_STACK_SIZE / 4};             // 4MB: guard window [2MB,6MB)
++  // This is a prediction cache, not the architectural guest stack. Keep
++  // allocation, CALL/RET guards and callback guards on the same geometry.
++#ifdef FEX_IOS_HOST
++  static constexpr size_t CALLRET_STACK_SHIFT {23}; // 8MiB in the shared host band
++#else
++  static constexpr size_t CALLRET_STACK_SHIFT {24};
++#endif
++  static constexpr size_t CALLRET_STACK_SIZE {size_t{1} << CALLRET_STACK_SHIFT};
++  static constexpr size_t CALLRET_DEFAULT_OFFSET {CALLRET_STACK_SIZE / 4};
++  static constexpr size_t CALLRET_LIVE_OFFSET {CALLRET_STACK_SIZE / 8};
++  static constexpr size_t CALLRET_LIVE_SIZE {CALLRET_STACK_SIZE / 4};
++  static constexpr size_t CALLRET_LIVE_SHIFT {CALLRET_STACK_SHIFT - 2};
++  static_assert(CALLRET_LIVE_OFFSET < CALLRET_DEFAULT_OFFSET);
++  static_assert(CALLRET_DEFAULT_OFFSET < CALLRET_LIVE_OFFSET + CALLRET_LIVE_SIZE);
++  static_assert(CALLRET_LIVE_OFFSET + CALLRET_LIVE_SIZE < CALLRET_STACK_SIZE);
++  // Resets must still clear the FULL cache: callbacks can use space outside
++  // the narrower CALL/RET guard window. VirtualDontNeed also reclaims pages.
+ 
+   // The low address of the call-ret stack allocation (not including guard pages)
+   void* CallRetStackBase {};
+diff --git a/FEXCore/include/FEXCore/Utils/AllocatorHooks.h b/FEXCore/include/FEXCore/Utils/AllocatorHooks.h
+index 4f30eedd2..ada6017a8 100644
+--- a/FEXCore/include/FEXCore/Utils/AllocatorHooks.h
++++ b/FEXCore/include/FEXCore/Utils/AllocatorHooks.h
+@@ -27,6 +27,13 @@
+ #include <cstring>
+ #include <sys/types.h>
+ 
++#if defined(_WIN32) && defined(FEX_IOS_HOST)
++extern bool agepad_windows_jit_enabled;
++void* agepad_windows_jit_alloc(void* Base, size_t Size, bool Commit);
++bool agepad_windows_jit_owns(void* Ptr, size_t Size);
++void agepad_windows_jit_release(void* Ptr, size_t Size);
++#endif
++
+ namespace FEXCore::Allocator {
+ enum class ProtectOptions : uint32_t {
+   None = 0,
+@@ -64,6 +71,9 @@ extern uintptr_t ios_fex_band_end;
+ }
+ 
+ inline void* VirtualAlloc(void* Base, size_t Size, bool Execute = false, bool Commit = true) {
++#ifdef FEX_IOS_HOST
++  if (Execute && agepad_windows_jit_enabled) return agepad_windows_jit_alloc(Base, Size, Commit);
++#endif
+   // Allocate top-down to avoid polluting the lower VA space, as even on 64-bit some programs (i.e. LuaJIT) require allocations below 4GB.
+   DWORD Flags = (Commit ? MEM_COMMIT : 0) | MEM_RESERVE | MEM_TOP_DOWN;
+ #ifdef ARCHITECTURE_arm64ec
+@@ -141,10 +151,20 @@ inline void* VirtualAlloc(size_t Size, bool Execute = false, bool Commit = true)
+ }
+ 
+ inline void VirtualFree(void* Ptr, size_t Size) {
++#ifdef FEX_IOS_HOST
++  if (agepad_windows_jit_enabled && agepad_windows_jit_owns(Ptr, Size)) {
++    agepad_windows_jit_release(Ptr, Size);
++    return;
++  }
++#endif
+   ::VirtualFree(Ptr, 0, MEM_RELEASE);
+ }
+ 
+ inline void VirtualDontNeed(void* Ptr, size_t Size, bool Recommit = true) {
++#ifdef FEX_IOS_HOST
++  // No decommit/reuse protocol has been qualified for the diagnostic pool.
++  if (agepad_windows_jit_enabled && agepad_windows_jit_owns(Ptr, Size)) __builtin_trap();
++#endif
+   // Zero the page-aligned region, preserving permissions.
+   MEMORY_BASIC_INFORMATION Info;
+   ::VirtualQuery(Ptr, &Info, sizeof(Info));
+@@ -155,6 +175,9 @@ inline void VirtualDontNeed(void* Ptr, size_t Size, bool Recommit = true) {
+ }
+ 
+ inline bool VirtualProtect(void* Ptr, size_t Size, ProtectOptions options) {
++#ifdef FEX_IOS_HOST
++  if (agepad_windows_jit_enabled && agepad_windows_jit_owns(Ptr, Size)) return true; // failure, never pretend mprotect succeeded
++#endif
+   DWORD prot {PAGE_NOACCESS};
+ 
+   if (options == ProtectOptions::None) {
+diff --git a/FEXCore/include/FEXCore/Utils/WritePriorityMutex.h b/FEXCore/include/FEXCore/Utils/WritePriorityMutex.h
+index 3dec78699..fe62a2d3b 100644
+--- a/FEXCore/include/FEXCore/Utils/WritePriorityMutex.h
++++ b/FEXCore/include/FEXCore/Utils/WritePriorityMutex.h
+@@ -22,7 +22,25 @@
+ 
+ #include <FEXCore/Utils/SpinWaitLock.h>
+ 
++#if defined(_WIN32) && defined(FEX_IOS_HOST)
++extern "C" __declspec(dllimport) unsigned int ios_teb_tsd_offset;
++#endif
++
+ namespace FEXCore::Utils::WritePriorityMutex {
++#if defined(_WIN32) && defined(ARCHITECTURE_arm64)
++static inline uint64_t IosStableTeb() {
++#if defined(FEX_IOS_HOST)
++  uint64_t base;
++  __asm volatile("mrs %0, tpidrro_el0" : "=r"(base));
++  const auto offset = ios_teb_tsd_offset;
++  if (!offset) __builtin_trap();
++  return *reinterpret_cast<const uint64_t*>((base & ~uint64_t(7)) + offset);
++#endif
++  uint64_t teb;
++  __asm volatile("mov %0, x18" : "=r"(teb));
++  return teb;
++}
++#endif
+ 
+ // A custom mutex that prioritizes exclusive locks.
+ // In highly contested scenarios, this can help minimize overall contention time.
+@@ -561,7 +579,7 @@ private:
+   void NoteWriteAcquired() {
+     uint64_t Teb = 0;
+ #ifdef ARCHITECTURE_arm64
+-    __asm volatile("mov %0, x18" : "=r"(Teb));
++    Teb = IosStableTeb();
+ #endif
+     OwnerTeb = Teb;
+     OwnerTid = Teb ? *reinterpret_cast<uint32_t*>(Teb + 0x48) : 0;
+@@ -661,7 +679,7 @@ private:
+   static uint64_t IosSelfTeb() {
+     uint64_t Teb = 0;
+ #ifdef ARCHITECTURE_arm64
+-    __asm volatile("mov %0, x18" : "=r"(Teb));
++    Teb = IosStableTeb();
+ #endif
+     return Teb;
+   }
+@@ -740,7 +758,7 @@ private:
+ #if defined(_WIN32) && defined(ARCHITECTURE_arm64)
+ static inline uint64_t IosDeliveryProbeTeb() {
+   uint64_t Teb = 0;
+-  __asm volatile("mov %0, x18" : "=r"(Teb));
++  Teb = IosStableTeb();
+   return Teb;
+ }
+ static inline bool IosEmissionLocksHeldBySelf() {
+diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMakeLists.txt
+index c527c281f..a7266ad9a 100644
+--- a/Source/Windows/ARM64EC/CMakeLists.txt
++++ b/Source/Windows/ARM64EC/CMakeLists.txt
+@@ -5,6 +5,27 @@ add_library(arm64ecfex SHARED
+   libarm64ecfex.def
+   $<TARGET_OBJECTS:FEXCore_object>)
+ 
++# Test-only injection; zero keeps production allocation behavior.
++set(AGEPAD_TEST_CALLRET_FAIL_AT "0" CACHE STRING "Fail the numbered callret allocation in a diagnostic FEX instance")
++if (NOT AGEPAD_TEST_CALLRET_FAIL_AT MATCHES "^[0-9]+$")
++  message(FATAL_ERROR "AGEPAD_TEST_CALLRET_FAIL_AT must be a nonnegative integer")
++endif()
++option(AGEPAD_TEST_CALLRET_FAIL_COMMIT "Inject commit instead of reserve failure (test-only)" OFF)
++target_compile_definitions(arm64ecfex PRIVATE AGEPAD_TEST_CALLRET_FAIL_AT=${AGEPAD_TEST_CALLRET_FAIL_AT}
++  AGEPAD_TEST_CALLRET_FAIL_COMMIT=$<BOOL:${AGEPAD_TEST_CALLRET_FAIL_COMMIT}>)
++
++option(AGEPAD_TEST_MAIN_DETACH_CLEANUP "Experimental main thread cleanup before CRT detach" OFF)
++target_compile_definitions(arm64ecfex PRIVATE AGEPAD_TEST_MAIN_DETACH_CLEANUP=$<BOOL:${AGEPAD_TEST_MAIN_DETACH_CLEANUP}>)
++
++option(AGEPAD_TEST_POST_CRT_ALLOCATOR_FINALIZE "Experimental allocator finalization after CRT" OFF)
++if (AGEPAD_TEST_POST_CRT_ALLOCATOR_FINALIZE AND NOT AGEPAD_TEST_MAIN_DETACH_CLEANUP)
++  message(FATAL_ERROR "Post-CRT allocator finalization requires main detach cleanup")
++endif()
++target_compile_definitions(arm64ecfex PRIVATE AGEPAD_TEST_POST_CRT_ALLOCATOR_FINALIZE=$<BOOL:${AGEPAD_TEST_POST_CRT_ALLOCATOR_FINALIZE}>)
++if (AGEPAD_TEST_POST_CRT_ALLOCATOR_FINALIZE)
++  target_link_options(arm64ecfex PRIVATE "-Wl,--entry,AgePadDllMainCRTStartup")
++endif()
++
+ patch_library_wine(arm64ecfex)
+ 
+ target_include_directories(arm64ecfex PRIVATE
+@@ -38,3 +59,6 @@ endif()
+ install(TARGETS arm64ecfex RUNTIME
+   DESTINATION ${CMAKE_INSTALL_LIBDIR}
+   COMPONENT Runtime)
++
++option(AGEPAD_TEST_STATE_RETIRE "Experimental native FEX-state reader drain before destruction" OFF)
++target_compile_definitions(arm64ecfex PRIVATE AGEPAD_TEST_STATE_RETIRE=$<BOOL:${AGEPAD_TEST_STATE_RETIRE}>)
+diff --git a/Source/Windows/ARM64EC/Module.S b/Source/Windows/ARM64EC/Module.S
+index 3ca509d8b..0c39c91dd 100644
+--- a/Source/Windows/ARM64EC/Module.S
++++ b/Source/Windows/ARM64EC/Module.S
+@@ -25,6 +25,23 @@
+ .endm
+ #endif
+ 
++// Opt-in signed-image path. Uses the published per-image offset; no text
++// patching and no activation of the unrelated FEX_IOS_HOST assembly branches.
++// These transition sites permit x16/x17 scratch; preserve NZCV and all others.
++.macro AGEPAD_LOAD_THREAD_FIELD dst, tmp, wtmp, field
++  adrp \tmp, AgePadAsmTebOffset
++  ldr \wtmp, [\tmp, #:lo12:AgePadAsmTebOffset]
++  cbz \wtmp, 99f
++  mrs \dst, TPIDRRO_EL0
++  and \dst, \dst, #~7
++  ldr \dst, [\dst, \tmp]
++  ldr \dst, [\dst, #\field]
++  b 100f
++99:
++  ldr \dst, [x18, #\field]
++100:
++.endm
++
+   // __os_arm64x_x64_jump in ARM64EC docs
+   // Expects target code address in x9
+ .globl DispatchJump
+@@ -44,7 +61,7 @@ check_target_ec:
+   IOS_LOAD_TEB x16
+   ldr x16, [x16, #0x60] // TEB->PEB
+ #else
+-  ldr x16, [x18, #0x60] // TEB->PEB
++  AGEPAD_LOAD_THREAD_FIELD x16, x17, w17, 0x60 // TEB->PEB
+ #endif
+   ldr x16, [x16, #0x368] // PEB->EcCodeBitMap
+   lsr x17, x9, #18
+@@ -169,7 +186,7 @@ enter_jit:
+   IOS_LOAD_TEB x17
+   ldr x17, [x17, #0x1788] // TEB->ChpeV2CpuAreaInfo
+ #else
+-  ldr x17, [x18, #0x1788] // TEB->ChpeV2CpuAreaInfo
++  AGEPAD_LOAD_THREAD_FIELD x17, x16, w16, 0x1788 // TEB->ChpeV2CpuAreaInfo
+ #endif
+   mov w16, #1
+   strb w16, [x17, #0x0] // ChpeV2CpuAreaInfo->InSimulation
+@@ -214,7 +231,7 @@ BeginSimulation:
+   b 6b
+ 7:
+ #else
+-  ldr x17, [x18, #0x1788] // TEB->ChpeV2CpuAreaInfo
++  AGEPAD_LOAD_THREAD_FIELD x17, x16, w16, 0x1788 // TEB->ChpeV2CpuAreaInfo
+ #endif
+   ldr x16, [x17, #0x8] // ChpeV2CpuAreaInfo->EmulatorStackBase
+   mov sp, x16
+@@ -229,7 +246,7 @@ BeginSimulation:
+   IOS_LOAD_TEB x17
+   ldr x17, [x17, #0x1788] // TEB->ChpeV2CpuAreaInfo
+ #else
+-  ldr x17, [x18, #0x1788] // TEB->ChpeV2CpuAreaInfo
++  AGEPAD_LOAD_THREAD_FIELD x17, x16, w16, 0x1788 // TEB->ChpeV2CpuAreaInfo
+ #endif
+   ldr x16, [x17, #0x48] // ChpeV2CpuAreaInfo->EmulatorData[3] - DispatcherLoopTopEnterECFillSRA
+   mov x11, #0 // Zero ENTRY_FILL_SRA_SINGLE_INST_REG to avoid single step
+@@ -247,7 +264,7 @@ ExitFunctionEC:
+   IOS_LOAD_TEB x17
+   ldr x17, [x17, #0x1788] // TEB->ChpeV2CpuAreaInfo
+ #else
+-  ldr x17, [x18, #0x1788] // TEB->ChpeV2CpuAreaInfo
++  AGEPAD_LOAD_THREAD_FIELD x17, x16, w16, 0x1788 // TEB->ChpeV2CpuAreaInfo
+ #endif
+   strb wzr, [x17, #0x0] // ChpeV2CpuAreaInfo->InSimulation
+   ldr x17, [x17, #0x20] // ChpeV2CpuAreaInfo->SuspendDoorbell
+@@ -383,17 +400,28 @@ DIRECT_SYSCALL_WRAPPER("#NtProtectVirtualMemoryNative", WineNtProtectVirtualMemo
+   adrp x9, NtDllBase
+   ldr x9, [x9, #:lo12:NtDllBase]
+   subs x16, x11, x9
+-  b.lo end
++  b.lo .Lcheck_other
+   adrp x17, NtDllRedirectionLUTSize
+-  ldr x17, [x17, #:lo12:NtDllRedirectionLUTSize]
++  ldr w17, [x17, #:lo12:NtDllRedirectionLUTSize]
+   cmp x16, x17
+-  b.hi end
++  b.hs .Lcheck_other
+   adrp x17, NtDllRedirectionLUT
+   ldr x17, [x17, #:lo12:NtDllRedirectionLUT]
+-  ldr w11, [x17, x16, lsl #2]
+-  add x11, x11, x9
+-end:
++  ldr w17, [x17, x16, lsl #2]
++  cbz w17, .Lcheck_other
++  add x11, x17, x9
+   ret
++.Lcheck_other:
++#if defined(FEX_IOS_HOST) || defined(AGEPAD_CHECKCALL_DELEGATION)
++  adrp x9, WineOriginalCallChecker
++  ldr x9, [x9, #:lo12:WineOriginalCallChecker]
++  cbz x9, .Lcheck_missing
++  br x9
++.Lcheck_missing:
++  brk #1
++#else
++  ret
++#endif
+ 
+   // Expects target address in x0, and the SP to set in x1
+ #ifdef FEX_IOS_HOST
+diff --git a/Source/Windows/ARM64EC/Module.cpp b/Source/Windows/ARM64EC/Module.cpp
+index 3940a423a..d2278d4d5 100644
+--- a/Source/Windows/ARM64EC/Module.cpp
++++ b/Source/Windows/ARM64EC/Module.cpp
+@@ -1,3 +1,6 @@
++#include <rpmalloc/rpmalloc.h>
++#include <FEXCore/Utils/AgePadStartupTrace.h>
++#include <FEXCore/Utils/AgePadJITScope.h>
+ // SPDX-License-Identifier: MIT
+ /*
+ $info$
+@@ -92,6 +95,9 @@ static uint32_t IosTebTsdImportFound = 0;
+ uint64_t IosFfsBypassLog[4] {};
+ #endif // FEX_IOS_HOST
+ 
++// Per-image opt-in offset for signed assembly; zero retains legacy x18 reads.
++extern "C" { alignas(8) uint32_t AgePadAsmTebOffset = 0; }
++
+ namespace Exception {
+ class ECSyscallHandler;
+ }
+@@ -110,6 +116,7 @@ uintptr_t NtDllBase;
+ // Exports on ARM64EC point to x64 fast forward sequences to allow for redirecting to the JIT if functions are hotpatched. This LUT is from their addresses to the relative addresses of the native code exports.
+ uint32_t* NtDllRedirectionLUT;
+ uint32_t NtDllRedirectionLUTSize;
++void* WineOriginalCallChecker;
+ 
+ // Wine doesn't support issuing direct system calls with SVC, and unlike Windows it doesn't have a 'stable' syscall number for NtContinue
+ void* WineSyscallDispatcher;
+@@ -128,9 +135,10 @@ void JumpSetStack(uintptr_t PC, uintptr_t SP);
+ struct ThreadCPUArea {
+   static constexpr size_t TEBCPUAreaOffset = 0x1788;
+   CHPE_V2_CPU_AREA_INFO* Area;
++  _TEB* OwnerTeb;
+ 
+   explicit ThreadCPUArea(_TEB* TEB)
+-    : Area(*reinterpret_cast<CHPE_V2_CPU_AREA_INFO**>(reinterpret_cast<uintptr_t>(TEB) + TEBCPUAreaOffset)) {}
++    : Area(*reinterpret_cast<CHPE_V2_CPU_AREA_INFO**>(reinterpret_cast<uintptr_t>(TEB) + TEBCPUAreaOffset)), OwnerTeb(TEB) {}
+ 
+   uint64_t& EmulatorStackLimit() const {
+     return Area->EmulatorStackLimit;
+@@ -170,7 +178,27 @@ fextl::unique_ptr<FEXCore::Context::Context> CTX;
+ fextl::unique_ptr<FEX::DummyHandlers::DummySignalDelegator> SignalDelegator;
+ fextl::unique_ptr<Exception::ECSyscallHandler> SyscallHandler;
+ fextl::unique_ptr<FEX::Windows::StatAlloc> StatAllocHandler;
++#ifdef FEX_IOS_HOST
++/* Native virtual-memory notifications can reenter FEX while CRT destructors
++ * release its own allocations. std::optional's destructor does not promise
++ * that has_value() becomes false: querying it after destruction is invalid.
++ * Withdraw notification access BEFORE destroying the tracker, whose context
++ * is destroyed later. This handles teardown reentrancy, not concurrent users
++ * that already passed the gate; process-thread quiescence remains required. */
++std::atomic<bool> InvalidationNotificationsActive {true};
++struct InvalidationTrackerStorage : std::optional<FEX::Windows::InvalidationTracker> {
++  ~InvalidationTrackerStorage() {
++    InvalidationNotificationsActive.store(false, std::memory_order_release);
++  }
++};
++InvalidationTrackerStorage InvalidationTracker;
++static bool CanNotifyInvalidationTracker() {
++  return InvalidationNotificationsActive.load(std::memory_order_acquire);
++}
++#else
+ std::optional<FEX::Windows::InvalidationTracker> InvalidationTracker;
++static constexpr bool CanNotifyInvalidationTracker() { return true; }
++#endif
+ std::optional<FEX::Windows::CPUFeatures> CPUFeatures;
+ std::optional<FEX::Windows::OvercommitTracker> OvercommitTracker;
+ std::optional<FEX::Windows::ImageTracker> ImageTracker;
+@@ -304,10 +332,30 @@ void FillNtDllLUTs(HMODULE NtDll) {
+   const auto* RedirectionTableEnd = RedirectionTableBegin + CHPEMetadata->RedirectionMetadataCount;
+ 
+   NtDllRedirectionLUTSize = std::prev(RedirectionTableEnd)->Source + 1;
++#ifdef FEX_IOS_HOST
++  // Signed Wine imports may already point at native entries. The original LUT
++  // only contains x64 export thunks; looking up a native RVA returned zero and
++  // CheckCall branched to ntdll's MZ header. Map verified native code to itself.
++  const auto* NativeMap = reinterpret_cast<const IMAGE_CHPE_RANGE_ENTRY*>(NtDllBase + CHPEMetadata->CodeMap);
++  for (uint32_t i = 0; i < CHPEMetadata->CodeMapCount; ++i) {
++    if ((NativeMap[i].StartOffset & 3) != 1) continue;
++    const uint64_t End = uint64_t(NativeMap[i].StartOffset & ~3u) + NativeMap[i].Length;
++    if (End > UINT32_MAX) __builtin_trap();
++    NtDllRedirectionLUTSize = std::max(NtDllRedirectionLUTSize, uint32_t(End));
++  }
++#endif
+ 
+   SIZE_T AllocSize = NtDllRedirectionLUTSize * sizeof(uint32_t);
+   NtAllocateVirtualMemoryNative(NtCurrentProcess(), reinterpret_cast<void**>(&NtDllRedirectionLUT), 0, &AllocSize, MEM_COMMIT | MEM_RESERVE,
+                                 PAGE_READWRITE);
++#ifdef FEX_IOS_HOST
++  for (uint32_t i = 0; i < CHPEMetadata->CodeMapCount; ++i) {
++    if ((NativeMap[i].StartOffset & 3) != 1) continue;
++    const uint32_t Start = NativeMap[i].StartOffset & ~3u;
++    const uint32_t End = Start + NativeMap[i].Length;
++    for (uint32_t RVA = Start; RVA < End; RVA += 4) NtDllRedirectionLUT[RVA] = RVA;
++  }
++#endif
+   for (auto It = RedirectionTableBegin; It != RedirectionTableEnd; It++) {
+     NtDllRedirectionLUT[It->Source] = It->Destination;
+   }
+@@ -335,6 +383,13 @@ void PatchCallChecker() {
+   const auto* LoadConfig =
+     reinterpret_cast<_IMAGE_LOAD_CONFIG_DIRECTORY64*>(RtlImageDirectoryEntryToData(Module, true, IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG, &Size));
+   const auto* CHPEMetadata = reinterpret_cast<IMAGE_ARM64EC_METADATA*>(LoadConfig->CHPEMetadataPointer);
++#ifdef FEX_IOS_HOST
++  // FEX also resolves kernelbase functions during thread setup. Preserve Wine's
++  // checker for targets outside the ntdll-specific workaround.
++  auto Original = *reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(Module) + CHPEMetadata->__os_arm64x_dispatch_call);
++  if (!Original || Original == reinterpret_cast<void*>(&CheckCall)) __builtin_trap();
++  WineOriginalCallChecker = Original;
++#endif
+   WriteModuleRVA(Module, CHPEMetadata->__os_arm64x_dispatch_call, &CheckCall);
+   WriteModuleRVA(Module, CHPEMetadata->__os_arm64x_dispatch_icall, &CheckCall);
+   WriteModuleRVA(Module, CHPEMetadata->__os_arm64x_dispatch_icall_cfg, &CheckCall);
+@@ -456,6 +511,10 @@ struct alignas(16) KiUserExceptionDispatcherStackLayout {
+ };
+ 
+ static bool HandleUnalignedAccess(const ThreadCPUArea CPUArea, ARM64_NT_CONTEXT& Context, bool IsJIT) {
++  // All four instruction-patching paths flush their eight-byte ranges through
++  // a checked native cache call. Emulation-only paths do not patch instructions.
++  // Nested conservative scopes still force a full flush; opt-in is required.
++  AgePadJITWriteScope agepad_write_scope(true);
+   auto Thread = CPUArea.ThreadState();
+   FEXCORE_PROFILE_INSTANT_INCREMENT(Thread, AccumulatedSIGBUSCount, 1);
+   const auto Result =
+@@ -650,6 +709,24 @@ static void RethrowGuestException(const EXCEPTION_RECORD& Rec, ARM64_NT_CONTEXT&
+   if (!IsDispatcherAddress(Context.Pc)) {
+     ReconstructThreadState(Thread, Context);
+   }
++#ifdef FEX_IOS_HOST
++  // Bounded fault evidence after reconstruction, before guest SEH can mutate
++  // registers. Do not dereference guest pointers from this exception path.
++  if (Rec.ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
++    static std::atomic<unsigned> GuestAVCount {};
++    const unsigned Count = GuestAVCount.fetch_add(1, std::memory_order_relaxed);
++    if (Count < 32) {
++      const auto& State = Thread->CurrentFrame->State;
++      LogMan::Msg::EFmt("[guest-av-state] rev=agepad212 n={} native_pc={:#x} guest_rip={:#x} "
++                        "params={} access={:#x} address={:#x} r8={:#x} r9={:#x} r14={:#x}",
++                        Count + 1, Context.Pc, State.rip, Rec.NumberParameters,
++                        Rec.NumberParameters > 0 ? Rec.ExceptionInformation[0] : 0,
++                        Rec.NumberParameters > 1 ? Rec.ExceptionInformation[1] : 0,
++                        State.gregs[FEXCore::X86State::REG_R8], State.gregs[FEXCore::X86State::REG_R9],
++                        State.gregs[FEXCore::X86State::REG_R14]);
++    }
++  }
++#endif
+   Args->Context = StoreStateToPackedECContext(Thread, Context.Fpcr, Context.Fpsr);
+   LogMan::Msg::DFmt("pc: {:X} rip: {:X}", Context.Pc, Args->Context.Pc);
+ 
+@@ -852,6 +929,32 @@ NTSTATUS ProcessInit() {
+   FEX::Config::LoadConfig(fextl::string {ExecutableName}, _environ, FEX::ReadPortabilityInformation());
+   FEXCore::Config::ReloadMetaLayer();
+   FEX::Windows::Logging::Init();
++#ifdef FEX_IOS_HOST
++  const char* StartupTrace = getenv("AGEPAD_STARTUP_TRACE");
++  AgePadStartupTrace::Enabled = StartupTrace && StartupTrace[0] == '1' && !StartupTrace[1];
++  if (AgePadStartupTrace::Enabled) LogMan::Msg::IFmt("[AgePad-startup-trace] execution register trace enabled");
++  const char* DispatchWork = getenv("AGEPAD_DISPATCH_PENDING_WORK");
++  agepad_dispatch_pending_work = DispatchWork && DispatchWork[0] == '1' && !DispatchWork[1];
++  if (agepad_dispatch_pending_work) LogMan::Msg::IFmt("[AgePad-dispatch-work] pending queue check enabled");
++  const char* MemoryFlush = getenv("AGEPAD_EXPLICIT_MEMORY_FLUSH");
++  agepad_explicit_memory_flush = MemoryFlush && MemoryFlush[0] == '1' && !MemoryFlush[1];
++  if (agepad_explicit_memory_flush) LogMan::Msg::IFmt("[AgePad-memory-flush] explicit delinker flushes enabled");
++  const char* CompileFlush = getenv("AGEPAD_EXPLICIT_COMPILE_FLUSH");
++  agepad_explicit_compile_flush = CompileFlush && CompileFlush[0] == '1' && !CompileFlush[1];
++  if (agepad_explicit_compile_flush) LogMan::Msg::IFmt("[AgePad-compile-flush] checked emitted-block flush enabled");
++  const char* InvalidationFlush = getenv("AGEPAD_EXPLICIT_INVALIDATION_FLUSH");
++  agepad_explicit_invalidation_flush = InvalidationFlush && InvalidationFlush[0] == '1' && !InvalidationFlush[1];
++  if (agepad_explicit_invalidation_flush) LogMan::Msg::IFmt("[AgePad-invalidation-flush] explicit delinker flushes enabled");
++  const char* CacheHitFlush = getenv("AGEPAD_CACHE_HIT_EXPLICIT_FLUSH");
++  agepad_cache_hit_explicit_flush = CacheHitFlush && CacheHitFlush[0] == '1' && !CacheHitFlush[1];
++  if (agepad_cache_hit_explicit_flush) LogMan::Msg::IFmt("[AgePad-cache-hit-flush] enabled with conservative queued-work callbacks");
++  const char* DirectAsmTeb = getenv("AGEPAD_DIRECT_ASM_TEB");
++  if (DirectAsmTeb && DirectAsmTeb[0] == '1' && !DirectAsmTeb[1]) {
++    if (!IosTebTsdOffset || (IosTebTsdOffset & 7)) return STATUS_UNSUCCESSFUL;
++    AgePadAsmTebOffset = IosTebTsdOffset;
++    LogMan::Msg::IFmt("[AgePad-asm-teb] offset={:#x}", AgePadAsmTebOffset);
++  }
++#endif
+ #ifdef FEX_IOS_HOST
+   /* iOS-Madeira ml278: announce the atomic-alias geometry UNCONDITIONALLY, AFTER
+    * Logging::Init().
+@@ -946,6 +1049,9 @@ NTSTATUS ProcessInit() {
+   CTX->SetSyscallHandler(SyscallHandler.get());
+ 
+ #ifdef FEX_IOS_HOST
++  if (FEX::Windows::UnixLib::InitAgePadJit()) {
++    FEXCore::DualMap::WriteOffset = 0;
++  } else
+   /* Set DualMap::WriteOffset BEFORE InitCore (the dispatcher's emit path
+    * reads it via the JIT class constructor). Compute it from the SAME
+    * env vars the app already publishes for the unix side's JIT pool —
+@@ -1097,7 +1203,7 @@ bool ResetToConsistentStateImpl(const ThreadCPUArea CPUArea, EXCEPTION_RECORD* E
+     }
+ 
+     std::scoped_lock Lock(ThreadCreationMutex);
+-    if (InvalidationTracker && InvalidationTracker->HandleRWXAccessViolation(Thread, NativeContext->Pc, FaultAddress)) {
++    if (CanNotifyInvalidationTracker() && InvalidationTracker && InvalidationTracker->HandleRWXAccessViolation(Thread, NativeContext->Pc, FaultAddress)) {
+       FEXCORE_PROFILE_INSTANT_INCREMENT(Thread, AccumulatedSMCCount, 1);
+       if (CTX->IsAddressInCodeBuffer(Thread, NativeContext->Pc) && !CTX->IsCurrentBlockSingleInst(CPUArea.ThreadState()) &&
+           CTX->IsAddressInCurrentBlock(Thread, FaultAddress & FEXCore::Utils::FEX_PAGE_MASK, FEXCore::Utils::FEX_PAGE_SIZE)) {
+@@ -1258,37 +1364,43 @@ NTSTATUS ResetToConsistentState(EXCEPTION_RECORD* Exception, CONTEXT* GuestConte
+  * required for its correctness. Drop the BEFORE/AFTER mutex entirely
+  * and just call into the tracker directly on AFTER. */
+ void NotifyMemoryAlloc(void* Address, SIZE_T Size, ULONG Type, ULONG Prot, BOOL After, NTSTATUS Status) {
+-  if (!InvalidationTracker || !GetCPUArea().ThreadState()) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !GetCPUArea().ThreadState()) {
+     return;
+   }
+ 
+   if (After) {
+     // MEM_RESET(_UNDO) ignores the passed permissions
+     if (!Status && !(Type & (MEM_RESET | MEM_RESET_UNDO))) {
++      AgePadJITWriteScope agepad_pending_work_scope(agepad_explicit_memory_flush,
++                                                        agepad_cache_hit_explicit_flush || agepad_explicit_memory_flush);
+       InvalidationTracker->HandleMemoryProtectionNotification(reinterpret_cast<uint64_t>(Address), static_cast<uint64_t>(Size), Prot);
+     }
+   }
+ }
+ 
+ void NotifyMemoryFree(void* Address, SIZE_T Size, ULONG FreeType, BOOL After, NTSTATUS Status) {
+-  if (!InvalidationTracker || !GetCPUArea().ThreadState()) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !GetCPUArea().ThreadState()) {
+     return;
+   }
+ 
+   if (After) {
+     if (!Status) {
++      AgePadJITWriteScope agepad_pending_work_scope(agepad_explicit_memory_flush,
++                                                        agepad_cache_hit_explicit_flush || agepad_explicit_memory_flush);
+       InvalidationTracker->InvalidateAlignedInterval(reinterpret_cast<uint64_t>(Address), static_cast<uint64_t>(Size), true);
+     }
+   }
+ }
+ 
+ void NotifyMemoryProtect(void* Address, SIZE_T Size, ULONG NewProt, BOOL After, NTSTATUS Status) {
+-  if (!InvalidationTracker || !GetCPUArea().ThreadState()) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !GetCPUArea().ThreadState()) {
+     return;
+   }
+ 
+   if (After) {
+     if (!Status) {
++      AgePadJITWriteScope agepad_pending_work_scope(agepad_explicit_memory_flush,
++                                                        agepad_cache_hit_explicit_flush || agepad_explicit_memory_flush);
+       InvalidationTracker->HandleMemoryProtectionNotification(reinterpret_cast<uint64_t>(Address), static_cast<uint64_t>(Size), NewProt);
+     }
+   }
+@@ -1326,7 +1438,7 @@ void NotifyMemoryProtect(void* Address, SIZE_T Size, ULONG NewProt, BOOL After,
+  * Idempotent: re-registering the same intervals is harmless, and the syscall path still
+  * fires for the same module whenever its gate does let it through. */
+ extern "C" void NotifyImageMap(void* Address) {
+-  if (!InvalidationTracker || !Address) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !Address) {
+     return;
+   }
+ 
+@@ -1360,7 +1472,7 @@ NTSTATUS NotifyMapViewOfSection(void* Unk1, void* Address, void* Unk2, SIZE_T Si
+    * (+0x1900733, +0x3b508f0), which is why CEF never finished initialising.
+    *
+    * Keep the tracker null-checks; only the thread-state requirement is wrong. */
+-  if (!InvalidationTracker || !ImageTracker) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !ImageTracker) {
+     /* ml190: do not drop it — replay once ProcessInit has built the trackers. */
+     QueuePendingImageMap(reinterpret_cast<uint64_t>(Address));
+     return STATUS_SUCCESS;
+@@ -1376,7 +1488,7 @@ NTSTATUS NotifyMapViewOfSection(void* Unk1, void* Address, void* Unk2, SIZE_T Si
+ }
+ 
+ void NotifyUnmapViewOfSection(void* Address, BOOL After, NTSTATUS Status) {
+-  if (!InvalidationTracker || !GetCPUArea().ThreadState()) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !GetCPUArea().ThreadState()) {
+     return;
+   }
+ 
+@@ -1392,28 +1504,37 @@ void NotifyUnmapViewOfSection(void* Address, BOOL After, NTSTATUS Status) {
+ }
+ 
+ void FlushInstructionCacheHeavy(const void* Address, SIZE_T Size) {
+-  if (!InvalidationTracker || !GetCPUArea().ThreadState()) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !GetCPUArea().ThreadState()) {
+     return;
+   }
+ 
++  AgePadJITWriteScope agepad_pending_work_scope(agepad_explicit_invalidation_flush,
++                                                agepad_cache_hit_explicit_flush || agepad_explicit_invalidation_flush);
++
+   std::scoped_lock Lock(ThreadCreationMutex);
+   InvalidationTracker->InvalidateAlignedInterval(reinterpret_cast<uint64_t>(Address), static_cast<uint64_t>(Size), false);
+ }
+ 
+ void BTCpu64FlushInstructionCache(const void* Address, SIZE_T Size) {
+-  if (!InvalidationTracker || !GetCPUArea().ThreadState()) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !GetCPUArea().ThreadState()) {
+     return;
+   }
+ 
++  AgePadJITWriteScope agepad_pending_work_scope(agepad_explicit_invalidation_flush,
++                                                agepad_cache_hit_explicit_flush || agepad_explicit_invalidation_flush);
++
+   std::scoped_lock Lock(ThreadCreationMutex);
+   InvalidationTracker->InvalidateAlignedInterval(reinterpret_cast<uint64_t>(Address), static_cast<uint64_t>(Size), false);
+ }
+ 
+ void BTCpu64NotifyMemoryDirty(void* Address, SIZE_T Size) {
+-  if (!InvalidationTracker || !GetCPUArea().ThreadState()) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !GetCPUArea().ThreadState()) {
+     return;
+   }
+ 
++  AgePadJITWriteScope agepad_pending_work_scope(agepad_explicit_invalidation_flush,
++                                                agepad_cache_hit_explicit_flush || agepad_explicit_invalidation_flush);
++
+   std::scoped_lock Lock(ThreadCreationMutex);
+   InvalidationTracker->InvalidateAlignedInterval(reinterpret_cast<uint64_t>(Address), static_cast<uint64_t>(Size), false);
+ }
+@@ -1464,7 +1585,7 @@ void BTCpu64NotifyReadFile(HANDLE Handle, void* Address, SIZE_T Size, BOOL After
+     return;
+   }
+ 
+-  if (!InvalidationTracker || !ThreadState) {
++  if (!CanNotifyInvalidationTracker() || !InvalidationTracker || !ThreadState) {
+     return;
+   }
+ 
+@@ -1534,7 +1655,9 @@ extern "C" uint32_t BTCpu64IosReleaseThreadHolds(void* TebPtr, uint64_t* OutStam
+ 
+   auto* Depth = reinterpret_cast<volatile uint32_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x16f0);
+   auto* Stamp = reinterpret_cast<volatile uint64_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x16f8);
+-  auto* InLockedRead = IosInLockedRWXReadSlot();
++  // Called from native teardown: x18 may be zero. Use the caller's TEB
++  // for every per-thread field, including the mirrored exclusive flag.
++  auto* InLockedRead = reinterpret_cast<bool*>(reinterpret_cast<uintptr_t>(Teb) + 0x1700);
+ 
+   const uint64_t StampVal = *Stamp;
+   const uint32_t DepthVal = *Depth;
+@@ -1563,7 +1686,7 @@ extern "C" uint32_t BTCpu64IosReleaseThreadHolds(void* TebPtr, uint64_t* OutStam
+   // Rule 3 first: the exclusive pair, in NotifyReadFile's own release order.
+   if (RWXRead) {
+     *InLockedRead = false;
+-    auto* ThreadState = GetCPUArea().ThreadState();
++    auto* ThreadState = ThreadCPUArea(Teb).ThreadState();
+     if (ThreadState) {
+       GetFrontendThreadData(ThreadState)->InLockedRWXRead = false;
+     }
+@@ -1700,7 +1823,22 @@ NTSTATUS ThreadInit() {
+   }
+ #endif
+ 
+-  FEX::Windows::CallRetStack::InitializeThread(Thread);
++  if (!FEX::Windows::CallRetStack::InitializeThread(Thread)) {
++    // No Thread map/sweeper registration or FrontendPtr exists at this point.
++    // Destroy the completed core thread before finalizing its allocator TLS.
++    delete[] NewSegments;
++    Frame->State.segment_arrays[FEXCore::Core::CPUState::SEGMENT_ARRAY_INDEX_GDT] = nullptr;
++    Frame->State.segment_arrays[FEXCore::Core::CPUState::SEGMENT_ARRAY_INDEX_LDT] = nullptr;
++    CTX->DestroyThread(Thread);
++    ::VirtualFree(reinterpret_cast<void*>(EmulatorStack), 0, MEM_RELEASE);
++    CPUArea.ThreadState() = nullptr;
++    CPUArea.StateFrame() = nullptr;
++    CPUArea.DispatcherLoopTopEnterEC() = 0;
++    CPUArea.EmulatorStackLimit() = 0;
++    CPUArea.EmulatorStackBase() = 0;
++    FEX::Windows::DeinitCRTThread();
++    return STATUS_NO_MEMORY;
++  }
+ #ifdef FEX_IOS_HOST
+   IosTiLog("[FEX-iOS] TI:callret\n");
+ #endif
+@@ -1974,41 +2112,52 @@ NTSTATUS ThreadInit() {
+   return STATUS_SUCCESS;
+ }
+ 
+-NTSTATUS ThreadTerm(HANDLE Thread, LONG ExitCode) {
+-  if (!FEX::Windows::ValidateHandleAccess(Thread, THREAD_TERMINATE)) {
+-    // ml435 (#73): every exit that bails here leaks the thread's rpmalloc heap
+-    // (64-192MB of band spans) — count them.
+-    LogMan::Msg::EFmt("[thr-term] rev=ml435 DENIED handle={}", Thread);
+-    return STATUS_ACCESS_DENIED;
+-  }
+-
+-  auto ThreadDup = FEX::Windows::DupHandle(Thread, THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME);
+-
+-  THREAD_BASIC_INFORMATION Info;
+-  if (auto Err = NtQueryInformationThread(*ThreadDup, ThreadBasicInformation, &Info, sizeof(Info), nullptr); Err) {
+-    LogMan::Msg::EFmt("[thr-term] rev=ml435 QUERY-FAIL {:#x}", static_cast<uint32_t>(Err));
+-    return Err;
+-  }
++// Membership is removed before destructors/sweeper/allocator finalization run.
++// Track that interval separately so process detach cannot mistake map removal
++// for completed teardown. This covers FEX cleanup, not all native callbacks.
++static std::atomic<uint32_t> ThreadCleanupsInFlight {};
++class ScopedThreadCleanup {
++public:
++  ScopedThreadCleanup() { ThreadCleanupsInFlight.fetch_add(1, std::memory_order_acq_rel); }
++  ~ScopedThreadCleanup() { ThreadCleanupsInFlight.fetch_sub(1, std::memory_order_release); }
++  ScopedThreadCleanup(const ScopedThreadCleanup&) = delete;
++  ScopedThreadCleanup& operator=(const ScopedThreadCleanup&) = delete;
++};
+ 
+-  const auto ThreadTID = reinterpret_cast<uint64_t>(Info.ClientId.UniqueThread);
+-  bool Self = ThreadTID == GetCurrentThreadId();
+-  if (!Self) {
+-    CONTEXT TmpContext;
+-    // If we are suspending a thread that isn't ourselves, try to suspend it first so we know internal JIT locks aren't being held.
+-    NtSuspendThread(*ThreadDup, NULL);
+-    // This will wait for the thread to be suspended
+-    NtGetContextThread(*ThreadDup, &TmpContext);
+-  }
++// Resource teardown after the caller has established thread identity and safety.
++// This helper deliberately does not validate/query a Wine thread handle: native
++// abort cleanup happens after the server has already terminated that thread.
++// It is not itself a native ABI callback or permission to destroy a live thread.
++using AgePadStateCloseCallback = NTSTATUS (WINAPI *)(void *);
++static AgePadStateCloseCallback AgePadStateClose;
++static std::atomic<bool> AgePadStateRetirementBlocked {false};
++extern "C" uint32_t BTCpu64IosSetStateClose(uint32_t Version, AgePadStateCloseCallback Callback) {
++  if (Version != 1 || !Callback || (AgePadStateClose && AgePadStateClose != Callback)) return 0;
++  AgePadStateClose = Callback;
++  return 0x261;
++}
+ 
+-  const auto [Err, CPUArea] = GetThreadCPUArea(*ThreadDup);
+-  if (Err) {
+-    LogMan::Msg::EFmt("[thr-term] rev=ml435 CPUAREA-FAIL tid={:#x} self={} st={:#x}", ThreadTID, Self, static_cast<uint32_t>(Err));
+-    if (Self) {
+-      FEX::Windows::DeinitCRTThread();
+-    }
+-    return Err;
+-  }
++static void AgePadDrainNativeState(void *Teb) {
++#if defined(FEX_IOS_HOST) && AGEPAD_TEST_STATE_RETIRE
++  NTSTATUS Status = AgePadStateClose ? AgePadStateClose(Teb) : STATUS_NOT_SUPPORTED;
++  // Exact zero only. STATUS_PENDING satisfies NT_SUCCESS but cannot permit free.
++  while (Status == STATUS_PENDING) {
++    Sleep(1);
++    Status = AgePadStateClose(Teb);
++  }
++  if (Status != STATUS_SUCCESS) {
++    AgePadStateRetirementBlocked.store(true);
++    LogMan::Msg::EFmt("[state-close] RETAINED status={:#x} before FEX destruction", static_cast<uint32_t>(Status));
++    // Do not return into a void ThreadTerm caller or process CRT destruction.
++    for (;;) Sleep(1000);
++  }
++  LogMan::Msg::EFmt("[state-close] DRAINED teb={} before FEX destruction", Teb);
++#endif
++}
+ 
++static NTSTATUS DestroyRegisteredThreadState(const ThreadCPUArea CPUArea, uint64_t ThreadTID, bool Self, bool FinalizeCRT = true) {
++  ScopedThreadCleanup CleanupInFlight;
++  AgePadDrainNativeState(CPUArea.OwnerTeb);
+   {
+     std::scoped_lock Lock(ThreadCreationMutex);
+     auto it = Threads.find(ThreadTID);
+@@ -2019,7 +2168,7 @@ NTSTATUS ThreadTerm(HANDLE Thread, LONG ExitCode) {
+       // time. rpmalloc_thread_finalize is fallback-safe (empty TLS resolves
+       // to global_heap_default and is skipped), so release it here too.
+       LogMan::Msg::EFmt("[thr-term] rev=ml435 REGISTRY-MISS tid={:#x} self={}", ThreadTID, Self);
+-      if (Self) {
++      if (Self && FinalizeCRT) {
+         FEX::Windows::DeinitCRTThread();
+       }
+       return STATUS_SUCCESS;
+@@ -2049,11 +2198,19 @@ NTSTATUS ThreadTerm(HANDLE Thread, LONG ExitCode) {
+   FEX::Windows::CallRetStack::DestroyThread(ThreadState);
+   CTX->DestroyThread(ThreadState);
+   ::VirtualFree(reinterpret_cast<void*>(CPUArea.EmulatorStackLimit()), 0, MEM_RELEASE);
+-  if (ThreadTID == GetCurrentThreadId()) {
++  // The TEB/CPU area can outlive the emulator state during native thread exit.
++  // Do not leave freed thread/frame/stack pointers available to later teardown.
++  CPUArea.ThreadState() = nullptr;
++  CPUArea.StateFrame() = nullptr;
++  CPUArea.DispatcherLoopTopEnterEC() = 0;
++  CPUArea.DispatcherLoopTopEnterECFillSRA() = 0;
++  CPUArea.EmulatorStackLimit() = 0;
++  CPUArea.EmulatorStackBase() = 0;
++  if (Self && FinalizeCRT) {
+     static std::atomic<uint32_t> DeinitCount;
+     LogMan::Msg::EFmt("[thr-term] rev=ml435 deinit #{} tid={:#x}", DeinitCount.fetch_add(1) + 1, ThreadTID);
+     FEX::Windows::DeinitCRTThread();
+-  } else {
++  } else if (!Self) {
+     // ml435 (#73): cross-thread termination cannot run the victim's TLS-based
+     // finalize — its rpmalloc heap leaks. Count these; if nonzero they are the
+     // remaining leak source after the registry-miss fix.
+@@ -2063,6 +2220,150 @@ NTSTATUS ThreadTerm(HANDLE Thread, LONG ExitCode) {
+   return STATUS_SUCCESS;
+ }
+ 
++/* Native ARM64 alias only, registered by Wine after redirection/self-test.
++ * Called solely for this thread's terminal server wait, before native fd/TEB
++ * teardown. Refuse other contexts; arbitrary signal aborts are not supported. */
++extern "C" uint32_t BTCpu64IosCleanupTerminatedWaiter(void *TebPtr) {
++  if (!TebPtr) return 0x229;
++#ifdef FEX_IOS_HOST
++  auto *Teb = reinterpret_cast<TEB*>(TebPtr);
++  if (Teb != IOSLoadTEB() || !CTX) return 1;
++  const ThreadCPUArea CPUArea(Teb);
++  if (!CPUArea.Area || !CPUArea.ThreadState()) return 2;
++  uintptr_t SP = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
++  if (IsEmulatorStackAddress(CPUArea, SP)) return 3;
++  if (*reinterpret_cast<volatile uint64_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x16f8) ||
++      *reinterpret_cast<volatile uint32_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x16f0) ||
++      *reinterpret_cast<volatile uint8_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x1700)) return 4;
++  // Win64 TEB ClientId is at0x40; UniqueThread is its second pointer.
++  // MinGW exposes this part of TEB as Reserved1, so use the verified layout.
++  const auto TID = *reinterpret_cast<const uint64_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x48);
++  if (!ThreadCreationMutex.try_lock()) return 5;
++  auto It = Threads.find(TID);
++  bool Matches = It != Threads.end() && It->second == CPUArea.ThreadState();
++  ThreadCreationMutex.unlock();
++  if (!Matches) return 6;
++  // Normal ThreadTerm owns the same removal under ThreadCreationMutex. A
++  // competing removal will take the helper's existing registry-miss path.
++  return DestroyRegisteredThreadState(CPUArea, TID, true) ? 7 : 0;
++#else
++  return 8;
++#endif
++}
++
++// Diagnostic/barrier prerequisite only: callers must stop new thread creation
++// and retain the runtime context before interpreting zero. No waiting here.
++extern "C" uint32_t BTCpu64IosPendingThreadCleanup(void *TebPtr) {
++  if (!TebPtr) return 0x230;
++#ifdef FEX_IOS_HOST
++  auto *Teb = reinterpret_cast<TEB*>(TebPtr);
++  if (Teb != IOSLoadTEB() || !CTX) return UINT32_MAX;
++  const uint64_t TID = *reinterpret_cast<const uint64_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x48);
++  if (!ThreadCreationMutex.try_lock()) return UINT32_MAX;
++  uint32_t Pending = ThreadCleanupsInFlight.load(std::memory_order_acquire);
++  for (const auto &[ID, State] : Threads) {
++    (void)State;
++    if (ID != TID && Pending < UINT32_MAX) ++Pending;
++  }
++  ThreadCreationMutex.unlock();
++  return Pending;
++#else
++  return UINT32_MAX;
++#endif
++}
++
++#if defined(FEX_IOS_HOST) && AGEPAD_TEST_MAIN_DETACH_CLEANUP
++static bool MainDetachStateDisposed;
++extern "C" BOOL WINAPI DllMain(HINSTANCE Instance, DWORD Reason, LPVOID Reserved) {
++  (void)Instance;
++  if (Reason != DLL_PROCESS_DETACH || !Reserved) return TRUE;
++  auto *Teb = IOSLoadTEB();
++  if (!Teb || !CTX) return TRUE;
++  const ThreadCPUArea CPUArea(Teb);
++  if (!CPUArea.Area || !CPUArea.ThreadState()) return TRUE;
++  const auto SP = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
++  if (IsEmulatorStackAddress(CPUArea, SP) || BTCpu64IosPendingThreadCleanup(Teb) != 0 ||
++      *reinterpret_cast<volatile uint64_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x16f8) ||
++      *reinterpret_cast<volatile uint32_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x16f0) ||
++      *reinterpret_cast<volatile uint8_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x1700)) {
++    LogMan::Msg::EFmt("[main-detach] REFUSED unsafe cleanup context");
++    return TRUE;
++  }
++  const uint64_t TID = *reinterpret_cast<const uint64_t*>(reinterpret_cast<uintptr_t>(Teb) + 0x48);
++  {
++    std::scoped_lock Lock(ThreadCreationMutex);
++    auto It = Threads.find(TID);
++    if (It == Threads.end() || It->second != CPUArea.ThreadState()) {
++      LogMan::Msg::EFmt("[main-detach] REFUSED registry mismatch");
++      return TRUE;
++    }
++  }
++  LogMan::Msg::EFmt("[main-detach] BEGIN tid={:#x}", TID);
++  // CRT/global destructors still follow this DllMain. Keep allocator TLS and
++  // all heaps alive for them; this hook only disposes of emulator thread state.
++  const auto Status = DestroyRegisteredThreadState(CPUArea, TID, true, false);
++  MainDetachStateDisposed = Status == STATUS_SUCCESS;
++  LogMan::Msg::EFmt("[main-detach] END tid={:#x} status={:#x}", TID, static_cast<uint32_t>(Status));
++  return TRUE;
++}
++#endif
++
++#if defined(FEX_IOS_HOST) && AGEPAD_TEST_POST_CRT_ALLOCATOR_FINALIZE
++extern "C" BOOL WINAPI DllMainCRTStartup(HINSTANCE, DWORD, LPVOID);
++extern "C" BOOL WINAPI AgePadDllMainCRTStartup(HINSTANCE Instance, DWORD Reason, LPVOID Reserved) {
++  const BOOL Result = DllMainCRTStartup(Instance, Reason, Reserved);
++  if (Reason == DLL_PROCESS_DETACH && Reserved && Result && MainDetachStateDisposed && !AgePadStateRetirementBlocked.load()) {
++    // No C++ logging or allocation here: CRT/global destructors already ran.
++    // Native memory notifications are withdrawn by InvalidationTrackerStorage.
++    DWORD Written;
++    static const char Before[] = "[allocator-detach] BEGIN after CRT\n";
++    WriteFile(GetStdHandle(STD_ERROR_HANDLE), Before, sizeof(Before)-1, &Written, nullptr);
++    rpmalloc_finalize_with_unmap();
++    static const char After[] = "[allocator-detach] END after CRT\n";
++    WriteFile(GetStdHandle(STD_ERROR_HANDLE), After, sizeof(After)-1, &Written, nullptr);
++  }
++  return Result;
++}
++#endif
++
++NTSTATUS ThreadTerm(HANDLE Thread, LONG ExitCode) {
++  if (!FEX::Windows::ValidateHandleAccess(Thread, THREAD_TERMINATE)) {
++    // ml435 (#73): every exit that bails here leaks the thread's rpmalloc heap
++    // (64-192MB of band spans) — count them.
++    LogMan::Msg::EFmt("[thr-term] rev=ml435 DENIED handle={}", Thread);
++    return STATUS_ACCESS_DENIED;
++  }
++
++  auto ThreadDup = FEX::Windows::DupHandle(Thread, THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME);
++
++  THREAD_BASIC_INFORMATION Info;
++  if (auto Err = NtQueryInformationThread(*ThreadDup, ThreadBasicInformation, &Info, sizeof(Info), nullptr); Err) {
++    LogMan::Msg::EFmt("[thr-term] rev=ml435 QUERY-FAIL {:#x}", static_cast<uint32_t>(Err));
++    return Err;
++  }
++
++  const auto ThreadTID = reinterpret_cast<uint64_t>(Info.ClientId.UniqueThread);
++  bool Self = ThreadTID == GetCurrentThreadId();
++  if (!Self) {
++    CONTEXT TmpContext;
++    // If we are suspending a thread that isn't ourselves, try to suspend it first so we know internal JIT locks aren't being held.
++    NtSuspendThread(*ThreadDup, NULL);
++    // This will wait for the thread to be suspended
++    NtGetContextThread(*ThreadDup, &TmpContext);
++  }
++
++  const auto [Err, CPUArea] = GetThreadCPUArea(*ThreadDup);
++  if (Err) {
++    LogMan::Msg::EFmt("[thr-term] rev=ml435 CPUAREA-FAIL tid={:#x} self={} st={:#x}", ThreadTID, Self, static_cast<uint32_t>(Err));
++    if (Self) {
++      FEX::Windows::DeinitCRTThread();
++    }
++    return Err;
++  }
++
++  return DestroyRegisteredThreadState(CPUArea, ThreadTID, Self);
++}
++
+ BOOLEAN BTCpu64IsProcessorFeaturePresent(UINT Feature) {
+   return CPUFeatures->IsFeaturePresent(Feature) ? TRUE : FALSE;
+ }
+diff --git a/Source/Windows/CMakeLists.txt b/Source/Windows/CMakeLists.txt
+index 593e017cd..3a1abfd1b 100644
+--- a/Source/Windows/CMakeLists.txt
++++ b/Source/Windows/CMakeLists.txt
+@@ -2,6 +2,7 @@ function(build_implib name)
+   set(name_ex ${name}_ex)
+   add_custom_target(${name_ex}lib ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/lib${name_ex}.a)
+   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/lib${name_ex}.a
++    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Defs/${name}.def
+     COMMAND ${CMAKE_DLLTOOL} -d ${CMAKE_CURRENT_SOURCE_DIR}/Defs/${name}.def -k -l lib${name_ex}.a
+     COMMENT "Building lib${name_ex}.a")
+ 
+diff --git a/Source/Windows/Common/CallRetStack.h b/Source/Windows/Common/CallRetStack.h
+index fb604c9ae..c8e56c9f6 100644
+--- a/Source/Windows/Common/CallRetStack.h
++++ b/Source/Windows/Common/CallRetStack.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: MIT
+ #pragma once
++#include <atomic>
+ 
+ #include <FEXCore/Core/Context.h>
+ #include <FEXCore/Utils/Allocator.h>
+@@ -28,10 +29,26 @@ CallRetStackInfo GetInfoThread(FEXCore::Core::InternalThreadState* Thread) {
+           Base + FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE / 4};
+ }
+ 
+-void InitializeThread(FEXCore::Core::InternalThreadState* Thread) {
++[[nodiscard]] bool InitializeThread(FEXCore::Core::InternalThreadState* Thread) {
++  Thread->CallRetStackBase = nullptr;
++  Thread->CurrentFrame->State.callret_sp = 0;
++  Thread->CurrentFrame->State.callret_sp_base = 0;
+   // Allocate the call-ret stack with guard pages on both sides
+   const size_t CallRetStackAllocSize = FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE + 2 * FEXCore::Utils::FEX_PAGE_SIZE;
+   const void* CallRetStackAlloc = nullptr;
++  bool InjectCommitFailure = false;
++#if defined(AGEPAD_TEST_CALLRET_FAIL_AT) && AGEPAD_TEST_CALLRET_FAIL_AT > 0
++  static std::atomic<unsigned> TestInitCount {};
++  if (TestInitCount.fetch_add(1, std::memory_order_relaxed) + 1 == AGEPAD_TEST_CALLRET_FAIL_AT) {
++#if defined(AGEPAD_TEST_CALLRET_FAIL_COMMIT) && AGEPAD_TEST_CALLRET_FAIL_COMMIT
++    LogMan::Msg::EFmt("[callret-test-injection] commit failure at init {}", AGEPAD_TEST_CALLRET_FAIL_AT);
++    InjectCommitFailure = true;
++#else
++    LogMan::Msg::EFmt("[callret-test-injection] reserve failure at init {}", AGEPAD_TEST_CALLRET_FAIL_AT);
++    return false;
++#endif
++  }
++#endif
+ #ifdef FEX_IOS_HOST
+   /* iOS-Madeira ml324: steer the call-ret stack out of the guest VA band.
+    *
+@@ -65,13 +82,27 @@ void InitializeThread(FEXCore::Core::InternalThreadState* Thread) {
+   }
+ #endif
+ 
++  if (!CallRetStackAlloc) {
++    LogMan::Msg::EFmt("[callret-init-failed] reserve size={:#x}", CallRetStackAllocSize);
++    return false;
++  }
++
+   FEXCore::Allocator::VirtualName("FEXMem_CallRetStacks", CallRetStackAlloc,
+                                   FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE + 2 * FEXCore::Utils::FEX_PAGE_SIZE);
+   FEXCore::Allocator::VirtualTHPControl(CallRetStackAlloc, FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE + 2 * FEXCore::Utils::FEX_PAGE_SIZE,
+                                         FEXCore::Allocator::THPControl::Disable);
+ 
+   Thread->CallRetStackBase = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(CallRetStackAlloc) + FEXCore::Utils::FEX_PAGE_SIZE);
+-  ::VirtualAlloc(Thread->CallRetStackBase, FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE, MEM_COMMIT, PAGE_READWRITE);
++  if (InjectCommitFailure || !::VirtualAlloc(Thread->CallRetStackBase, FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE, MEM_COMMIT, PAGE_READWRITE)) {
++    LogMan::Msg::EFmt("[callret-init-failed] commit size={:#x}", FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE);
++    if (!::VirtualFree(const_cast<void*>(CallRetStackAlloc), 0, MEM_RELEASE)) {
++      LogMan::Msg::EFmt("[callret-init-failed] reservation release also failed");
++    } else {
++      LogMan::Msg::EFmt("[callret-init-failed] reservation released after commit failure");
++    }
++    Thread->CallRetStackBase = nullptr;
++    return false;
++  }
+ 
+   /* iOS-Madeira: VirtualAlloc(MEM_COMMIT) on a previously-MEM_RESERVE'd
+    * PAGE_NOACCESS region might not zero-initialize the pages on iOS. The
+@@ -109,9 +140,11 @@ void InitializeThread(FEXCore::Core::InternalThreadState* Thread) {
+       reported = true;
+       auto Info = GetInfoThread(Thread);
+       LogMan::Msg::EFmt("[callret-geom] base={:#x} default={:#x} size={:#x} "
+-                        "guard-window=[base+0x200000, base+0x600000) grows-DOWN",
++                        "guard-window=[base+{:#x}, base+{:#x}) grows-DOWN",
+                         reinterpret_cast<uint64_t>(Thread->CallRetStackBase), Info.DefaultLocation,
+-                        FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE);
++                        FEXCore::Core::InternalThreadState::CALLRET_STACK_SIZE,
++                        FEXCore::Core::InternalThreadState::CALLRET_LIVE_OFFSET,
++                        FEXCore::Core::InternalThreadState::CALLRET_LIVE_OFFSET + FEXCore::Core::InternalThreadState::CALLRET_LIVE_SIZE);
+       /* iOS-Madeira ml271: print the REAL CpuStateFrame offsets once.
+        *
+        * The ntdll-unix side reads these fields out of x28 in signal handlers using
+@@ -132,14 +165,17 @@ void InitializeThread(FEXCore::Core::InternalThreadState* Thread) {
+     }
+   }
+ #endif
++  return true;
+ }
+ 
+ void DestroyThread(FEXCore::Core::InternalThreadState* Thread) {
++  if (!Thread->CallRetStackBase) return;
+   auto CallRetStackInfo = GetInfoThread(Thread);
+   ::VirtualFree(reinterpret_cast<void*>(CallRetStackInfo.AllocationBase), 0, MEM_RELEASE);
+ }
+ 
+ bool HandleAccessViolation(FEXCore::Core::InternalThreadState* Thread, uint64_t Address, uint64_t& CallRetSPReg) {
++  if (!Thread->CallRetStackBase) return false;
+   auto CallRetStackInfo = GetInfoThread(Thread);
+   if (Address >= CallRetStackInfo.AllocationBase && Address < CallRetStackInfo.AllocationEnd) {
+     LogMan::Msg::DFmt("Call-ret stack inbalance: {:X}", Address);
+diff --git a/Source/Windows/Common/FEXUnixLib.cpp b/Source/Windows/Common/FEXUnixLib.cpp
+index 5b377d384..3345c6c36 100644
+--- a/Source/Windows/Common/FEXUnixLib.cpp
++++ b/Source/Windows/Common/FEXUnixLib.cpp
+@@ -358,3 +358,46 @@ void DeleteSHMStatsFile() {
+ }
+ 
+ } // namespace FEX::Windows::UnixLib
++
++#ifdef FEX_IOS_HOST
++#include <FEXCore/Utils/AgePadJITScope.h>
++bool agepad_windows_jit_enabled = false;
++static NTSTATUS agepad_jit_call(uint32_t op, uint64_t address, uint64_t size, uint64_t* result = nullptr) {
++  AgePadJitArgs args {1, op, address, size, 0};
++  auto status = FEX::Windows::UnixLib::Call(FEXUnixLibFunctions::AgePadJitControl, &args);
++  if (result) *result = args.Result;
++  return status;
++}
++static void agepad_enter() { if (agepad_jit_call(2, 0, 0)) __builtin_trap(); }
++static void agepad_leave() { if (agepad_jit_call(3, 0, 0)) __builtin_trap(); }
++static void agepad_leave_explicit() { if (agepad_jit_call(7, 0, 0)) __builtin_trap(); }
++void* agepad_windows_jit_alloc(void* base, size_t size, bool commit) {
++  if (base || !commit) return nullptr;
++  uint64_t result {};
++  if (agepad_jit_call(1, 0, size, &result)) return nullptr;
++  return reinterpret_cast<void*>(result);
++}
++bool agepad_windows_jit_owns(void* ptr, size_t size) {
++  uint64_t result {};
++  if (agepad_jit_call(4, reinterpret_cast<uint64_t>(ptr), size, &result)) __builtin_trap();
++  return result != 0;
++}
++void agepad_windows_jit_release(void* ptr, size_t size) {
++  if (agepad_jit_call(5, reinterpret_cast<uint64_t>(ptr), size)) __builtin_trap();
++}
++bool FEX::Windows::UnixLib::InitAgePadJit() {
++  uint64_t result {};
++  if (agepad_jit_call(0, 0, 0, &result) || result != 0x4147504a495431ULL) return false;
++  agepad_windows_jit_enabled = true;
++  agepad_set_jit_write_hooks(agepad_enter, agepad_leave);
++  uint64_t explicit_flush = 0;
++  if (!agepad_jit_call(6, 0, 0, &explicit_flush) && explicit_flush == 1) {
++    agepad_jit_write_leave_explicit = agepad_leave_explicit;
++    LogMan::Msg::IFmt("[AgePad-JIT] audited link flush optimization enabled");
++  }
++  LogMan::Msg::IFmt("[AgePad-JIT] native single-mapping service v1 verified");
++  return true;
++}
++#else
++bool FEX::Windows::UnixLib::InitAgePadJit() { return false; }
++#endif
+diff --git a/Source/Windows/Common/FEXUnixLib.h b/Source/Windows/Common/FEXUnixLib.h
+index 36da52c54..5d4e2faa0 100644
+--- a/Source/Windows/Common/FEXUnixLib.h
++++ b/Source/Windows/Common/FEXUnixLib.h
+@@ -19,6 +19,7 @@ inline NTSTATUS Call(FEXUnixLibFunctions code, void* args) {
+ }
+ 
+ bool Init(HMODULE NtDll);
++bool InitAgePadJit();
+ 
+ /**
+  * @brief Tries to enable hardware TSO if supported.
+diff --git a/Source/Windows/Common/ImageTracker.h b/Source/Windows/Common/ImageTracker.h
+index dcbc06d00..2f099cf38 100644
+--- a/Source/Windows/Common/ImageTracker.h
++++ b/Source/Windows/Common/ImageTracker.h
+@@ -3,7 +3,7 @@
+ 
+ #include <cstdint>
+ #include <mutex>
+-#include <map>
++#include <FEXCore/fextl/map.h>
+ #include <shared_mutex>
+ #include <string_view>
+ 
+@@ -67,8 +67,10 @@ private:
+   fextl::unordered_map<fextl::string, FEX::VolatileMetadata::ExtendedVolatileMetadata> ExtendedMetaData;
+ 
+   std::shared_mutex ImagesLock;
+-  std::map<uint64_t, MappedImageInfo> MappedImages;
+-  std::map<fextl::string, AOTImageInfo> AOTImages;
++  // Image registration holds the code-invalidation lock. Allocating map nodes
++  // on the Windows heap inverts the order against heap-triggered notifications.
++  fextl::map<uint64_t, MappedImageInfo> MappedImages;
++  fextl::map<fextl::string, AOTImageInfo> AOTImages;
+ 
+   std::string ActiveCodeMapPath;
+   bool IsGeneratingCache;
+diff --git a/Source/Windows/Common/InvalidationTracker.cpp b/Source/Windows/Common/InvalidationTracker.cpp
+index 003dc35c5..d290decd6 100644
+--- a/Source/Windows/Common/InvalidationTracker.cpp
++++ b/Source/Windows/Common/InvalidationTracker.cpp
+@@ -1,3 +1,4 @@
++#include <FEXCore/Utils/AgePadStartupTrace.h>
+ // SPDX-License-Identifier: MIT
+ 
+ #include <atomic>
+@@ -179,11 +180,17 @@ void InvalidationTracker::HandleImageMap(std::string_view Name, uint64_t Address
+ 
+   for (auto* Section = SectionsBegin; Section != SectionsEnd; Section++) {
+     if (Section->Characteristics & IMAGE_SCN_MEM_EXECUTE) {
+-      std::unique_lock Lock(IntervalsLock);
+-
+       uint64_t SectionBase = Address + Section->VirtualAddress;
+       uint64_t SectionEnd = SectionBase + Section->Misc.VirtualSize;
+-      XIntervals.Insert({SectionBase, SectionEnd});
++      {
++        std::unique_lock Lock(IntervalsLock);
++        XIntervals.Insert({SectionBase, SectionEnd});
++        if (Section->Characteristics & IMAGE_SCN_MEM_WRITE) {
++          RWXIntervals.Insert({SectionBase, SectionEnd});
++        }
++      }
++      // Formatting can allocate/free memory and re-enter interval notification.
++      // Do not call the diagnostic formatter while holding IntervalsLock.
+       /* iOS-Madeira ml200: FEX reports NOEXEC for libcef code addresses even though the
+        * ntdll side proves the map notification arrives and nothing ever removes the
+        * interval. So log the actual inserts (with `this`, since each pseudo-process runs
+@@ -195,7 +202,6 @@ void InvalidationTracker::HandleImageMap(std::string_view Name, uint64_t Address
+       LastExecutableSectionEnd = std::max(LastExecutableSectionEnd, SectionEnd);
+       if (Section->Characteristics & IMAGE_SCN_MEM_WRITE) {
+         LogMan::Msg::DFmt("Add image SMC interval: {:X} - {:X}", SectionBase, SectionBase + Section->Misc.VirtualSize);
+-        RWXIntervals.Insert({SectionBase, SectionBase + Section->Misc.VirtualSize});
+       }
+     }
+   }
+@@ -226,6 +232,11 @@ void InvalidationTracker::HandleImageMap(std::string_view Name, uint64_t Address
+    * between matched checkpoints the rate is ~91/sec by the time FNA3D loads, not the
+    * thousands/sec a cumulative-total-over-runtime average suggests. The current stall is
+    * thread 007c holding a Mono critical section while workers queue behind it. */
++  if (AgePadStartupTrace::Enabled && (Name == "libcef.dll" || Name == "LIBCEF.DLL")) {
++    const bool Armed = AgePadStartupTrace::Arm(Address, LastExecutableSectionEnd);
++    LogMan::Msg::IFmt("[AgePad-startup-trace] module={} base={:#x} signature_match={}", Name, Address, Armed);
++  }
++
+   const bool IsUnityMono = (Name == "mono-2.0-bdwgc.dll" || Name == "mono.dll");
+   const bool IsWineMono = (Name == "libmono-2.0-x86_64.dll" || Name == "libmono-2.0-x86.dll");
+   bool WineMonoOptIn = false;
+@@ -345,11 +356,13 @@ InvalidationTracker::InvalidateContainingSectionResult InvalidationTracker::Inva
+   InvalidateIntervalInternal(SectionBase, SectionSize);
+ 
+   if (Free) {
+-    std::unique_lock Lock(IntervalsLock);
++    {
++      std::unique_lock Lock(IntervalsLock);
++      XIntervals.Remove({SectionBase, SectionBase + SectionSize});
++      RWXIntervals.Remove({SectionBase, SectionBase + SectionSize});
++    }
+     LogMan::Msg::EFmt("[iOS-xrem] via=section tracker={} {:#x}-{:#x}", static_cast<void*>(this),
+                       SectionBase, SectionBase + SectionSize);
+-    XIntervals.Remove({SectionBase, SectionBase + SectionSize});
+-    RWXIntervals.Remove({SectionBase, SectionBase + SectionSize});
+   }
+ 
+   return {SectionBase, SectionSize};
+@@ -367,7 +380,11 @@ void InvalidationTracker::InvalidateAlignedInterval(uint64_t Address, uint64_t S
+   InvalidateIntervalInternal(AlignedBase, AlignedSize);
+ 
+   if (Free) {
+-    std::unique_lock Lock(IntervalsLock);
++    {
++      std::unique_lock Lock(IntervalsLock);
++      XIntervals.Remove({AlignedBase, AlignedBase + AlignedSize});
++      RWXIntervals.Remove({AlignedBase, AlignedBase + AlignedSize});
++    }
+     // ml437 (#74): this fires on EVERY guest free/decommit (the ml201 probe is
+     // unconditional) — ml436 logged 4,234 lines of ordinary heap decommit
+     // churn, drowning the log and costing a dprintf syscall per free. The
+@@ -379,8 +396,6 @@ void InvalidationTracker::InvalidateAlignedInterval(uint64_t Address, uint64_t S
+       LogMan::Msg::EFmt("[iOS-xrem] via=aligned #{} tracker={} {:#x}-{:#x}", N, static_cast<void*>(this),
+                         AlignedBase, AlignedBase + AlignedSize);
+     }
+-    XIntervals.Remove({AlignedBase, AlignedBase + AlignedSize});
+-    RWXIntervals.Remove({AlignedBase, AlignedBase + AlignedSize});
+   }
+ }
+ 
+@@ -405,10 +420,26 @@ bool InvalidationTracker::HandleRWXAccessViolation(FEXCore::Core::InternalThread
+       InvalidateIntervalInternalLocked(FaultAddress & FEXCore::Utils::FEX_PAGE_MASK, FEXCore::Utils::FEX_PAGE_SIZE);
+ 
+       // Invalidate, then unprotect the faulting page with the compilation lock held to ensure that any racing invalidations are not dropped.
+-      ULONG TmpProt;
++      ULONG TmpProt = 0;
+       void* TmpAddress = reinterpret_cast<void*>(FaultAddress);
+       SIZE_T TmpSize = 1;
+-      NtProtectVirtualMemory(NtCurrentProcess(), &TmpAddress, &TmpSize, UntrapProt, &TmpProt);
++      const NTSTATUS ProtectStatus = NtProtectVirtualMemory(NtCurrentProcess(), &TmpAddress, &TmpSize, UntrapProt, &TmpProt);
++#ifdef FEX_IOS_HOST
++      // A claimed SMC fault does not establish that unprotect succeeded. Capture
++      // the syscall result before atomic recovery/retry changes the context.
++      // These are Wine protection values, not a Mach permission measurement.
++      if (AgePadStartupTrace::Enabled) {
++        static std::atomic<uint32_t> SmcProtectCount {};
++        const uint32_t Count = SmcProtectCount.fetch_add(1, std::memory_order_relaxed);
++        if (Count < 128) {
++          LogMan::Msg::EFmt("[AgePad-smc-protect] pc={:X} fault={:X} requested={:X} status={:X} old={:X} base={:X} size={:X}",
++                           HostPc, FaultAddress, UntrapProt, static_cast<uint32_t>(ProtectStatus), TmpProt,
++                           reinterpret_cast<uint64_t>(TmpAddress), TmpSize);
++        }
++      }
++#else
++      (void)ProtectStatus;
++#endif
+     }
+     DetectMonoBackpatcherBlock(Thread, HostPc);
+     return true;
+diff --git a/Source/Windows/Common/Priv.h b/Source/Windows/Common/Priv.h
+index 7dc0042ab..a076f543e 100644
+--- a/Source/Windows/Common/Priv.h
++++ b/Source/Windows/Common/Priv.h
+@@ -4,8 +4,21 @@
+ #include <exception>
+ #include <winternl.h>
+ 
++#if defined(FEX_IOS_HOST) && defined(__arm64ec__)
++// Local signed-container experiment: TLS allocation can run before ProcessInit
++// copies this value into FEX's emitter state, so import Wine's published slot.
++extern "C" __declspec(dllimport) unsigned int ios_teb_tsd_offset;
++#endif
+ static inline __TEB* GetCurrentTEB() {
++#if defined(FEX_IOS_HOST) && defined(__arm64ec__)
++  ULONG_PTR tsd;
++  const auto offset = ios_teb_tsd_offset;
++  if (!offset) __builtin_trap();
++  __asm__ volatile("mrs %0, TPIDRRO_EL0" : "=r"(tsd) : : "memory");
++  return *reinterpret_cast<__TEB**>((tsd & ~ULONG_PTR(7)) + offset);
++#else
+   return reinterpret_cast<__TEB*>(NtCurrentTeb());
++#endif
+ }
+ 
+ static inline __PEB* GetCurrentPEB() {
+diff --git a/Source/Windows/Defs/ntdll.def b/Source/Windows/Defs/ntdll.def
+index 807d6a842..22bd481f6 100644
+--- a/Source/Windows/Defs/ntdll.def
++++ b/Source/Windows/Defs/ntdll.def
+@@ -1391,3 +1391,5 @@ EXPORTS
+   wine_nt_to_unix_file_name
+   wine_unix_to_nt_file_name
+   __wine_needs_override_large_address_aware
++
++  ios_teb_tsd_offset DATA
+diff --git a/Source/Windows/UnixLib/FEXUnixLib.h b/Source/Windows/UnixLib/FEXUnixLib.h
+index 4795d62c0..6efcc19b2 100644
+--- a/Source/Windows/UnixLib/FEXUnixLib.h
++++ b/Source/Windows/UnixLib/FEXUnixLib.h
+@@ -10,6 +10,7 @@ enum class FEXUnixLibFunctions : uint32_t {
+   SetVMAName,
+   GetSHMStatsVMA,
+   DeleteSHMStatsFile,
++  AgePadJitControl,
+   MAX,
+ };
+ 
+@@ -51,3 +52,10 @@ struct FEXUnixLib_GetSHMStatsVMA {
+   uint32_t MaxSize;
+ };
+ static_assert(sizeof(FEXUnixLib_GetSHMStatsVMA) == 16);
++
++// Local, versioned Simulator service; fixed-width ABI also mirrored in native Wine.
++struct AgePadJitArgs {
++  uint32_t Version, Operation;
++  uint64_t Address, Size, Result;
++};
++static_assert(sizeof(AgePadJitArgs) == 32);
+diff --git a/Source/Windows/WOW64/Module.cpp b/Source/Windows/WOW64/Module.cpp
+index bff9ae2da..1268e5a86 100644
+--- a/Source/Windows/WOW64/Module.cpp
++++ b/Source/Windows/WOW64/Module.cpp
+@@ -609,7 +609,7 @@ void BTCpuThreadInit() {
+   Frame->State.cs_idx = DefaultWow64CS << 3;
+   Frame->State.cs_cached = FEXCore::Core::CPUState::CalculateGDTBase(GDT);
+ 
+-  FEX::Windows::CallRetStack::InitializeThread(Thread);
++  LOGMAN_THROW_A_FMT(FEX::Windows::CallRetStack::InitializeThread(Thread), "Failed to initialize WOW64 call-ret stack");
+ 
+   const auto TLS = GetTLS();
+   TLS.ThreadState() = Thread;
+diff --git a/FEXCore/include/FEXCore/Utils/AgePadJITScope.h b/FEXCore/include/FEXCore/Utils/AgePadJITScope.h
+new file mode 100644
+index 000000000..d3d786129
+--- /dev/null
++++ b/FEXCore/include/FEXCore/Utils/AgePadJITScope.h
+@@ -0,0 +1,23 @@
++// Local Simulator experiment, not a physical-iPad JIT implementation.
++#pragma once
++extern bool agepad_cache_hit_explicit_flush;
++extern bool agepad_dispatch_pending_work;
++extern bool agepad_explicit_invalidation_flush;
++extern bool agepad_explicit_compile_flush;
++extern bool agepad_explicit_memory_flush;
++#if defined(__APPLE__) || (defined(_WIN32) && defined(FEX_IOS_HOST))
++extern void (*agepad_jit_write_enter)(void);
++extern void (*agepad_jit_write_leave)(void);
++extern void (*agepad_jit_write_leave_explicit)(void);
++extern "C" void agepad_set_jit_write_hooks(void (*enter)(void), void (*leave)(void));
++struct AgePadJITWriteScope {
++  void (*leave)(void);
++  AgePadJITWriteScope(bool explicitly_flushed = false, bool enabled = true)
++    : leave(enabled && agepad_jit_write_enter ? ((explicitly_flushed && agepad_jit_write_leave_explicit) ? agepad_jit_write_leave_explicit : agepad_jit_write_leave) : nullptr) {
++    if (leave) agepad_jit_write_enter();
++  }
++  ~AgePadJITWriteScope() { if (leave) leave(); }
++};
++#else
++struct AgePadJITWriteScope { AgePadJITWriteScope(bool = false, bool = true) {} };
++#endif
+diff --git a/FEXCore/include/FEXCore/Utils/AgePadStartupTrace.h b/FEXCore/include/FEXCore/Utils/AgePadStartupTrace.h
+new file mode 100644
+index 000000000..e3211515d
+--- /dev/null
++++ b/FEXCore/include/FEXCore/Utils/AgePadStartupTrace.h
+@@ -0,0 +1,293 @@
++// SPDX-License-Identifier: MIT
++#pragma once
++#include <atomic>
++#include <cstdint>
++
++namespace AgePadStartupTrace {
++// Opt-in, process-private diagnostics. No guest data reads or writes.
++inline bool Enabled = false;
++inline std::atomic<uint64_t> Base {0};
++struct Site { uint64_t RVA; uint64_t Hash; };
++inline constexpr Site Sites[] = {
++  {0xf03b28, 0x424046620dc2cfdcULL},
++  {0xf03b42, 0xd5365f82fa633240ULL},
++  {0x195f246, 0x21f87e1ce592e96eULL},
++  {0x195fa1c, 0xb9567a3267f3ec9eULL},
++  {0x195fbc7, 0x61c0a9ddcb059708ULL},
++  {0x195ff9f, 0x4d38ce197d29e76cULL},
++  {0x19603c8, 0x61cb67b611d642d9ULL},
++  {0x1960752, 0x747600ed91d4aa29ULL},
++  {0x1960818, 0x7308a74e5803d73cULL},
++  {0x19609b6, 0x7831a4caa1f2cbe6ULL},
++  {0x1960a1f, 0x704371e0796b7606ULL},
++  {0x1960a90, 0x6165d814357aaa48ULL},
++  {0x1960b83, 0x229e026fe95398adULL},
++  {0x19610b4, 0xc64438c279514e70ULL},
++  {0x19611c6, 0x1ccfa614854012aeULL},
++  {0x19617be, 0x91a16b4735d2df50ULL},
++  {0x1961829, 0xbf174eb2180a0c02ULL},
++  {0x19618f0, 0x9064a4e895c615f3ULL},
++  {0x196193d, 0x3045dbb2932c8ab7ULL},
++  {0x1961a50, 0x3033bc15f1b71de8ULL},
++  {0x1961b7a, 0x884b875e3b55a84dULL},
++  {0x1961d6c, 0x0cd6be8d42749dc3ULL},
++  {0x19625de, 0x99be2a3d13033d1eULL},
++  {0x1962802, 0x60ee5057ce09de7cULL},
++  {0x196291f, 0x0c8b2edb76099eb7ULL},
++  {0x1f2772b, 0xdb35a69f0d7f45d5ULL},
++  {0x3655809, 0x1c555c68d84c523fULL},
++  {0x3655a2e, 0x579a015f6a7d3e00ULL},
++  {0x3655c81, 0xfca7cc3bb9381865ULL},
++  {0x554758c, 0x50a7431b8d31e99aULL},
++  {0x55475a6, 0x849c55914dee900dULL},
++  {0x6c04cb0, 0x8714d591600be551ULL},
++  {0x75a70e5, 0xa7662d13c4864d8dULL},
++  {0x75a7456, 0x53c32c9128b09c58ULL},
++  {0x75a7693, 0xea51f6c4176a6e8eULL},
++  {0x75a7972, 0x5df2da42a0fc0036ULL},
++  {0x75a7bda, 0x9ff01ded1d5ced10ULL},
++  {0x75a7ce6, 0xbbd80e4886da22dcULL},
++  {0x75a7de6, 0x376428ba12a93055ULL},
++  {0x75a7eb0, 0x8933f1ee625cb871ULL},
++  {0x75a80eb, 0x1c9e5cc43c1706b2ULL},
++  {0x75a8200, 0xa344a9f0538b8488ULL},
++  {0x75a842f, 0x6504b8e09d764d3fULL},
++  {0x75a88c0, 0x7ff96afd5bf6e6c6ULL},
++  {0x75a93cd, 0x29a1246b35cf2cd6ULL},
++  {0x75a96f1, 0x4e31049a43bd42c5ULL},
++  {0x75a9926, 0x7bd17f2789a6eefeULL},
++  {0x8265e77, 0x47172ffc2d330d40ULL},
++  {0x8265ee7, 0x465b22ee480316f0ULL},
++  {0x8265f56, 0x97fb6020d5e058baULL},
++  {0x88e26dd, 0xaa7326844775da3fULL},
++  {0x88e2bf5, 0x1ba42984c239581cULL},
++  {0x88e3312, 0x61610080db742bb3ULL},
++  {0x88e34df, 0x840a884ba49aa5a2ULL},
++  {0x3732e6, 0x10daff5e6e4c3cf9ULL},
++  {0x34fddba, 0xaaceff7fde0727bfULL},
++  {0x34fddc4, 0x206be263b1d6c799ULL},
++  {0x34fddce, 0x3a20d3f0a5ff9da7ULL},
++  {0x34fe0e7, 0x073111b43581cf6dULL},
++  {0x34fdd98, 0xa567a050e6e4eecbULL},
++  {0x34fde1f, 0x31a4c9ad96d66a83ULL},
++  {0x362eba0, 0x1127249930d6b8e5ULL},
++  {0x362ec85, 0x0dcf2082b901e444ULL},
++  {0x362f4d8, 0x11192a93dd05f00eULL},
++  {0x362edec, 0xff41b66a9c1d3a38ULL},
++  {0x362edf1, 0x746961792d0f3012ULL},
++  {0x362f05e, 0x7e9c8e64e9674761ULL},
++  {0x362f063, 0xa148e5e0adc807d4ULL},
++  {0x350a827, 0xb10c3d4d97ea393dULL},
++  {0x190bbe0, 0x0af182f16ada2d8aULL},
++  {0x190bbf8, 0x357ca339c0b0e2b3ULL},
++  {0x190bcd8, 0x87d99ff55155bb15ULL},
++  {0x37caa0d, 0xf73602c6d51e22bdULL},
++  {0x190bcdd, 0xbb82dab916bf9e38ULL},
++  {0x190bcef, 0xc714d9e5f67fc9b8ULL},
++  {0x190bcf5, 0x24ed96b35b11928fULL},
++  {0x362e6d3, 0x9525300a4e225191ULL},
++  {0x37caa3b, 0xb4bb8d80f807d0c5ULL},
++  {0x362e6fb, 0x160294ba89ac1116ULL},
++  {0x362e701, 0x9e5443e0ffc19512ULL},
++  {0x3506b82, 0xbbe183a74fd449e6ULL},
++  {0x36280e0, 0x78be8348219521d2ULL},
++  {0x36281de, 0x74068c814337db20ULL},
++  {0x3628239, 0x3a7758c59d91db96ULL},
++  {0x362824d, 0xb10b902faa9702a6ULL},
++  {0x36282c0, 0x8d6f6e0f895fd475ULL},
++  {0x36282ef, 0xe7bcf939714344f0ULL},
++  {0x36282f9, 0xdd24dcb837d14fb0ULL},
++  {0x3505d50, 0xe8d1e8215ea76749ULL},
++  {0x3505d65, 0x5cbf786d675a600cULL},
++  {0x3505d6b, 0x7440a0131fcb5c35ULL},
++  {0x1c71440, 0x4e356625f60fbf49ULL},
++  {0x1c71504, 0xadeb7857e129072aULL},
++  {0x14f9a40, 0x48914e57a6c95cf5ULL},
++  {0x14fa190, 0x85e069c153209179ULL},
++  {0x14fa1cf, 0xf5037ef74f700d81ULL},
++  {0x14fa216, 0xd1381cae8f799983ULL},
++  {0x14fa267, 0x583b3bf39ac7bf66ULL},
++  {0x14fa26c, 0x8bca69efdcc30512ULL},
++  {0x2f921e, 0x4a133062de2fbc0fULL},
++  {0x14fb220, 0x74853ea64bb087b0ULL},
++  {0x14fb313, 0x169bbc4169e05bd8ULL},
++  {0x14fb335, 0x39d81a8a6de5ebf1ULL},
++  {0x14fb347, 0x05e64850c6a5e9aaULL},
++  {0x14fb3dc, 0x3bfaca707da6996aULL},
++  {0x14fb416, 0x6c0e310fd9329a89ULL},
++  {0x14fb41b, 0x322ce70d6b538c33ULL},
++  {0x14fb440, 0xc136b249238bb304ULL},
++  {0x1982140, 0x4b8cbfa0230de5adULL},
++  {0x198223b, 0xd48d18813b88d91bULL},
++  {0x19829fe, 0xc67af063b23c043dULL},
++  {0x1982a03, 0xcd379d42af31dfafULL},
++  {0x1982380, 0x9d89152d5e2ac7cdULL},
++  {0x13ef932, 0x8a78ae2cfa29acfaULL},
++  {0x1982260, 0xac9ae0ad8a643559ULL},
++  {0x1832820, 0xaf30ad2c6a70a677ULL},
++  {0x1832837, 0x1c076228dd8e4820ULL},
++  {0x1832860, 0xe19860e9ff6c0dccULL},
++  {0x7395f90, 0x427caf39f1b7205bULL},
++  {0x1831818, 0x082daf172a604490ULL},
++  {0x1831821, 0xac51cf15f4dc8d2aULL},
++  {0x1831977, 0xf958327d34ebbe40ULL},
++  {0x2e18de, 0x4a133062de2fbc0fULL},
++  {0x3cf7354, 0x2b7fe00eb312d13bULL},
++  {0x3cf735a, 0x83c654ba71f6cc67ULL},
++  {0x3cf7364, 0xf5bd820da3d3f993ULL},
++  {0x2d4ec01, 0x3454c7eb83b09971ULL},
++  {0x2d4ec07, 0x498b0dbd35bf6dd2ULL},
++  {0x2d4ea40, 0xfbcc4e99239b1a9fULL},
++  {0x2d4edb7, 0x1af44e3c37c6887cULL},
++  {0x2d4edc9, 0x5034c3b27cf09384ULL},
++  {0x2d4ebaa, 0x447a4dbbfb9b6d6dULL},
++  {0x2d4ec11, 0x0eb8494584a6c49dULL},
++  {0x482960, 0x9c563540f22fa51bULL},
++  {0x482977, 0xad1e998bb41b989eULL},
++  {0x488980, 0xcc4cb455b7c3ce80ULL},
++  {0x4889b1, 0x7356fbbcff1435e9ULL},
++  {0x2d4fed0, 0xddba58dee7652d70ULL},
++  {0x2d4ffd1, 0x95f482931bb95871ULL},
++  {0x2d4fff0, 0x5a33090bb56637f3ULL},
++  {0x3d01000, 0xc9492e5bda7d8865ULL},
++  {0x3d00fab, 0x84204b41d77703acULL},
++  {0x3d00fc7, 0x410e8257bec063bbULL},
++  {0x494920, 0xfbcc2e99239ae43fULL},
++  {0x494a25, 0xca4098aa06dc224fULL},
++  {0x49d5e0, 0xe8540924da91060eULL},
++  {0x4948c3, 0xa67c859bf6b093f2ULL},
++  {0x496abe, 0xb5cbf740c0ddf4a8ULL},
++  {0x49b210, 0x1127d49930d7e3f5ULL},
++  {0x49277e, 0xe42519d384d3ebe0ULL},
++  {0x49c44f, 0x178b47735733f85aULL},
++  {0x49c889, 0x4d7ed5660da94fd7ULL},
++  {0x49cc96, 0x9499494457a8af34ULL},
++  {0x49d672, 0xf25514937af99881ULL},
++  {0x49e7ee, 0xaa548cabe07c2261ULL},
++  {0x49f229, 0xc9687f667538e132ULL},
++  {0x2d61d46, 0xdd91da2e51197479ULL},
++  {0x3cf89a5, 0x0bbcf75e14a0ac3cULL},
++  {0x3cff23d, 0xec74ac304d807309ULL},
++  {0x49b4c2, 0x80b8b8d3102a477dULL},
++  {0x2d61390, 0x80a761f997f404d1ULL},
++  {0x2d5df7d, 0xdc867cec4c86ea7dULL},
++  {0x2d60e26, 0x41bde4e13b08a696ULL},
++  {0x2d619b9, 0x21057cfc2bce2892ULL},
++  {0x2d4be77, 0x064f9e0616f2f064ULL},
++  {0x2d4bea5, 0x87c1bf0230231da9ULL},
++  {0x2d4becd, 0x6817a984afb5b1b7ULL},
++  {0x2d4bef2, 0x7a8e8f66130f8c29ULL},
++  {0x2d4bf52, 0xb278f12efd24b6dcULL},
++  {0x14520de, 0x1f4b37e251a27e0aULL},
++  {0x6977490, 0x4618b6c0789c73d6ULL},
++  {0x1451f00, 0xfbcc4e99239b1a9fULL},
++  {0x1451fcb, 0x5ba549f067bb038cULL},
++  {0x1452005, 0x9fcd659fec7f794eULL},
++  {0x1452015, 0xd84e3e2cf17637caULL},
++  {0x145205c, 0x83b3a4907761dd30ULL},
++  {0x1452040, 0x035d68b622eba60cULL},
++  {0x144dbe0, 0xc30c559c6f887d34ULL},
++  {0x144dcaa, 0xa542d404f360a63bULL},
++  {0x3552870, 0xd0cba86e30b8d1f0ULL},
++  {0x144e450, 0x88e94f01fa7aa0dbULL},
++  {0x144e4b5, 0x3b61ae543b467a3aULL},
++  {0x144ec32, 0x4358273d8cd50bceULL},
++  {0x144f0f6, 0x0b498542cfb208a9ULL},
++  {0x144f15e, 0x539a0d9929a976b5ULL},
++  {0x144f173, 0x7989c01d0a543c9dULL},
++  {0x3557c86, 0xe4f4c1b1c4c59c6eULL},
++  {0x3557fe3, 0xdcec4979a0bf7175ULL},
++  {0x355804b, 0x36ba608b35ad5f1aULL},
++  {0x3558060, 0x37d45cb68a1b4627ULL},
++  {0x69774a7, 0xa408937295579688ULL},
++  {0x69774d4, 0xedf8006ea8891900ULL},
++  {0x6977b32, 0x455f82dfdec86816ULL},
++  {0x6977ffc, 0x96a46d00235110f1ULL},
++  {0x6978064, 0xe97a225ee954e6cbULL},
++  {0x6978079, 0xfa5f6e425d918807ULL},
++  {0x6978162, 0x0310a9f968b9f32fULL},
++  {0x69788a6, 0xcc0014c7d1dcb8b6ULL},
++  {0x6978dbc, 0xebde946c8af4b0fcULL},
++  {0x6978e24, 0xab2d36ec068a6fb9ULL},
++  {0x6978e39, 0xfb012b39a051ffdaULL},
++  {0x6978f22, 0x0b59d14ed417a261ULL},
++  {0x144f28f, 0xa3ab629a038006faULL},
++  {0x6977435, 0xd41b13cb8ca38b72ULL},
++  {0x354c738, 0xb6ff50d28b239943ULL},
++  {0x355038d, 0xb6ff50d28b239943ULL},
++  {0x1447f16, 0x3fafb79b9497be76ULL},
++  {0x1449cde, 0xcfd59cfc2528cd32ULL},
++  {0x354e1e7, 0xc28e2ad934e39271ULL},
++  {0x144821f, 0xb6ff50d28b239943ULL},
++  {0x14484f4, 0x970394c06d3f2f3bULL},
++  {0x144a4c3, 0xfd9a3368548ba45fULL},
++  {0x144a763, 0xc3381005727edfe4ULL},
++  {0x14f70f3, 0x9d6a1137010ef051ULL},
++  {0x14f7344, 0xbb60b219146ae102ULL},
++  {0x354d98b, 0x052ef540dfd9d004ULL},
++  {0x354db23, 0x9043d463586a2cbdULL},
++  {0x354eefb, 0x05d97d49037a51a0ULL},
++  {0x354fdcc, 0x500aaacbed7f2028ULL},
++  {0x354fdfd, 0xee23231634b18202ULL},
++  {0x3551597, 0x6c1f89f7215c1bd9ULL},
++  {0x35517b7, 0xaf5020dff9d0757aULL},
++  {0x35999d8, 0xe081ddcf04476554ULL},
++  {0x359aa26, 0xda83c7e27efced64ULL},
++  {0x6976593, 0x5bcc46fd248675f5ULL},
++  {0x69769ac, 0xa03db2b7c4756f63ULL},
++  {0x192de00, 0x0c6f7f358fb3af6fULL},
++  {0x192ea45, 0xa8507546bebfd580ULL},
++  {0x192ead1, 0xbf9106ea7e6fdcd8ULL},
++  {0x192eb0d, 0x962370cc68c9392eULL},
++  {0x192e770, 0x1a02351d2002d182ULL},
++  {0x192e7a0, 0xe28253a08528b71bULL},
++  {0x19300d1, 0x161e9b42be70909dULL},
++  {0x1930120, 0x4acd28457d1d007cULL},
++  {0x1930131, 0xf56f0a22d87f9d87ULL},
++  {0x144a510, 0xd3e0c89173ca5dceULL},
++  {0x192e060, 0xfbcc4e99239b1a9fULL},
++  {0x1930392, 0x69c0b0ef249ac891ULL},
++  {0x192e183, 0x4f55baa714b206ebULL},
++  {0x1f100ea, 0x8aa37a93243656afULL},
++  {0x3553880, 0xfbcc3e99239aff6fULL},
++  {0x35538db, 0xbf2bf66525fe536eULL},
++  {0x35538e8, 0x0ce0f1d9801717ebULL},
++  {0x35539bc, 0x30f746da0b30515fULL},
++  {0x3553e7c, 0xe3c49220bd431ce7ULL},
++  {0x35542d9, 0xd7d18c8d2818dcc8ULL},
++  {0x3f4730, 0xf3f3b82b0f377d29ULL}, // Public GetType entry also exercises trace in the bounded CEF probe.
++  {0x3066a0, 0x19183689561337ffULL},
++  {0x306715, 0xf76afddf95100ba3ULL},
++  {0x3067d3, 0x003e4ffcdc8e40f9ULL},
++  {0x30681f, 0x924d4a62df6c346bULL},
++  {0x47cf1e, 0x0a85b5881ed8f4ccULL},
++  {0x47c697, 0x78cd6c8f3a3dab15ULL},
++  {0x404ab1, 0x1c05d3ae2192efaaULL},
++  {0x404b10, 0x80586c4390d932c3ULL},
++};
++inline uint64_t Hash16(const uint8_t* Bytes) {
++  uint64_t Hash = 14695981039346656037ULL;
++  for (unsigned i = 0; i < 16; ++i) Hash = (Hash ^ Bytes[i]) * 1099511628211ULL;
++  return Hash;
++}
++inline bool Arm(uint64_t Address, uint64_t End) {
++  Base.store(0, std::memory_order_release);
++  if (!Enabled || End < Address) return false;
++  for (const auto& Site : Sites) {
++    if (Site.RVA + 16 > End - Address ||
++        Hash16(reinterpret_cast<const uint8_t*>(Address + Site.RVA)) != Site.Hash) return false;
++  }
++  Base.store(Address, std::memory_order_release);
++  return true;
++}
++inline uint64_t Match(uint64_t Address) {
++  if (!Enabled) return 0;
++  const uint64_t Current = Base.load(std::memory_order_acquire);
++  if (!Current || Address < Current) return 0;
++  for (const auto& Site : Sites) {
++    if (Address - Current == Site.RVA &&
++        Hash16(reinterpret_cast<const uint8_t*>(Address)) == Site.Hash) return Site.RVA;
++  }
++  return 0;
++}
++}
+diff --git a/Source/Windows/ARM64EC/libarm64ecfex.def b/Source/Windows/ARM64EC/libarm64ecfex.def
+index d8ced1d57..645b08c71 100644
+--- a/Source/Windows/ARM64EC/libarm64ecfex.def
++++ b/Source/Windows/ARM64EC/libarm64ecfex.def
+@@ -4,7 +4,10 @@ EXPORTS
+   BTCpu64FlushInstructionCache
+   BTCpu64IosAddAliasMapping
+   BTCpu64IosRipFromHostPC
++  BTCpu64IosSetStateClose
+   BTCpu64IosSetMonoBridge
++  BTCpu64IosPendingThreadCleanup
++  BTCpu64IosCleanupTerminatedWaiter
+   BTCpu64IosReleaseThreadHolds
+   BTCpu64IsProcessorFeaturePresent
+   BTCpu64NotifyMemoryDirty

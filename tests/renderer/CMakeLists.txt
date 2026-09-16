@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.20)
+project(AgePadRendererProbe LANGUAGES CXX OBJCXX)
+set(SFML_STATIC_LIBRARIES TRUE)
+find_package(SFML 2.6 COMPONENTS graphics window system REQUIRED)
+add_executable(renderer_probe MACOSX_BUNDLE renderer-probe.mm)
+target_compile_features(renderer_probe PRIVATE cxx_std_17)
+target_link_libraries(renderer_probe PRIVATE sfml-graphics sfml-window sfml-system sfml-main "-framework UIKit" "-framework Foundation")
+set_target_properties(renderer_probe PROPERTIES XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)

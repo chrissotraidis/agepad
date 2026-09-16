@@ -1,0 +1,35 @@
+diff --git a/rpmalloc/rpmalloc.c b/rpmalloc/rpmalloc.c
+index db56403..ee5083f 100644
+--- a/rpmalloc/rpmalloc.c
++++ b/rpmalloc/rpmalloc.c
+@@ -3290,6 +3290,15 @@ rpmalloc_finalize(void) {
+ 	global_rpmalloc_initialized = 0;
+ }
+ 
++/* Only after all clients and destructors have stopped using this instance.
++ * This is not a thread-exit operation and must not race remote frees. */
++extern void
++rpmalloc_finalize_with_unmap(void) {
++    if (!global_rpmalloc_initialized) return;
++    global_config.unmap_on_finalize = 1;
++    rpmalloc_finalize();
++}
++
+ extern void
+ rpmalloc_thread_initialize(void) {
+ 	if (get_thread_heap() == global_heap_default)
+diff --git a/rpmalloc/rpmalloc.h b/rpmalloc/rpmalloc.h
+index d11292f..6a5dac9 100644
+--- a/rpmalloc/rpmalloc.h
++++ b/rpmalloc/rpmalloc.h
+@@ -213,6 +213,10 @@ rpmalloc_config(void);
+ RPMALLOC_EXPORT void
+ rpmalloc_finalize(void);
+ 
++//! Explicit whole-instance teardown; caller guarantees no live allocations or users.
++RPMALLOC_EXPORT void
++rpmalloc_finalize_with_unmap(void);
++
+ //! Initialize allocator for calling thread
+ RPMALLOC_EXPORT void
+ rpmalloc_thread_initialize(void);

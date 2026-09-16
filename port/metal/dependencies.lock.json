@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "status": "private experimental backend; not complete game/device acceptance",
+  "angle": {
+    "url": "https://chromium.googlesource.com/angle/angle",
+    "commit": "52f594287836c9970b67920da0633077aee42649",
+    "patch": "port/metal/angle-es1-blend.patch"
+  },
+  "sfml": {
+    "url": "https://github.com/SFML/SFML.git",
+    "commit": "5383d2b3948f805af55c9f8a4587ac72ec5981d1",
+    "patch": "port/metal/sfml-angle.patch"
+  },
+  "dependencies": [
+    {
+      "path": "build",
+      "url": "https://chromium.googlesource.com/chromium/src/build.git",
+      "revision": "ba19ee0d4c868d6f3a7420b4a07ab3e2d2455ecf"
+    },
+    {
+      "path": "buildtools",
+      "url": "https://chromium.googlesource.com/chromium/src/buildtools.git",
+      "revision": "6f6a5dbf04b734214f3b1f386567d101ec9d607e"
+    },
+    {
+      "path": "testing",
+      "url": "https://chromium.googlesource.com/chromium/src/testing",
+      "revision": "9623feb2d853384e25a59e43b31bc6657f978b90"
+    },
+    {
+      "path": "third_party/abseil-cpp",
+      "url": "https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp",
+      "revision": "0e74ba7fb3f36e8a31d600d411c2a866c96411cf"
+    },
+    {
+      "path": "third_party/zlib",
+      "url": "https://chromium.googlesource.com/chromium/src/third_party/zlib",
+      "revision": "285e94b8fa95ad3b7d16b80798ec8dce6febb8c8"
+    },
+    {
+      "path": "tools/clang",
+      "url": "https://chromium.googlesource.com/chromium/src/tools/clang.git",
+      "revision": "479a8b14de25cc5ee656fe7fab92ef09d2fd58d8"
+    },
+    {
+      "path": "third_party/spirv-headers/src",
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers",
+      "revision": "496543121ce6419f23d6fa5d7194ba66c36212d2"
+    },
+    {
+      "path": "third_party/spirv-tools/src",
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools",
+      "revision": "fd9bc85c546219b61b04556695c17f4ac3a4192a"
+    }
+  ],
+  "gn": {
+    "version": "2552 (4f6a76b64b82)",
+    "cipd_package": "gn/gn/mac-arm64",
+    "cipd_version": "git_revision:4f6a76b64b8279e98004f541f8e136307efe5e01"
+  },
+  "clang": {
+    "package_version": "llvmorg-24-init-3796-g20e97c4b-5",
+    "packages": [
+      "clang",
+      "objdump"
+    ],
+    "installer": "tools/clang/scripts/update.py"
+  },
+  "files": {
+    "port/metal/sfml-angle.patch": "1ad6b3eb904d84d0307df159ae090489db7ce28ede718c4028ba450ef9dfcbb3",
+    "port/metal/args.gn": "c917b3c701695372051bb27b0c0a51be317fc927b93e5f00f7ef0fc8101b63d9",
+    "port/metal/angle-es1-blend.patch": "8a262f65a9fd29e0c42e992be6f4f1922667b3f8786d15ba967ed2fd0588c1ea",
+    "port/metal/gclient_args.gni": "9a818462164c79449cc1cb872a405e8a40eab6bc4de4a33efd4fb35a4427114b"
+  },
+  "deployment_target": "18.0",
+  "architecture": "arm64"
+}
