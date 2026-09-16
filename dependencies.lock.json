@@ -1,0 +1,83 @@
+{
+  "spec_revision": "agepad-v2-2026-09-06",
+  "sources": {
+    "freeaoe": {
+      "url": "https://github.com/sandsmark/freeaoe.git",
+      "commit": "f5e46da59761868aa1814037f712f277c71b5bb3",
+      "submodules": [
+        {
+          "path": "doc/geniedoc",
+          "commit": "e7d24555452c3c82437079bfdeb503ad013b6dba"
+        },
+        {
+          "path": "src/extern/genieutils",
+          "commit": "4692a881799b5b2a392fb19f1f9043569431f54b"
+        },
+        {
+          "path": "src/extern/genieutils/extern/pcrio",
+          "commit": "d4e43d76317efaacc76dd1980ff1090e3e138600"
+        },
+        {
+          "path": "src/extern/genieutils/extern/win-iconv",
+          "commit": "9f98392dfecadffd62572e73e9aba878e03496c4"
+        },
+        {
+          "path": "src/extern/genieutils/extern/zstr",
+          "commit": "7abde357b82f79857b635500abe68ea0fe1e5109"
+        },
+        {
+          "path": "src/extern/miniaudio",
+          "commit": "d06d4983d3ff512690eb37f5edd25bf96f8f3764"
+        },
+        {
+          "path": "src/extern/tinysoundfont",
+          "commit": "bf574519e601202c3a9d27a74f345921277eed39"
+        }
+      ]
+    },
+    "sfml": {
+      "url": "https://github.com/SFML/SFML.git",
+      "commit": "5383d2b3948f805af55c9f8a4587ac72ec5981d1",
+      "submodules": []
+    },
+    "paperpad": {
+      "url": "https://github.com/chrissotraidis/paperpad.git",
+      "commit": "74b6e45830a06c7f274c5ac1ddd7c625bc13a557",
+      "submodules": [],
+      "role": "read-only shell/process reference; no game dependencies initialized"
+    }
+  },
+  "toolchain": {
+    "xcode": "26.6 (17F113)",
+    "apple_sdks": "26.5",
+    "cmake": "3.27.1",
+    "ninja": "1.13.2",
+    "architecture": "arm64",
+    "sfml": "2.6.2",
+    "math": "upstream fast-math; strict experiment pending"
+  },
+  "patches": [
+    {
+      "source": "freeaoe",
+      "path": "port/patches/freeaoe-macos-build.patch",
+      "sha256": "877a6c4edd7e391c460a13fac3a99208ffa57e8f7423adab48f99eddeab1e63a"
+    }
+  ],
+  "source_archives": [
+    {
+      "name": "freetype",
+      "version": "2.5.5",
+      "url": "https://download-mirror.savannah.gnu.org/releases/freetype/freetype-old/freetype-2.5.5.tar.bz2",
+      "sha256": "387bcc4b780b12484aa2ec9f7db1a55d8286eb5639f45fbc0fbba7a4e5a1afb9",
+      "reference_path": "ref/freetype-2.5.5",
+      "role": "iOS source rebuild matching pinned SFML headers; source hash recorded on intake",
+      "archive_path": "generated/freetype-2.5.5.tar.bz2"
+    }
+  ],
+  "optional_backends": {
+    "metal": {
+      "path": "port/metal/dependencies.lock.json",
+      "sha256": "7d5f566e27dacd4ef13c3b72f5f7c6bf9b18d9e10bbf881301c8cc2da72c8ff1"
+    }
+  }
+}

@@ -1,0 +1,915 @@
+diff --git a/doc/ExtensionSupport.md b/doc/ExtensionSupport.md
+index 8161c51..d0c0ef1 100644
+--- a/doc/ExtensionSupport.md
++++ b/doc/ExtensionSupport.md
+@@ -268,6 +268,8 @@ using data from registry_xml.py and gl.xml.
+ 
+ | Extension Name | SwiftShader Win10 |
+ | -------------- | :---------------: |
++| [GL_OES_blend_equation_separate](https://khronos.org/registry/OpenGL/extensions/OES/OES_blend_equation_separate.txt) |  |
++| [GL_OES_blend_func_separate](https://khronos.org/registry/OpenGL/extensions/OES/OES_blend_func_separate.txt) |  |
+ | [GL_OES_blend_subtract](https://khronos.org/registry/OpenGL/extensions/OES/OES_blend_subtract.txt) |  |
+ | [GL_OES_draw_texture](https://khronos.org/registry/OpenGL/extensions/OES/OES_draw_texture.txt) | &#x2714; |
+ | [GL_OES_framebuffer_object](https://khronos.org/registry/OpenGL/extensions/OES/OES_framebuffer_object.txt) | &#x2714; |
+diff --git a/scripts/code_generation_hashes/Extension_files.json b/scripts/code_generation_hashes/Extension_files.json
+index aa6d0ff..39137ce 100644
+--- a/scripts/code_generation_hashes/Extension_files.json
++++ b/scripts/code_generation_hashes/Extension_files.json
+@@ -1,6 +1,6 @@
+ {
+   "doc/ExtensionSupport.md":
+-    "fc24f433c996c72cfdd0224def0feef5",
++    "8c3c61bd9e5bff4cc04768cf1be80f56",
+   "scripts/egl_angle_ext.xml":
+     "b9a7eb420072ec27819ebf2d41c07748",
+   "scripts/extension_data/intel_630_linux.json":
+@@ -22,13 +22,13 @@
+   "scripts/gl_angle_ext.xml":
+     "7c8a9d563c1229cb360245781460e360",
+   "scripts/registry_xml.py":
+-    "5d2c2e9b94fc4973a7f2ff4cc432338e",
++    "ef420acd76e30e4a03c8a5ee17c11092",
+   "src/libANGLE/gen_extensions.py":
+     "b633607f7ec8333cd64234e5e10af145",
+   "src/libANGLE/gles_extensions_autogen.cpp":
+-    "ebd87fab603f1a15dbbc34056e416e33",
++    "11f9901fe339e60961eb41b20b5e3721",
+   "src/libANGLE/gles_extensions_autogen.h":
+-    "a870769bc8d5df0c2773b05fcda5275e",
++    "7fa64014506e550d8224b0fefb603e2b",
+   "third_party/EGL-Registry/src/api/egl.xml":
+     "2056d54ea07156f1988ca1366bdee21a",
+   "third_party/OpenCL-Docs/src/xml/cl.xml":
+diff --git a/scripts/code_generation_hashes/GL_EGL_WGL_loader.json b/scripts/code_generation_hashes/GL_EGL_WGL_loader.json
+index c5e98ab..ae98c1b 100644
+--- a/scripts/code_generation_hashes/GL_EGL_WGL_loader.json
++++ b/scripts/code_generation_hashes/GL_EGL_WGL_loader.json
+@@ -6,7 +6,7 @@
+   "scripts/gl_angle_ext.xml":
+     "7c8a9d563c1229cb360245781460e360",
+   "scripts/registry_xml.py":
+-    "5d2c2e9b94fc4973a7f2ff4cc432338e",
++    "ef420acd76e30e4a03c8a5ee17c11092",
+   "src/libEGL/egl_loader_autogen.cpp":
+     "2aca2a57c51fc2b1c7e1da0a7ccf6107",
+   "src/libEGL/egl_loader_autogen.h":
+@@ -26,17 +26,17 @@
+   "util/capture/trace_egl_loader_autogen.h":
+     "9adc81af729078b16b36647f02401342",
+   "util/capture/trace_gles_loader_autogen.cpp":
+-    "ea6c7daeecbdc4e1b6ec502b7e7ba587",
++    "482f86c522650b93b5e7a52066b47631",
+   "util/capture/trace_gles_loader_autogen.h":
+-    "8ba3c980ecd2ad662341fc186704196d",
++    "5afa6ddfbf5728ebbc599b17697cd688",
+   "util/egl_loader_autogen.cpp":
+     "ae6abfc6c2c0a997ad59258dfc0339ce",
+   "util/egl_loader_autogen.h":
+     "ea5f73048616a6fc80eaa7e93ef5f0ce",
+   "util/gles_loader_autogen.cpp":
+-    "6ea938eb0bac53e24b4f5388eb86b74d",
++    "b5aac46a62d6e09dc49081813eeeaedc",
+   "util/gles_loader_autogen.h":
+-    "4602ff6b42b3e5870cab493b650e6a16",
++    "221783284d4e2c23e7d2c5ba077b59e6",
+   "util/windows/wgl_loader_autogen.cpp":
+     "373b062587eab8a163121255f54597dc",
+   "util/windows/wgl_loader_autogen.h":
+diff --git a/scripts/code_generation_hashes/GL_EGL_entry_points.json b/scripts/code_generation_hashes/GL_EGL_entry_points.json
+index 74e7d95..3d104fe 100644
+--- a/scripts/code_generation_hashes/GL_EGL_entry_points.json
++++ b/scripts/code_generation_hashes/GL_EGL_entry_points.json
+@@ -10,11 +10,11 @@
+   "scripts/gl_angle_ext.xml":
+     "7c8a9d563c1229cb360245781460e360",
+   "scripts/registry_xml.py":
+-    "5d2c2e9b94fc4973a7f2ff4cc432338e",
++    "ef420acd76e30e4a03c8a5ee17c11092",
+   "src/common/entry_points_enum_autogen.cpp":
+-    "a3f7f43ccd00491163634b6c8ebdaf16",
++    "a0692531bdf52e142b5941803726834a",
+   "src/common/entry_points_enum_autogen.h":
+-    "170548243ee54b636dfa57f9f3a29b78",
++    "364d1d11aa95838d1d739e4880470cf1",
+   "src/common/frame_capture_utils_autogen.cpp":
+     "bb9d1b810c04d9a27eb1a527fc27232f",
+   "src/common/frame_capture_utils_autogen.h":
+@@ -30,7 +30,7 @@
+   "src/libANGLE/Context_gles_3_2_autogen.h":
+     "2c9c311770948eff8e705e8f571b706a",
+   "src/libANGLE/Context_gles_ext_autogen.h":
+-    "446378d15077f23f6c7b40ff7983d1c2",
++    "30803898defdcea8211422682fa43d44",
+   "src/libANGLE/capture/capture_cl_autogen.cpp":
+     "a391fcabc30b0e1811f89e18cee4683f",
+   "src/libANGLE/capture/capture_cl_autogen.h":
+@@ -60,9 +60,9 @@
+   "src/libANGLE/capture/capture_gles_3_2_autogen.h":
+     "b7b82465a98fc2d9e2d3e3a75d49b94c",
+   "src/libANGLE/capture/capture_gles_ext_autogen.cpp":
+-    "8bc7ce81f06e3c143d6f15e638ab4b9e",
++    "b0583cd2c7d46235b3747749b5862f65",
+   "src/libANGLE/capture/capture_gles_ext_autogen.h":
+-    "2c46f2138f5f011f404e55a5a0d83b16",
++    "17126524d3b27c3b2ba4cd3a839828c8",
+   "src/libANGLE/context_private_call_autogen.h":
+     "5b91046724564ebbf651ad11b051ea61",
+   "src/libANGLE/validationCL_autogen.h":
+@@ -80,7 +80,7 @@
+   "src/libANGLE/validationES3_autogen.h":
+     "a9c304e2e8ec7f6bd4cd71003fbbeec4",
+   "src/libANGLE/validationESEXT_autogen.h":
+-    "accd65de1ffb662c0469307205cba2f1",
++    "74a9330c8a717e9065f73a5ea635a0f8",
+   "src/libEGL/libEGL_autogen.cpp":
+     "8c9edded59d8f12df7e6bb422763adad",
+   "src/libEGL/libEGL_autogen.def":
+@@ -130,23 +130,23 @@
+   "src/libGLESv2/entry_points_gles_3_2_autogen.h":
+     "647f932a299cdb4726b60bbba059f0d2",
+   "src/libGLESv2/entry_points_gles_ext_autogen.cpp":
+-    "e1e4857905f0cfc9b1a5d4123b8ee012",
++    "b9840a0ae1fa7e5e4a1161a32f954eef",
+   "src/libGLESv2/entry_points_gles_ext_autogen.h":
+-    "4e05535667599fec4abe94a65c65809f",
++    "fffc898848ee0e3edf4c6e0abec045e8",
+   "src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.cpp":
+-    "950ce5629eb82ef062f8c93490cd6bef",
++    "81bff2d54a0b74d53361b587f908d210",
+   "src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.h":
+-    "64fe5dc719bcdf87fb6415fb84b2088a",
++    "74d648e1d98b66c0be06050d1b02ca43",
+   "src/libGLESv2/libGLESv2_autogen.cpp":
+-    "38e2b32f926727011cb1f82caa6c7bc7",
++    "138628e3276a746bf1b7c9cfdea9bf28",
+   "src/libGLESv2/libGLESv2_autogen.def":
+-    "6cb5b0c62a2c012afe82f353cbf1fe83",
++    "a75b3a795cd2c1497f24defc2eb8825c",
+   "src/libGLESv2/libGLESv2_no_capture_autogen.def":
+-    "b02a8b99aee6f65ccb9e9496ac91dbfb",
++    "480dcb9eff6dbe8fc20a4beb343eff7b",
+   "src/libGLESv2/libGLESv2_vulkan_secondaries_autogen.def":
+-    "8e14e3fb7d0d81111cd2473e9e61519a",
++    "b06b24a68a965978ef8bc68349211d44",
+   "src/libGLESv2/libGLESv2_with_capture_autogen.def":
+-    "8f775e37a17eb6c1efc962d27c485b59",
++    "f95b84002d553870d1248bf499af59bc",
+   "src/libOpenCL/libOpenCL_autogen.cpp":
+     "b269a634d29f84fbc570b5ceca4ded04",
+   "third_party/EGL-Registry/src/api/egl.xml":
+@@ -160,5 +160,5 @@
+   "third_party/OpenGL-Registry/src/xml/wgl.xml":
+     "53f90180449a1abcd8fdfe56fc5c869c",
+   "util/capture/frame_capture_replay_autogen.cpp":
+-    "a9eafde87a5e772b709025546ff2d6a0"
++    "85de389d07af496c9e7d3ceaaaebb2ef"
+ }
+diff --git a/scripts/code_generation_hashes/proc_table.json b/scripts/code_generation_hashes/proc_table.json
+index 367615a..9670e61 100644
+--- a/scripts/code_generation_hashes/proc_table.json
++++ b/scripts/code_generation_hashes/proc_table.json
+@@ -6,9 +6,9 @@
+   "scripts/gl_angle_ext.xml":
+     "7c8a9d563c1229cb360245781460e360",
+   "scripts/registry_xml.py":
+-    "5d2c2e9b94fc4973a7f2ff4cc432338e",
++    "ef420acd76e30e4a03c8a5ee17c11092",
+   "src/libGLESv2/egl_stubs_getprocaddress_autogen.cpp":
+-    "237f783c487bafde5c2e7a45cb841893",
++    "1dbd94cca227a53d4864cabd2f6333a2",
+   "src/libGLESv2/proc_table_cl_autogen.cpp":
+     "c574d0cc27530b51e3fdc99b13bc740a",
+   "src/libOpenCL/libOpenCL_autogen.map":
+diff --git a/scripts/registry_xml.py b/scripts/registry_xml.py
+index cf2f426..2a2deaf 100644
+--- a/scripts/registry_xml.py
++++ b/scripts/registry_xml.py
+@@ -288,6 +288,8 @@ gles_es_only_extensions = [
+ # ES1 (Possibly the min set of extensions needed by Android)
+ gles1_extensions = [
+     "GL_EXT_texture_lod_bias",
++    "GL_OES_blend_equation_separate",
++    "GL_OES_blend_func_separate",
+     "GL_OES_blend_subtract",
+     "GL_OES_draw_texture",
+     "GL_OES_framebuffer_object",
+diff --git a/src/common/entry_points_enum_autogen.cpp b/src/common/entry_points_enum_autogen.cpp
+index aa274ae..4af9e52 100644
+--- a/src/common/entry_points_enum_autogen.cpp
++++ b/src/common/entry_points_enum_autogen.cpp
+@@ -568,6 +568,8 @@ const char *GetEntryPointName(EntryPoint ep)
+             return "glBlendEquationOES";
+         case EntryPoint::GLBlendEquationSeparate:
+             return "glBlendEquationSeparate";
++        case EntryPoint::GLBlendEquationSeparateOES:
++            return "glBlendEquationSeparateOES";
+         case EntryPoint::GLBlendEquationSeparatei:
+             return "glBlendEquationSeparatei";
+         case EntryPoint::GLBlendEquationSeparateiEXT:
+@@ -584,6 +586,8 @@ const char *GetEntryPointName(EntryPoint ep)
+             return "glBlendFunc";
+         case EntryPoint::GLBlendFuncSeparate:
+             return "glBlendFuncSeparate";
++        case EntryPoint::GLBlendFuncSeparateOES:
++            return "glBlendFuncSeparateOES";
+         case EntryPoint::GLBlendFuncSeparatei:
+             return "glBlendFuncSeparatei";
+         case EntryPoint::GLBlendFuncSeparateiEXT:
+diff --git a/src/common/entry_points_enum_autogen.h b/src/common/entry_points_enum_autogen.h
+index af08060..8e2a034 100644
+--- a/src/common/entry_points_enum_autogen.h
++++ b/src/common/entry_points_enum_autogen.h
+@@ -290,6 +290,7 @@ enum class EntryPoint
+     GLBlendEquation,
+     GLBlendEquationOES,
+     GLBlendEquationSeparate,
++    GLBlendEquationSeparateOES,
+     GLBlendEquationSeparatei,
+     GLBlendEquationSeparateiEXT,
+     GLBlendEquationSeparateiOES,
+@@ -298,6 +299,7 @@ enum class EntryPoint
+     GLBlendEquationiOES,
+     GLBlendFunc,
+     GLBlendFuncSeparate,
++    GLBlendFuncSeparateOES,
+     GLBlendFuncSeparatei,
+     GLBlendFuncSeparateiEXT,
+     GLBlendFuncSeparateiOES,
+diff --git a/src/libANGLE/Context.cpp b/src/libANGLE/Context.cpp
+index acd6b60..c02f354 100644
+--- a/src/libANGLE/Context.cpp
++++ b/src/libANGLE/Context.cpp
+@@ -3985,6 +3985,8 @@ Extensions Context::generateSupportedExtensions() const
+     {
+         // Default extensions for GLES1
+         supportedExtensions.blendSubtractOES         = true;
++        supportedExtensions.blendFuncSeparateOES = true;
++        supportedExtensions.blendEquationSeparateOES = true;
+         supportedExtensions.pointSizeArrayOES        = true;
+         supportedExtensions.textureCubeMapOES        = true;
+         supportedExtensions.textureMirroredRepeatOES = true;
+diff --git a/src/libANGLE/Context_gles_ext_autogen.h b/src/libANGLE/Context_gles_ext_autogen.h
+index 9f11356..2ab5602 100644
+--- a/src/libANGLE/Context_gles_ext_autogen.h
++++ b/src/libANGLE/Context_gles_ext_autogen.h
+@@ -15,6 +15,8 @@
+     /* GLES1 Extensions */                                                                         \
+                                                                                                    \
+     /* GL_EXT_texture_lod_bias */                                                                  \
++    /* GL_OES_blend_equation_separate */                                                           \
++    /* GL_OES_blend_func_separate */                                                               \
+     /* GL_OES_blend_subtract */                                                                    \
+     /* GL_OES_draw_texture */                                                                      \
+     void drawTexf(GLfloat x, GLfloat y, GLfloat z, GLfloat width, GLfloat height);                 \
+diff --git a/src/libANGLE/capture/capture_gles_ext_autogen.cpp b/src/libANGLE/capture/capture_gles_ext_autogen.cpp
+index 3112a98..998c59b 100644
+--- a/src/libANGLE/capture/capture_gles_ext_autogen.cpp
++++ b/src/libANGLE/capture/capture_gles_ext_autogen.cpp
+@@ -8807,6 +8807,38 @@ CallCapture CaptureEGLImageTargetTexture2DOES(const State &glState,
+     return CallCapture(angle::EntryPoint::GLEGLImageTargetTexture2DOES, std::move(paramBuffer));
+ }
+ 
++CallCapture CaptureBlendEquationSeparateOES(const State &glState,
++                                            bool isCallValid,
++                                            GLenum modeRGB,
++                                            GLenum modeAlpha)
++{
++    ParamBuffer paramBuffer;
++
++    paramBuffer.addEnumParam("modeRGB", GLESEnum::BlendEquationModeEXT, ParamType::TGLenum,
++                             modeRGB);
++    paramBuffer.addEnumParam("modeAlpha", GLESEnum::BlendEquationModeEXT, ParamType::TGLenum,
++                             modeAlpha);
++
++    return CallCapture(angle::EntryPoint::GLBlendEquationSeparateOES, std::move(paramBuffer));
++}
++
++CallCapture CaptureBlendFuncSeparateOES(const State &glState,
++                                        bool isCallValid,
++                                        GLenum srcRGB,
++                                        GLenum dstRGB,
++                                        GLenum srcAlpha,
++                                        GLenum dstAlpha)
++{
++    ParamBuffer paramBuffer;
++
++    paramBuffer.addEnumParam("srcRGB", GLESEnum::BlendingFactor, ParamType::TGLenum, srcRGB);
++    paramBuffer.addEnumParam("dstRGB", GLESEnum::BlendingFactor, ParamType::TGLenum, dstRGB);
++    paramBuffer.addEnumParam("srcAlpha", GLESEnum::BlendingFactor, ParamType::TGLenum, srcAlpha);
++    paramBuffer.addEnumParam("dstAlpha", GLESEnum::BlendingFactor, ParamType::TGLenum, dstAlpha);
++
++    return CallCapture(angle::EntryPoint::GLBlendFuncSeparateOES, std::move(paramBuffer));
++}
++
+ CallCapture CaptureBlendEquationOES(const State &glState, bool isCallValid, GLenum mode)
+ {
+     ParamBuffer paramBuffer;
+diff --git a/src/libANGLE/capture/capture_gles_ext_autogen.h b/src/libANGLE/capture/capture_gles_ext_autogen.h
+index 6be706e..759f8f6 100644
+--- a/src/libANGLE/capture/capture_gles_ext_autogen.h
++++ b/src/libANGLE/capture/capture_gles_ext_autogen.h
+@@ -2178,6 +2178,20 @@ angle::CallCapture CaptureEGLImageTargetTexture2DOES(const State &glState,
+ 
+ // GL_OES_EGL_image_external_essl3
+ 
++// GL_OES_blend_equation_separate
++angle::CallCapture CaptureBlendEquationSeparateOES(const State &glState,
++                                                   bool isCallValid,
++                                                   GLenum modeRGB,
++                                                   GLenum modeAlpha);
++
++// GL_OES_blend_func_separate
++angle::CallCapture CaptureBlendFuncSeparateOES(const State &glState,
++                                               bool isCallValid,
++                                               GLenum srcRGB,
++                                               GLenum dstRGB,
++                                               GLenum srcAlpha,
++                                               GLenum dstAlpha);
++
+ // GL_OES_blend_subtract
+ angle::CallCapture CaptureBlendEquationOES(const State &glState, bool isCallValid, GLenum mode);
+ 
+diff --git a/src/libANGLE/gles_extensions_autogen.cpp b/src/libANGLE/gles_extensions_autogen.cpp
+index 436b738..35af9be 100644
+--- a/src/libANGLE/gles_extensions_autogen.cpp
++++ b/src/libANGLE/gles_extensions_autogen.cpp
+@@ -272,6 +272,8 @@ const ExtensionInfoMap &GetExtensionInfoMap()
+ 
+         // GLES 1.0 and 1.1 extension strings
+         // ----------------------------------
++        map["GL_OES_blend_equation_separate"] = enableableExtension(&Extensions::blendEquationSeparateOES);
++        map["GL_OES_blend_func_separate"] = enableableExtension(&Extensions::blendFuncSeparateOES);
+         map["GL_OES_blend_subtract"] = enableableExtension(&Extensions::blendSubtractOES);
+         map["GL_OES_draw_texture"] = enableableExtension(&Extensions::drawTextureOES);
+         map["GL_OES_framebuffer_object"] = enableableExtension(&Extensions::framebufferObjectOES);
+diff --git a/src/libANGLE/gles_extensions_autogen.h b/src/libANGLE/gles_extensions_autogen.h
+index 7fb06ac..a05cd0c 100644
+--- a/src/libANGLE/gles_extensions_autogen.h
++++ b/src/libANGLE/gles_extensions_autogen.h
+@@ -789,6 +789,12 @@ struct Extensions
+     // GLES 1.0 and 1.1 extensions
+     // ---------------------------
+ 
++    // GL_OES_blend_equation_separate
++    bool blendEquationSeparateOES = false;
++
++    // GL_OES_blend_func_separate
++    bool blendFuncSeparateOES = false;
++
+     // GL_OES_blend_subtract
+     bool blendSubtractOES = false;
+ 
+diff --git a/src/libANGLE/validationESEXT.cpp b/src/libANGLE/validationESEXT.cpp
+index 4a053e0..5c4f600 100644
+--- a/src/libANGLE/validationESEXT.cpp
++++ b/src/libANGLE/validationESEXT.cpp
+@@ -855,6 +855,19 @@ bool ValidateReadnPixelsKHR(const Context *context,
+                                   data);
+ }
+ 
++// AgePad: ES1 OES entry points use the existing backend blend state and validation.
++bool ValidateBlendFuncSeparateOES(const PrivateState &state, ErrorSet *errors,
++                                  angle::EntryPoint entryPoint, GLenum srcRGB, GLenum dstRGB,
++                                  GLenum srcAlpha, GLenum dstAlpha)
++{
++    return ValidateBlendFuncSeparate(state, errors, entryPoint, srcRGB, dstRGB, srcAlpha, dstAlpha);
++}
++bool ValidateBlendEquationSeparateOES(const PrivateState &state, ErrorSet *errors,
++                                      angle::EntryPoint entryPoint, GLenum modeRGB, GLenum modeAlpha)
++{
++    return ValidateBlendEquationSeparate(state, errors, entryPoint, modeRGB, modeAlpha);
++}
++
+ bool ValidateBlendEquationOES(const PrivateState &state,
+                               ErrorSet *errors,
+                               angle::EntryPoint entryPoint,
+diff --git a/src/libANGLE/validationESEXT_autogen.h b/src/libANGLE/validationESEXT_autogen.h
+index 05ba4c1..34cb977 100644
+--- a/src/libANGLE/validationESEXT_autogen.h
++++ b/src/libANGLE/validationESEXT_autogen.h
+@@ -2125,6 +2125,22 @@ bool ValidateEGLImageTargetTexture2DOES(const Context *context,
+ 
+ // GL_OES_EGL_image_external_essl3
+ 
++// GL_OES_blend_equation_separate
++bool ValidateBlendEquationSeparateOES(const PrivateState &state,
++                                      ErrorSet *errors,
++                                      angle::EntryPoint entryPoint,
++                                      GLenum modeRGB,
++                                      GLenum modeAlpha);
++
++// GL_OES_blend_func_separate
++bool ValidateBlendFuncSeparateOES(const PrivateState &state,
++                                  ErrorSet *errors,
++                                  angle::EntryPoint entryPoint,
++                                  GLenum srcRGB,
++                                  GLenum dstRGB,
++                                  GLenum srcAlpha,
++                                  GLenum dstAlpha);
++
+ // GL_OES_blend_subtract
+ bool ValidateBlendEquationOES(const PrivateState &state,
+                               ErrorSet *errors,
+diff --git a/src/libGLESv2/egl_stubs_getprocaddress_autogen.cpp b/src/libGLESv2/egl_stubs_getprocaddress_autogen.cpp
+index 249ad32..d899298 100644
+--- a/src/libGLESv2/egl_stubs_getprocaddress_autogen.cpp
++++ b/src/libGLESv2/egl_stubs_getprocaddress_autogen.cpp
+@@ -314,6 +314,10 @@ const ProcEntry g_procTable[] = {
+     {"glBlendEquationSeparate", P(GL_BlendEquationSeparate)},
+ #if defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
+     {"glBlendEquationSeparateContextANGLE", P(GL_BlendEquationSeparateContextANGLE)},
++#endif // defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
++    {"glBlendEquationSeparateOES", P(GL_BlendEquationSeparateOES)},
++#if defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
++    {"glBlendEquationSeparateOESContextANGLE", P(GL_BlendEquationSeparateOESContextANGLE)},
+ #endif // defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
+     {"glBlendEquationSeparatei", P(GL_BlendEquationSeparatei)},
+ #if defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
+@@ -346,6 +350,10 @@ const ProcEntry g_procTable[] = {
+     {"glBlendFuncSeparate", P(GL_BlendFuncSeparate)},
+ #if defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
+     {"glBlendFuncSeparateContextANGLE", P(GL_BlendFuncSeparateContextANGLE)},
++#endif // defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
++    {"glBlendFuncSeparateOES", P(GL_BlendFuncSeparateOES)},
++#if defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
++    {"glBlendFuncSeparateOESContextANGLE", P(GL_BlendFuncSeparateOESContextANGLE)},
+ #endif // defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
+     {"glBlendFuncSeparatei", P(GL_BlendFuncSeparatei)},
+ #if defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
+diff --git a/src/libGLESv2/entry_points_gles_ext_autogen.cpp b/src/libGLESv2/entry_points_gles_ext_autogen.cpp
+index e371aa9..e6c5d6a 100644
+--- a/src/libGLESv2/entry_points_gles_ext_autogen.cpp
++++ b/src/libGLESv2/entry_points_gles_ext_autogen.cpp
+@@ -15451,6 +15451,106 @@ void GL_APIENTRY GL_EGLImageTargetTexture2DOES(GLenum target, GLeglImageOES imag
+ 
+ // GL_OES_EGL_image_external_essl3
+ 
++// GL_OES_blend_equation_separate
++void GL_APIENTRY GL_BlendEquationSeparateOES(GLenum modeRGB, GLenum modeAlpha)
++{
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++    Context *context = GetValidGlobalContext();
++    EVENT(context, GLBlendEquationSeparateOES, "context = %d, modeRGB = %s, modeAlpha = %s",
++          CID(context), GLenumToString(GLESEnum::BlendEquationModeEXT, modeRGB),
++          GLenumToString(GLESEnum::BlendEquationModeEXT, modeAlpha));
++
++    if (ANGLE_LIKELY(context != nullptr))
++    {
++        bool isCallValid = context->skipValidation();
++        if (!isCallValid)
++        {
++            if (ANGLE_LIKELY(context->getExtensions().blendEquationSeparateOES))
++            {
++#if defined(ANGLE_ENABLE_ASSERTS)
++                const uint32_t errorCount = context->getPushedErrorCount();
++#endif
++                isCallValid = ValidateBlendEquationSeparateOES(
++                    context->getPrivateState(), context->getMutableErrorSetForValidation(),
++                    angle::EntryPoint::GLBlendEquationSeparateOES, modeRGB, modeAlpha);
++#if defined(ANGLE_ENABLE_ASSERTS)
++                ASSERT(isCallValid || context->getPushedErrorCount() != errorCount);
++#endif
++            }
++            else
++            {
++                RecordVersionErrorESEXT(context, angle::EntryPoint::GLBlendEquationSeparateOES);
++            }
++        }
++        if (ANGLE_LIKELY(isCallValid))
++        {
++            ContextPrivateBlendEquationSeparate(context->getMutablePrivateState(),
++                                                context->getMutablePrivateStateCache(), modeRGB,
++                                                modeAlpha);
++        }
++        ANGLE_CAPTURE_GL(BlendEquationSeparateOES, isCallValid, context, modeRGB, modeAlpha);
++    }
++    else
++    {
++        GenerateContextLostErrorOnCurrentGlobalContext(
++            angle::EntryPoint::GLBlendEquationSeparateOES);
++    }
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++}
++
++// GL_OES_blend_func_separate
++void GL_APIENTRY GL_BlendFuncSeparateOES(GLenum srcRGB,
++                                         GLenum dstRGB,
++                                         GLenum srcAlpha,
++                                         GLenum dstAlpha)
++{
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++    Context *context = GetValidGlobalContext();
++    EVENT(context, GLBlendFuncSeparateOES,
++          "context = %d, srcRGB = %s, dstRGB = %s, srcAlpha = %s, dstAlpha = %s", CID(context),
++          GLenumToString(GLESEnum::BlendingFactor, srcRGB),
++          GLenumToString(GLESEnum::BlendingFactor, dstRGB),
++          GLenumToString(GLESEnum::BlendingFactor, srcAlpha),
++          GLenumToString(GLESEnum::BlendingFactor, dstAlpha));
++
++    if (ANGLE_LIKELY(context != nullptr))
++    {
++        bool isCallValid = context->skipValidation();
++        if (!isCallValid)
++        {
++            if (ANGLE_LIKELY(context->getExtensions().blendFuncSeparateOES))
++            {
++#if defined(ANGLE_ENABLE_ASSERTS)
++                const uint32_t errorCount = context->getPushedErrorCount();
++#endif
++                isCallValid = ValidateBlendFuncSeparateOES(
++                    context->getPrivateState(), context->getMutableErrorSetForValidation(),
++                    angle::EntryPoint::GLBlendFuncSeparateOES, srcRGB, dstRGB, srcAlpha, dstAlpha);
++#if defined(ANGLE_ENABLE_ASSERTS)
++                ASSERT(isCallValid || context->getPushedErrorCount() != errorCount);
++#endif
++            }
++            else
++            {
++                RecordVersionErrorESEXT(context, angle::EntryPoint::GLBlendFuncSeparateOES);
++            }
++        }
++        if (ANGLE_LIKELY(isCallValid))
++        {
++            ContextPrivateBlendFuncSeparate(context->getMutablePrivateState(),
++                                            context->getMutablePrivateStateCache(), srcRGB, dstRGB,
++                                            srcAlpha, dstAlpha);
++        }
++        ANGLE_CAPTURE_GL(BlendFuncSeparateOES, isCallValid, context, srcRGB, dstRGB, srcAlpha,
++                         dstAlpha);
++    }
++    else
++    {
++        GenerateContextLostErrorOnCurrentGlobalContext(angle::EntryPoint::GLBlendFuncSeparateOES);
++    }
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++}
++
+ // GL_OES_blend_subtract
+ void GL_APIENTRY GL_BlendEquationOES(GLenum mode)
+ {
+diff --git a/src/libGLESv2/entry_points_gles_ext_autogen.h b/src/libGLESv2/entry_points_gles_ext_autogen.h
+index 0551441..f18ec9f 100644
+--- a/src/libGLESv2/entry_points_gles_ext_autogen.h
++++ b/src/libGLESv2/entry_points_gles_ext_autogen.h
+@@ -1491,6 +1491,15 @@ ANGLE_EXPORT void GL_APIENTRY GL_EGLImageTargetTexture2DOES(GLenum target, GLegl
+ 
+ // GL_OES_EGL_image_external_essl3
+ 
++// GL_OES_blend_equation_separate
++ANGLE_EXPORT void GL_APIENTRY GL_BlendEquationSeparateOES(GLenum modeRGB, GLenum modeAlpha);
++
++// GL_OES_blend_func_separate
++ANGLE_EXPORT void GL_APIENTRY GL_BlendFuncSeparateOES(GLenum srcRGB,
++                                                      GLenum dstRGB,
++                                                      GLenum srcAlpha,
++                                                      GLenum dstAlpha);
++
+ // GL_OES_blend_subtract
+ ANGLE_EXPORT void GL_APIENTRY GL_BlendEquationOES(GLenum mode);
+ 
+diff --git a/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.cpp b/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.cpp
+index 08d2de8..6f0ed4b 100644
+--- a/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.cpp
++++ b/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.cpp
+@@ -37649,6 +37649,109 @@ void GL_APIENTRY GL_EGLImageTargetTexture2DOESContextANGLE(GLeglDisplayANGLE dpy
+     ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
+ }
+ 
++void GL_APIENTRY GL_BlendEquationSeparateOESContextANGLE(GLeglDisplayANGLE dpy,
++                                                         GLeglContextANGLE ctx,
++                                                         GLenum modeRGB,
++                                                         GLenum modeAlpha)
++{
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++    Context *context = GetValidContext(dpy, ctx);
++    EVENT(context, GLBlendEquationSeparateOES, "context = %d, modeRGB = %s, modeAlpha = %s",
++          CID(context), GLenumToString(GLESEnum::BlendEquationModeEXT, modeRGB),
++          GLenumToString(GLESEnum::BlendEquationModeEXT, modeAlpha));
++
++    if (ANGLE_LIKELY(context != nullptr))
++    {
++        bool isCallValid = context->skipValidation();
++        if (!isCallValid)
++        {
++            if (ANGLE_LIKELY(context->getExtensions().blendEquationSeparateOES))
++            {
++#if defined(ANGLE_ENABLE_ASSERTS)
++                const uint32_t errorCount = context->getPushedErrorCount();
++#endif
++                isCallValid = ValidateBlendEquationSeparateOES(
++                    context->getPrivateState(), context->getMutableErrorSetForValidation(),
++                    angle::EntryPoint::GLBlendEquationSeparateOES, modeRGB, modeAlpha);
++#if defined(ANGLE_ENABLE_ASSERTS)
++                ASSERT(isCallValid || context->getPushedErrorCount() != errorCount);
++#endif
++            }
++            else
++            {
++                RecordVersionErrorESEXT(context, angle::EntryPoint::GLBlendEquationSeparateOES);
++            }
++        }
++        if (ANGLE_LIKELY(isCallValid))
++        {
++            ContextPrivateBlendEquationSeparate(context->getMutablePrivateState(),
++                                                context->getMutablePrivateStateCache(), modeRGB,
++                                                modeAlpha);
++        }
++        ANGLE_CAPTURE_GL(BlendEquationSeparateOES, isCallValid, context, modeRGB, modeAlpha);
++    }
++    else
++    {
++        GenerateContextLostErrorOnCurrentGlobalContext(
++            angle::EntryPoint::GLBlendEquationSeparateOES);
++    }
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++}
++
++void GL_APIENTRY GL_BlendFuncSeparateOESContextANGLE(GLeglDisplayANGLE dpy,
++                                                     GLeglContextANGLE ctx,
++                                                     GLenum srcRGB,
++                                                     GLenum dstRGB,
++                                                     GLenum srcAlpha,
++                                                     GLenum dstAlpha)
++{
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++    Context *context = GetValidContext(dpy, ctx);
++    EVENT(context, GLBlendFuncSeparateOES,
++          "context = %d, srcRGB = %s, dstRGB = %s, srcAlpha = %s, dstAlpha = %s", CID(context),
++          GLenumToString(GLESEnum::BlendingFactor, srcRGB),
++          GLenumToString(GLESEnum::BlendingFactor, dstRGB),
++          GLenumToString(GLESEnum::BlendingFactor, srcAlpha),
++          GLenumToString(GLESEnum::BlendingFactor, dstAlpha));
++
++    if (ANGLE_LIKELY(context != nullptr))
++    {
++        bool isCallValid = context->skipValidation();
++        if (!isCallValid)
++        {
++            if (ANGLE_LIKELY(context->getExtensions().blendFuncSeparateOES))
++            {
++#if defined(ANGLE_ENABLE_ASSERTS)
++                const uint32_t errorCount = context->getPushedErrorCount();
++#endif
++                isCallValid = ValidateBlendFuncSeparateOES(
++                    context->getPrivateState(), context->getMutableErrorSetForValidation(),
++                    angle::EntryPoint::GLBlendFuncSeparateOES, srcRGB, dstRGB, srcAlpha, dstAlpha);
++#if defined(ANGLE_ENABLE_ASSERTS)
++                ASSERT(isCallValid || context->getPushedErrorCount() != errorCount);
++#endif
++            }
++            else
++            {
++                RecordVersionErrorESEXT(context, angle::EntryPoint::GLBlendFuncSeparateOES);
++            }
++        }
++        if (ANGLE_LIKELY(isCallValid))
++        {
++            ContextPrivateBlendFuncSeparate(context->getMutablePrivateState(),
++                                            context->getMutablePrivateStateCache(), srcRGB, dstRGB,
++                                            srcAlpha, dstAlpha);
++        }
++        ANGLE_CAPTURE_GL(BlendFuncSeparateOES, isCallValid, context, srcRGB, dstRGB, srcAlpha,
++                         dstAlpha);
++    }
++    else
++    {
++        GenerateContextLostErrorOnCurrentGlobalContext(angle::EntryPoint::GLBlendFuncSeparateOES);
++    }
++    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());
++}
++
+ void GL_APIENTRY GL_BlendEquationOESContextANGLE(GLeglDisplayANGLE dpy,
+                                                  GLeglContextANGLE ctx,
+                                                  GLenum mode)
+diff --git a/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.h b/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.h
+index bc17a36..5c456ef 100644
+--- a/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.h
++++ b/src/libGLESv2/entry_points_gles_ext_explicit_context_autogen.h
+@@ -4178,6 +4178,16 @@ ANGLE_EXPORT void GL_APIENTRY GL_EGLImageTargetTexture2DOESContextANGLE(GLeglDis
+                                                                         GLeglContextANGLE ctx,
+                                                                         GLenum target,
+                                                                         GLeglImageOES image);
++ANGLE_EXPORT void GL_APIENTRY GL_BlendEquationSeparateOESContextANGLE(GLeglDisplayANGLE dpy,
++                                                                      GLeglContextANGLE ctx,
++                                                                      GLenum modeRGB,
++                                                                      GLenum modeAlpha);
++ANGLE_EXPORT void GL_APIENTRY GL_BlendFuncSeparateOESContextANGLE(GLeglDisplayANGLE dpy,
++                                                                  GLeglContextANGLE ctx,
++                                                                  GLenum srcRGB,
++                                                                  GLenum dstRGB,
++                                                                  GLenum srcAlpha,
++                                                                  GLenum dstAlpha);
+ ANGLE_EXPORT void GL_APIENTRY GL_BlendEquationOESContextANGLE(GLeglDisplayANGLE dpy,
+                                                               GLeglContextANGLE ctx,
+                                                               GLenum mode);
+diff --git a/src/libGLESv2/libGLESv2_autogen.cpp b/src/libGLESv2/libGLESv2_autogen.cpp
+index 4d00b9d..bcf31a8 100644
+--- a/src/libGLESv2/libGLESv2_autogen.cpp
++++ b/src/libGLESv2/libGLESv2_autogen.cpp
+@@ -5249,6 +5249,21 @@ void GL_APIENTRY glEGLImageTargetTexture2DOES(GLenum target, GLeglImageOES image
+ 
+ // GL_OES_EGL_image_external_essl3
+ 
++// GL_OES_blend_equation_separate
++void GL_APIENTRY glBlendEquationSeparateOES(GLenum modeRGB, GLenum modeAlpha)
++{
++    return GL_BlendEquationSeparateOES(modeRGB, modeAlpha);
++}
++
++// GL_OES_blend_func_separate
++void GL_APIENTRY glBlendFuncSeparateOES(GLenum srcRGB,
++                                        GLenum dstRGB,
++                                        GLenum srcAlpha,
++                                        GLenum dstAlpha)
++{
++    return GL_BlendFuncSeparateOES(srcRGB, dstRGB, srcAlpha, dstAlpha);
++}
++
+ // GL_OES_blend_subtract
+ void GL_APIENTRY glBlendEquationOES(GLenum mode)
+ {
+diff --git a/src/libGLESv2/libGLESv2_autogen.def b/src/libGLESv2/libGLESv2_autogen.def
+index 903f22b..4f8ba3f 100644
+--- a/src/libGLESv2/libGLESv2_autogen.def
++++ b/src/libGLESv2/libGLESv2_autogen.def
+@@ -1078,6 +1078,12 @@ EXPORTS
+ 
+     ; GL_OES_EGL_image_external_essl3
+ 
++    ; GL_OES_blend_equation_separate
++    glBlendEquationSeparateOES
++
++    ; GL_OES_blend_func_separate
++    glBlendFuncSeparateOES
++
+     ; GL_OES_blend_subtract
+     glBlendEquationOES
+ 
+diff --git a/src/libGLESv2/libGLESv2_no_capture_autogen.def b/src/libGLESv2/libGLESv2_no_capture_autogen.def
+index cce4558..a40c191 100644
+--- a/src/libGLESv2/libGLESv2_no_capture_autogen.def
++++ b/src/libGLESv2/libGLESv2_no_capture_autogen.def
+@@ -1078,6 +1078,12 @@ EXPORTS
+ 
+     ; GL_OES_EGL_image_external_essl3
+ 
++    ; GL_OES_blend_equation_separate
++    glBlendEquationSeparateOES
++
++    ; GL_OES_blend_func_separate
++    glBlendFuncSeparateOES
++
+     ; GL_OES_blend_subtract
+     glBlendEquationOES
+ 
+diff --git a/src/libGLESv2/libGLESv2_vulkan_secondaries_autogen.def b/src/libGLESv2/libGLESv2_vulkan_secondaries_autogen.def
+index 77a1f98..d703866 100644
+--- a/src/libGLESv2/libGLESv2_vulkan_secondaries_autogen.def
++++ b/src/libGLESv2/libGLESv2_vulkan_secondaries_autogen.def
+@@ -1078,6 +1078,12 @@ EXPORTS
+ 
+     ; GL_OES_EGL_image_external_essl3
+ 
++    ; GL_OES_blend_equation_separate
++    glBlendEquationSeparateOES
++
++    ; GL_OES_blend_func_separate
++    glBlendFuncSeparateOES
++
+     ; GL_OES_blend_subtract
+     glBlendEquationOES
+ 
+diff --git a/src/libGLESv2/libGLESv2_with_capture_autogen.def b/src/libGLESv2/libGLESv2_with_capture_autogen.def
+index 591fe38..9f71ea1 100644
+--- a/src/libGLESv2/libGLESv2_with_capture_autogen.def
++++ b/src/libGLESv2/libGLESv2_with_capture_autogen.def
+@@ -1078,6 +1078,12 @@ EXPORTS
+ 
+     ; GL_OES_EGL_image_external_essl3
+ 
++    ; GL_OES_blend_equation_separate
++    glBlendEquationSeparateOES
++
++    ; GL_OES_blend_func_separate
++    glBlendFuncSeparateOES
++
+     ; GL_OES_blend_subtract
+     glBlendEquationOES
+ 
+diff --git a/util/capture/frame_capture_replay_autogen.cpp b/util/capture/frame_capture_replay_autogen.cpp
+index 5e0c3c1..39b4175 100644
+--- a/util/capture/frame_capture_replay_autogen.cpp
++++ b/util/capture/frame_capture_replay_autogen.cpp
+@@ -165,6 +165,9 @@ void ReplayTraceFunctionCall(const CallCapture &call, const TraceFunctionMap &cu
+         case angle::EntryPoint::GLBlendEquationSeparate:
+             glBlendEquationSeparate(captures[0].value.GLenumVal, captures[1].value.GLenumVal);
+             break;
++        case angle::EntryPoint::GLBlendEquationSeparateOES:
++            glBlendEquationSeparateOES(captures[0].value.GLenumVal, captures[1].value.GLenumVal);
++            break;
+         case angle::EntryPoint::GLBlendEquationSeparatei:
+             glBlendEquationSeparatei(captures[0].value.GLuintVal, captures[1].value.GLenumVal,
+                                      captures[2].value.GLenumVal);
+@@ -193,6 +196,10 @@ void ReplayTraceFunctionCall(const CallCapture &call, const TraceFunctionMap &cu
+             glBlendFuncSeparate(captures[0].value.GLenumVal, captures[1].value.GLenumVal,
+                                 captures[2].value.GLenumVal, captures[3].value.GLenumVal);
+             break;
++        case angle::EntryPoint::GLBlendFuncSeparateOES:
++            glBlendFuncSeparateOES(captures[0].value.GLenumVal, captures[1].value.GLenumVal,
++                                   captures[2].value.GLenumVal, captures[3].value.GLenumVal);
++            break;
+         case angle::EntryPoint::GLBlendFuncSeparatei:
+             glBlendFuncSeparatei(captures[0].value.GLuintVal, captures[1].value.GLenumVal,
+                                  captures[2].value.GLenumVal, captures[3].value.GLenumVal,
+diff --git a/util/capture/trace_gles_loader_autogen.cpp b/util/capture/trace_gles_loader_autogen.cpp
+index a47e54e..d297dd7 100644
+--- a/util/capture/trace_gles_loader_autogen.cpp
++++ b/util/capture/trace_gles_loader_autogen.cpp
+@@ -857,6 +857,8 @@ ANGLE_TRACE_LOADER_EXPORT PFNGLTEXTUREFOVEATIONPARAMETERSQCOMPROC
+     t_glTextureFoveationParametersQCOM;
+ ANGLE_TRACE_LOADER_EXPORT PFNGLENDTILINGQCOMPROC t_glEndTilingQCOM;
+ ANGLE_TRACE_LOADER_EXPORT PFNGLSTARTTILINGQCOMPROC t_glStartTilingQCOM;
++ANGLE_TRACE_LOADER_EXPORT PFNGLBLENDEQUATIONSEPARATEOESPROC t_glBlendEquationSeparateOES;
++ANGLE_TRACE_LOADER_EXPORT PFNGLBLENDFUNCSEPARATEOESPROC t_glBlendFuncSeparateOES;
+ ANGLE_TRACE_LOADER_EXPORT PFNGLBLENDEQUATIONOESPROC t_glBlendEquationOES;
+ ANGLE_TRACE_LOADER_EXPORT PFNGLDRAWTEXFOESPROC t_glDrawTexfOES;
+ ANGLE_TRACE_LOADER_EXPORT PFNGLDRAWTEXFVOESPROC t_glDrawTexfvOES;
+@@ -2220,6 +2222,10 @@ void LoadTraceGLES(LoadProc loadProc)
+         loadProc("glTextureFoveationParametersQCOM"));
+     t_glEndTilingQCOM   = reinterpret_cast<PFNGLENDTILINGQCOMPROC>(loadProc("glEndTilingQCOM"));
+     t_glStartTilingQCOM = reinterpret_cast<PFNGLSTARTTILINGQCOMPROC>(loadProc("glStartTilingQCOM"));
++    t_glBlendEquationSeparateOES =
++        reinterpret_cast<PFNGLBLENDEQUATIONSEPARATEOESPROC>(loadProc("glBlendEquationSeparateOES"));
++    t_glBlendFuncSeparateOES =
++        reinterpret_cast<PFNGLBLENDFUNCSEPARATEOESPROC>(loadProc("glBlendFuncSeparateOES"));
+     t_glBlendEquationOES =
+         reinterpret_cast<PFNGLBLENDEQUATIONOESPROC>(loadProc("glBlendEquationOES"));
+     t_glDrawTexfOES  = reinterpret_cast<PFNGLDRAWTEXFOESPROC>(loadProc("glDrawTexfOES"));
+diff --git a/util/capture/trace_gles_loader_autogen.h b/util/capture/trace_gles_loader_autogen.h
+index 37bf17e..d670412 100644
+--- a/util/capture/trace_gles_loader_autogen.h
++++ b/util/capture/trace_gles_loader_autogen.h
+@@ -816,6 +816,8 @@
+ #define glTextureFoveationParametersQCOM t_glTextureFoveationParametersQCOM
+ #define glEndTilingQCOM t_glEndTilingQCOM
+ #define glStartTilingQCOM t_glStartTilingQCOM
++#define glBlendEquationSeparateOES t_glBlendEquationSeparateOES
++#define glBlendFuncSeparateOES t_glBlendFuncSeparateOES
+ #define glBlendEquationOES t_glBlendEquationOES
+ #define glDrawTexfOES t_glDrawTexfOES
+ #define glDrawTexfvOES t_glDrawTexfvOES
+@@ -1747,6 +1749,8 @@ ANGLE_TRACE_LOADER_EXPORT extern PFNGLTEXTUREFOVEATIONPARAMETERSQCOMPROC
+     t_glTextureFoveationParametersQCOM;
+ ANGLE_TRACE_LOADER_EXPORT extern PFNGLENDTILINGQCOMPROC t_glEndTilingQCOM;
+ ANGLE_TRACE_LOADER_EXPORT extern PFNGLSTARTTILINGQCOMPROC t_glStartTilingQCOM;
++ANGLE_TRACE_LOADER_EXPORT extern PFNGLBLENDEQUATIONSEPARATEOESPROC t_glBlendEquationSeparateOES;
++ANGLE_TRACE_LOADER_EXPORT extern PFNGLBLENDFUNCSEPARATEOESPROC t_glBlendFuncSeparateOES;
+ ANGLE_TRACE_LOADER_EXPORT extern PFNGLBLENDEQUATIONOESPROC t_glBlendEquationOES;
+ ANGLE_TRACE_LOADER_EXPORT extern PFNGLDRAWTEXFOESPROC t_glDrawTexfOES;
+ ANGLE_TRACE_LOADER_EXPORT extern PFNGLDRAWTEXFVOESPROC t_glDrawTexfvOES;
+diff --git a/util/gles_loader_autogen.cpp b/util/gles_loader_autogen.cpp
+index dbfcd7e..3d7540d 100644
+--- a/util/gles_loader_autogen.cpp
++++ b/util/gles_loader_autogen.cpp
+@@ -833,6 +833,8 @@ ANGLE_UTIL_EXPORT PFNGLSHADINGRATEQCOMPROC l_glShadingRateQCOM;
+ ANGLE_UTIL_EXPORT PFNGLTEXTUREFOVEATIONPARAMETERSQCOMPROC l_glTextureFoveationParametersQCOM;
+ ANGLE_UTIL_EXPORT PFNGLENDTILINGQCOMPROC l_glEndTilingQCOM;
+ ANGLE_UTIL_EXPORT PFNGLSTARTTILINGQCOMPROC l_glStartTilingQCOM;
++ANGLE_UTIL_EXPORT PFNGLBLENDEQUATIONSEPARATEOESPROC l_glBlendEquationSeparateOES;
++ANGLE_UTIL_EXPORT PFNGLBLENDFUNCSEPARATEOESPROC l_glBlendFuncSeparateOES;
+ ANGLE_UTIL_EXPORT PFNGLBLENDEQUATIONOESPROC l_glBlendEquationOES;
+ ANGLE_UTIL_EXPORT PFNGLDRAWTEXFOESPROC l_glDrawTexfOES;
+ ANGLE_UTIL_EXPORT PFNGLDRAWTEXFVOESPROC l_glDrawTexfvOES;
+@@ -2195,6 +2197,10 @@ void LoadUtilGLES(LoadProc loadProc)
+         loadProc("glTextureFoveationParametersQCOM"));
+     l_glEndTilingQCOM   = reinterpret_cast<PFNGLENDTILINGQCOMPROC>(loadProc("glEndTilingQCOM"));
+     l_glStartTilingQCOM = reinterpret_cast<PFNGLSTARTTILINGQCOMPROC>(loadProc("glStartTilingQCOM"));
++    l_glBlendEquationSeparateOES =
++        reinterpret_cast<PFNGLBLENDEQUATIONSEPARATEOESPROC>(loadProc("glBlendEquationSeparateOES"));
++    l_glBlendFuncSeparateOES =
++        reinterpret_cast<PFNGLBLENDFUNCSEPARATEOESPROC>(loadProc("glBlendFuncSeparateOES"));
+     l_glBlendEquationOES =
+         reinterpret_cast<PFNGLBLENDEQUATIONOESPROC>(loadProc("glBlendEquationOES"));
+     l_glDrawTexfOES  = reinterpret_cast<PFNGLDRAWTEXFOESPROC>(loadProc("glDrawTexfOES"));
+diff --git a/util/gles_loader_autogen.h b/util/gles_loader_autogen.h
+index 1966f5d..d56ceb5 100644
+--- a/util/gles_loader_autogen.h
++++ b/util/gles_loader_autogen.h
+@@ -816,6 +816,8 @@
+ #define glTextureFoveationParametersQCOM l_glTextureFoveationParametersQCOM
+ #define glEndTilingQCOM l_glEndTilingQCOM
+ #define glStartTilingQCOM l_glStartTilingQCOM
++#define glBlendEquationSeparateOES l_glBlendEquationSeparateOES
++#define glBlendFuncSeparateOES l_glBlendFuncSeparateOES
+ #define glBlendEquationOES l_glBlendEquationOES
+ #define glDrawTexfOES l_glDrawTexfOES
+ #define glDrawTexfvOES l_glDrawTexfvOES
+@@ -1692,6 +1694,8 @@ ANGLE_UTIL_EXPORT extern PFNGLSHADINGRATEQCOMPROC l_glShadingRateQCOM;
+ ANGLE_UTIL_EXPORT extern PFNGLTEXTUREFOVEATIONPARAMETERSQCOMPROC l_glTextureFoveationParametersQCOM;
+ ANGLE_UTIL_EXPORT extern PFNGLENDTILINGQCOMPROC l_glEndTilingQCOM;
+ ANGLE_UTIL_EXPORT extern PFNGLSTARTTILINGQCOMPROC l_glStartTilingQCOM;
++ANGLE_UTIL_EXPORT extern PFNGLBLENDEQUATIONSEPARATEOESPROC l_glBlendEquationSeparateOES;
++ANGLE_UTIL_EXPORT extern PFNGLBLENDFUNCSEPARATEOESPROC l_glBlendFuncSeparateOES;
+ ANGLE_UTIL_EXPORT extern PFNGLBLENDEQUATIONOESPROC l_glBlendEquationOES;
+ ANGLE_UTIL_EXPORT extern PFNGLDRAWTEXFOESPROC l_glDrawTexfOES;
+ ANGLE_UTIL_EXPORT extern PFNGLDRAWTEXFVOESPROC l_glDrawTexfvOES;

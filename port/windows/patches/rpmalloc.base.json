@@ -1,0 +1,6 @@
+{
+  "repository": "FEX/External/rpmalloc (separate nested git repository)",
+  "base_commit": "e60293eb1fac2e75c2e8524cc22de8ae2c0c23da",
+  "patch": "rpmalloc.patch",
+  "scope": "Full current tracked delta including pre-existing runtime modifications; apply separately from fex.patch"
+}

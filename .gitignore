@@ -1,0 +1,8 @@
+.DS_Store
+/ref/
+/worktrees/
+/generated/
+/private/
+/docs/artifacts/
+__pycache__/
+*.pyc

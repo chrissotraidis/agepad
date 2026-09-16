@@ -1,0 +1,1310 @@
+diff --git a/dlls/crypt32/chain.c b/dlls/crypt32/chain.c
+index dd18e19cdb3..6825829e820 100644
+--- a/dlls/crypt32/chain.c
++++ b/dlls/crypt32/chain.c
+@@ -481,8 +481,33 @@ static void CRYPT_CheckTrustedStatus(HCERTSTORE hRoot,
+      rootElement->pCertContext);
+ 
+     if (!trustedRoot)
+-        rootElement->TrustStatus.dwErrorStatus |=
+-         CERT_TRUST_IS_UNTRUSTED_ROOT;
++    {
++        if (TRACE_ON(chain))
++        {
++            static LONG failures;
++            char name[128];
++            if (CertGetNameStringA(rootElement->pCertContext, CERT_NAME_SIMPLE_DISPLAY_TYPE,
++                                  0, NULL, name, sizeof(name)) && !strcmp(name, "ISRG Root X1") &&
++                InterlockedIncrement(&failures) <= 16)
++            {
++                BYTE hash[20]; DWORD size = sizeof(hash), count = 0;
++                BOOL hash_ok = CertGetCertificateContextProperty(rootElement->pCertContext,
++                                                                 CERT_HASH_PROP_ID, hash, &size);
++                DWORD hash_error = hash_ok ? 0 : GetLastError();
++                char text[41]; unsigned i;
++                PCCERT_CONTEXT item = NULL;
++                for (i = 0; i < 20; i++) {
++                    text[i*2] = hash_ok ? "0123456789abcdef"[hash[i] >> 4] : '?';
++                    text[i*2+1] = hash_ok ? "0123456789abcdef"[hash[i] & 15] : '?';
++                }
++                text[40] = 0;
++                while ((item = CertEnumCertificatesInStore(hRoot, item))) count++;
++                TRACE_(chain)("[AgePad-root-lookup] ISRG Root X1 hash=%s hash_ok=%u hash_error=%08lx size=%lu root_count=%lu store=%p\n",
++                              text, hash_ok, hash_error, size, count, hRoot);
++            }
++        }
++        rootElement->TrustStatus.dwErrorStatus |= CERT_TRUST_IS_UNTRUSTED_ROOT;
++    }
+     else
+         CertFreeCertificateContext(trustedRoot);
+ }
+diff --git a/dlls/crypt32/rootstore.c b/dlls/crypt32/rootstore.c
+index 580b4a66d92..4e96132e0d4 100644
+--- a/dlls/crypt32/rootstore.c
++++ b/dlls/crypt32/rootstore.c
+@@ -648,6 +648,7 @@ static void add_ms_root_certs(HKEY key, HCERTSTORE cached)
+ static void sync_trusted_roots_from_known_locations( HKEY key, HCERTSTORE cached )
+ {
+     DWORD needed, size;
++    NTSTATUS status = STATUS_NO_MEMORY;
+     struct enum_root_certs_params params = { NULL, 2048, &needed };
+     HCRYPTPROV prov;
+     HCRYPTHASH hash;
+@@ -683,14 +684,21 @@ static void sync_trusted_roots_from_known_locations( HKEY key, HCERTSTORE cached
+         }
+     }
+ 
+-    CryptAcquireContextW( &prov, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT );
++    if (!CryptAcquireContextW( &prov, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT ))
++    {
++        RegCloseKey( import_key );
++        return;
++    }
+     params.buffer = CryptMemAlloc( params.size );
+-    while (!CRYPT32_CALL( enum_root_certs, &params ))
++    if (!params.buffer) goto enum_done;
++    while (!(status = CRYPT32_CALL( enum_root_certs, &params )))
+     {
+         if (needed > params.size)
+         {
++            BYTE *buffer = CryptMemAlloc( needed );
++            if (!buffer) { status = STATUS_NO_MEMORY; break; }
+             CryptMemFree( params.buffer );
+-            params.buffer = CryptMemAlloc( needed );
++            params.buffer = buffer;
+             params.size = needed;
+             continue;
+         }
+@@ -722,8 +730,16 @@ static void sync_trusted_roots_from_known_locations( HKEY key, HCERTSTORE cached
+         CertFreeCertificateContext( cert );
+         ++new_count;
+     }
++enum_done:
+     CryptMemFree( params.buffer );
+     CryptReleaseContext( prov, 0 );
++    /* A failed/partial host enumeration is not evidence of root removal. */
++    if (status != STATUS_NO_MORE_ENTRIES)
++    {
++        ERR( "Host root enumeration incomplete (%lx); preserving imported certificates.\n", status );
++        RegCloseKey( import_key );
++        return;
++    }
+ 
+     cert = NULL;
+     while ((cert = CertEnumCertificatesInStore( cached, cert )))
+diff --git a/dlls/kernel32/thread.c b/dlls/kernel32/thread.c
+index f26e308feed..eac50c41f7a 100644
+--- a/dlls/kernel32/thread.c
++++ b/dlls/kernel32/thread.c
+@@ -31,6 +31,7 @@
+ #include "wine/asm.h"
+ #include "wine/debug.h"
+ #include "kernel_private.h"
++#include "winsvc.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(thread);
+ 
+@@ -64,8 +65,87 @@ __ASM_GLOBAL_FUNC( BaseThreadInitThunk,
+                     "movl %eax,%ecx\n\t"
+                     "call " __ASM_NAME( "RtlExitUserThread" ))
+ #else
++#ifdef AGEPAD_SIGNED_WINE_TSD
++/* Diagnostic initial-process service startup. Consume the environment request
++ * before creating children so their first thread does not recursively bootstrap. */
++static BOOL agepad_start_rpcss(void)
++{
++    HMODULE module = LoadLibraryW(L"sechost.dll");
++    SC_HANDLE manager = NULL, service = NULL;
++    SC_HANDLE (WINAPI *open_manager)(LPCWSTR,LPCWSTR,DWORD);
++    SC_HANDLE (WINAPI *open_service)(SC_HANDLE,LPCWSTR,DWORD);
++    BOOL (WINAPI *start_service)(SC_HANDLE,DWORD,LPCWSTR *);
++    BOOL (WINAPI *query_service)(SC_HANDLE,SC_STATUS_TYPE,BYTE *,DWORD,DWORD *);
++    BOOL (WINAPI *close_service)(SC_HANDLE);
++    SERVICE_STATUS_PROCESS state = {0};
++    DWORD needed, error = ERROR_PROC_NOT_FOUND;
++    ULONGLONG deadline;
++    BOOL ok = FALSE;
++    if (!module) return FALSE;
++    open_manager = (void *)GetProcAddress(module, "OpenSCManagerW");
++    open_service = (void *)GetProcAddress(module, "OpenServiceW");
++    start_service = (void *)GetProcAddress(module, "StartServiceW");
++    query_service = (void *)GetProcAddress(module, "QueryServiceStatusEx");
++    close_service = (void *)GetProcAddress(module, "CloseServiceHandle");
++    if (!open_manager || !open_service || !start_service || !query_service || !close_service) goto done;
++    manager = open_manager(NULL, NULL, SC_MANAGER_CONNECT);
++    if (!manager) { error = GetLastError(); goto done; }
++    service = open_service(manager, L"RpcSs", SERVICE_START | SERVICE_QUERY_STATUS);
++    if (!service) { error = GetLastError(); goto done; }
++    if (!start_service(service, 0, NULL) && (error = GetLastError()) != ERROR_SERVICE_ALREADY_RUNNING) goto done;
++    deadline = GetTickCount64() + 120000;
++    do {
++        if (!query_service(service, SC_STATUS_PROCESS_INFO, (BYTE *)&state, sizeof(state), &needed)) {
++            error = GetLastError(); goto done;
++        }
++        if (state.dwCurrentState == SERVICE_RUNNING) { ok = TRUE; error = ERROR_SUCCESS; break; }
++        if (state.dwCurrentState == SERVICE_STOPPED) { error = state.dwWin32ExitCode; break; }
++        Sleep(100);
++        error = ERROR_TIMEOUT;
++    } while (GetTickCount64() < deadline);
++ done:
++    ERR("[AgePad-rpcss-bootstrap] running=%u state=%lu error=%lu\n", ok, state.dwCurrentState, error);
++    if (service) close_service(service);
++    if (manager) close_service(manager);
++    FreeLibrary(module);
++    return ok;
++}
++
++static void agepad_start_services(void)
++{
++    static LONG entered;
++    WCHAR enabled[2], command[] = L"C:\\windows\\system32\\services.exe";
++    STARTUPINFOW startup = {0};
++    PROCESS_INFORMATION process = {0};
++    HANDLE handles[2];
++    DWORD result;
++    BOOL rpcss;
++    if (!GetEnvironmentVariableW(L"AGEPAD_BOOTSTRAP_SERVICES", enabled, 2)) return;
++    if (InterlockedCompareExchange(&entered, 1, 0)) return;
++    if (!SetEnvironmentVariableW(L"AGEPAD_BOOTSTRAP_SERVICES", NULL)) ExitProcess(92);
++    rpcss = GetEnvironmentVariableW(L"AGEPAD_BOOTSTRAP_RPCSS", enabled, 2) != 0;
++    if (!SetEnvironmentVariableW(L"AGEPAD_BOOTSTRAP_RPCSS", NULL)) ExitProcess(96);
++    handles[0] = CreateEventW(NULL, TRUE, FALSE, L"__wine_SvcctlStarted");
++    if (!handles[0]) ExitProcess(93);
++    startup.cb = sizeof(startup);
++    if (!CreateProcessW(command, command, NULL, NULL, FALSE, DETACHED_PROCESS,
++                        NULL, NULL, &startup, &process)) ExitProcess(94);
++    CloseHandle(process.hThread);
++    handles[1] = process.hProcess;
++    result = WaitForMultipleObjects(2, handles, FALSE, 120000);
++    ERR("[AgePad-service-bootstrap] wait=%#lx\n", result);
++    CloseHandle(handles[0]);
++    CloseHandle(handles[1]);
++    if (result != WAIT_OBJECT_0) ExitProcess(95);
++    if (rpcss && !agepad_start_rpcss()) ExitProcess(97);
++}
++#endif
++
+ void __fastcall BaseThreadInitThunk( DWORD unknown, LPTHREAD_START_ROUTINE entry, void *arg )
+ {
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    agepad_start_services();
++#endif
+     RtlExitUserThread( entry( arg ) );
+ }
+ #endif
+diff --git a/dlls/nsiproxy.sys/ndis.c b/dlls/nsiproxy.sys/ndis.c
+index 0d062332470..db0d45ef716 100644
+--- a/dlls/nsiproxy.sys/ndis.c
++++ b/dlls/nsiproxy.sys/ndis.c
+@@ -34,7 +34,7 @@
+ #include <net/if.h>
+ #endif
+ 
+-#ifdef HAVE_NET_IF_ARP_H
++#if defined(HAVE_NET_IF_ARP_H) && !defined(WINE_IOS)
+ #include <net/if_arp.h>
+ #endif
+ 
+@@ -42,11 +42,11 @@
+ #include <netinet/in.h>
+ #endif
+ 
+-#ifdef HAVE_NETINET_IF_ETHER_H
++#if defined(HAVE_NETINET_IF_ETHER_H) && !defined(WINE_IOS)
+ #include <netinet/if_ether.h>
+ #endif
+ 
+-#ifdef HAVE_NET_ROUTE_H
++#if defined(HAVE_NET_ROUTE_H) && !defined(WINE_IOS)
+ #include <net/route.h>
+ #endif
+ 
+@@ -67,6 +67,9 @@
+ #endif
+ 
+ #include <pthread.h>
++#ifdef WINE_IOS
++#include <ifaddrs.h>
++#endif
+ 
+ #include "ntstatus.h"
+ #include "windef.h"
+@@ -195,6 +198,42 @@ err:
+     return ret;
+ }
+ 
++#elif defined(WINE_IOS) && defined(HAVE_NET_IF_DL_H)
++
++static NTSTATUS if_get_physical( const char *name, UINT *type, IF_PHYSICAL_ADDRESS *phys_addr )
++{
++    struct ifaddrs *head, *item;
++    NTSTATUS status = STATUS_OBJECT_NAME_NOT_FOUND;
++    *type = MIB_IF_TYPE_OTHER;
++    memset( phys_addr, 0, sizeof(*phys_addr) );
++    if (getifaddrs( &head )) return STATUS_UNSUCCESSFUL;
++    for (item = head; item; item = item->ifa_next)
++    {
++        const struct sockaddr_dl *link;
++        if (!item->ifa_name || strcmp( item->ifa_name, name ) || !item->ifa_addr ||
++            item->ifa_addr->sa_family != AF_LINK) continue;
++        link = (const struct sockaddr_dl *)item->ifa_addr;
++        switch (link->sdl_type)
++        {
++        case IFT_ETHER: *type = MIB_IF_TYPE_ETHERNET; break;
++        case IFT_LOOP: *type = MIB_IF_TYPE_LOOPBACK; break;
++        case IFT_PPP: *type = MIB_IF_TYPE_PPP; break;
++        case IFT_SLIP: *type = MIB_IF_TYPE_SLIP; break;
++        default: break;
++        }
++        if (link->sdl_alen <= sizeof(phys_addr->Address) &&
++            offsetof(struct sockaddr_dl, sdl_data) + link->sdl_nlen + link->sdl_alen <= link->sdl_len)
++        {
++            phys_addr->Length = link->sdl_alen;
++            memcpy( phys_addr->Address, LLADDR(link), phys_addr->Length );
++        }
++        status = STATUS_SUCCESS;
++        break;
++    }
++    freeifaddrs( head );
++    return status;
++}
++
+ #elif defined (HAVE_SYS_SYSCTL_H) && defined (HAVE_NET_IF_DL_H)
+ 
+ static NTSTATUS if_get_physical( const char *name, UINT *type, IF_PHYSICAL_ADDRESS *phys_addr )
+@@ -412,6 +451,32 @@ static void ifinfo_fill_dynamic( struct if_entry *entry, struct nsi_ndis_ifinfo_
+             fclose( fp );
+         }
+     }
++#elif defined(WINE_IOS)
++    {
++        struct ifaddrs *head, *item;
++        if (!getifaddrs( &head ))
++        {
++            for (item = head; item; item = item->ifa_next)
++            {
++                const struct if_data *stats;
++                if (!item->ifa_name || strcmp(item->ifa_name, entry->if_unix_name) ||
++                    !item->ifa_addr || item->ifa_addr->sa_family != AF_LINK || !item->ifa_data) continue;
++                stats = item->ifa_data;
++                data->xmit_speed = data->rcv_speed = stats->ifi_baudrate;
++                data->in_octets = stats->ifi_ibytes;
++                data->in_errors = stats->ifi_ierrors;
++                data->in_discards = stats->ifi_iqdrops;
++                data->in_ucast_pkts = stats->ifi_ipackets;
++                data->in_mcast_pkts = stats->ifi_imcasts;
++                data->out_octets = stats->ifi_obytes;
++                data->out_ucast_pkts = stats->ifi_opackets;
++                data->out_mcast_pkts = stats->ifi_omcasts;
++                data->out_errors = stats->ifi_oerrors;
++                break;
++            }
++            freeifaddrs( head );
++        }
++    }
+ #elif defined(HAVE_SYS_SYSCTL_H) && defined(NET_RT_IFLIST)
+     {
+         int mib[] = { CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_IFLIST, entry->if_index };
+diff --git a/dlls/ntdll/env.c b/dlls/ntdll/env.c
+index e382b476225..16c6a8c7bf3 100644
+--- a/dlls/ntdll/env.c
++++ b/dlls/ntdll/env.c
+@@ -684,6 +684,10 @@ void init_user_process_params(void)
+     RTL_USER_PROCESS_PARAMETERS *new_params, *params = NtCurrentTeb()->Peb->ProcessParameters;
+     UNICODE_STRING curdir;
+ 
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    ERR("[AgePad-params] before-copy peb=%p cmd=%s cwd=%s\n", NtCurrentTeb()->Peb,
++        debugstr_us(&params->CommandLine), debugstr_us(&params->CurrentDirectory.DosPath));
++#endif
+     /* environment needs to be a separate memory block */
+     env_size = params->EnvironmentSize;
+     if ((env = RtlAllocateHeap( GetProcessHeap(), 0, max( env_size, sizeof(WCHAR) ))))
+@@ -719,6 +723,10 @@ void init_user_process_params(void)
+     NtCurrentTeb()->Peb->ProcessParameters = new_params;
+     NtFreeVirtualMemory( GetCurrentProcess(), (void **)&params, &size, MEM_RELEASE );
+ 
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    ERR("[AgePad-params] before-cwd cmd=%s cwd=%s capacity=%u\n", debugstr_us(&new_params->CommandLine),
++        debugstr_us(&new_params->CurrentDirectory.DosPath), new_params->CurrentDirectory.DosPath.MaximumLength);
++#endif
+     if (RtlSetCurrentDirectory_U( &new_params->CurrentDirectory.DosPath ))
+     {
+         MESSAGE("wine: could not open working directory %s, starting in the Windows directory.\n",
+@@ -727,5 +735,9 @@ void init_user_process_params(void)
+         RtlSetCurrentDirectory_U( &curdir );
+     }
+     set_wow64_environment( &new_params->Environment );
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    ERR("[AgePad-params] after-cwd cmd=%s cwd=%s\n", debugstr_us(&new_params->CommandLine),
++        debugstr_us(&new_params->CurrentDirectory.DosPath));
++#endif
+     new_params->EnvironmentSize = RtlSizeHeap( GetProcessHeap(), 0, new_params->Environment );
+ }
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+index 610c9eb54da..b728deb4a0d 100644
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -84,6 +84,10 @@ void *__wine_syscall_dispatcher = NULL;
+  * instead of hardcoding a slot they do not own. Zero means "not yet
+  * discovered" and must never be used as an offset. */
+ unsigned int ios_teb_tsd_offset = 0;
++/* Opt-in native-loader setting; independent in every signed child ntdll. */
++unsigned int agepad_direct_teb_check = 0;
++/* Native loader-owned, already-relocated signed mappings: base,size,split,PEB. */
++const ULONG_PTR (*agepad_signed_images)[4] = NULL;
+ unixlib_handle_t __wine_unixlib_handle = 0;
+ 
+ /* windows directory */
+@@ -97,6 +101,31 @@ static const WCHAR system_path[] = L"C:\\windows\\system32;C:\\windows\\system;C
+ static BOOL is_prefix_bootstrap;  /* are we bootstrapping the prefix? */
+ static BOOL imports_fixup_done = FALSE;  /* set once the imports have been fixed up, before attaching them */
+ static BOOL process_detaching = FALSE;  /* set on process detach to avoid deadlocks with thread detach */
++#if defined(__arm64ec__) && defined(AGEPAD_SIGNED_WINE_TSD)
++/* Exact loaded translator identity, private to this ntdll process bank. */
++static void *agepad_translator_module;
++
++static void agepad_retire_translator_callbacks(void *module, UINT reason, void *reserved)
++{
++    struct ios_register_hold_release_params params;
++    NTSTATUS status;
++    LARGE_INTEGER pause;
++    if (!agepad_translator_module || module != agepad_translator_module ||
++        reason != DLL_PROCESS_DETACH || !reserved) return;
++    params.size = sizeof(params);
++    params.version = 4;
++    params.peb = NtCurrentTeb()->Peb;
++    params.callback = NULL;
++    status = WINE_UNIX_CALL(unix_ios_register_hold_release, &params);
++    if (!status) return;
++    /* ABI/identity error: do not return to CRT teardown. A pending native
++     * callback already takes the native nonreturning quarantine path. This
++     * fallback retains loader/context state until the diagnostic is stopped. */
++    ERR("[callback-retire-early] ABI-ERROR status=%lx; retaining translator state\n", status);
++    pause.QuadPart = -10000000;
++    for (;;) NtDelayExecution(FALSE, &pause);
++}
++#endif
+ static int free_lib_count;   /* recursion depth of LdrUnloadDll calls */
+ static LONG path_safe_mode;  /* path mode set by RtlSetSearchPathMode */
+ static LONG dll_safe_mode = 1;  /* dll search mode */
+@@ -2045,6 +2074,11 @@ static NTSTATUS MODULE_InitDLL( WINE_MODREF *wm, UINT reason, LPVOID lpReserved
+ 
+     if (wm->ldr.Flags & LDR_DONT_RESOLVE_REFS) return STATUS_SUCCESS;
+     if (wm->ldr.TlsIndex == -1) call_tls_callbacks( wm->ldr.DllBase, reason );
++#if defined(__arm64ec__) && defined(AGEPAD_SIGNED_WINE_TSD)
++    /* TLS callbacks still require live translator state; close native
++     * acquisitions immediately afterward, before its CRT/DllMain entry. */
++    agepad_retire_translator_callbacks(module, reason, lpReserved);
++#endif
+     if (!entry) return STATUS_SUCCESS;
+ 
+     if (TRACE_ON(relay))
+@@ -2716,6 +2750,19 @@ static NTSTATUS perform_relocations( void *module, IMAGE_NT_HEADERS *nt, SIZE_T
+     ULONG *protect_old, i;
+     NTSTATUS status = STATUS_SUCCESS;
+ 
++    /* Only an exact mapping registered and relocated by our native adapter
++     * can skip relocation. Other builtins and retail PE files use the normal path. */
++    if (agepad_signed_images)
++    {
++        for (unsigned int j = 0; j < 256; ++j)
++            if (__atomic_load_n(&agepad_signed_images[j][0], __ATOMIC_ACQUIRE) == (ULONG_PTR)module &&
++                agepad_signed_images[j][1] >= len &&
++                agepad_signed_images[j][3] == (ULONG_PTR)NtCurrentTeb()->Peb)
++            {
++                ERR("[signed-reloc] already applied by native loader: %p\n", module);
++                return STATUS_SUCCESS;
++            }
++    }
+     base = (char *)nt->OptionalHeader.ImageBase;
+     if (module == base) return STATUS_SUCCESS;  /* nothing to do */
+ 
+@@ -4120,6 +4167,8 @@ NTSTATUS CDECL wine_server_handle_to_fd( HANDLE handle, unsigned int access, int
+  * inventing one would manufacture false positives.  Deduped per (module,
+  * slot) so one persistent zero cannot flood the cap.
+  */
++#ifdef __arm64ec__
++/* This diagnostic relies on the ARM64EC-only forward alias thunk. */
+ static void iat_life_sweep( const char *when )
+ {
+     extern void *xlate_ios_jit( void *ptr );
+@@ -4210,6 +4259,8 @@ static void iat_life_sweep( const char *when )
+              sweeps, when, n_mod, n_slot, n_pool, n_pezero, n_poolzero );
+ }
+ 
++#endif /* __arm64ec__: IAT alias diagnostic */
++
+ NTSTATUS WINAPI DECLSPEC_HOTPATCH LdrLoadDll(LPCWSTR search_path, DWORD *load_flags,
+                                              const UNICODE_STRING *libname, HMODULE* hModule)
+ {
+@@ -4252,6 +4303,7 @@ NTSTATUS WINAPI DECLSPEC_HOTPATCH LdrLoadDll(LPCWSTR search_path, DWORD *load_fl
+         }
+         else
+         {
++#ifdef __arm64ec__
+             char tag[64];
+             const WCHAR *bn = wm->ldr.BaseDllName.Buffer;
+             unsigned int k = 0;
+@@ -4259,6 +4311,7 @@ NTSTATUS WINAPI DECLSPEC_HOTPATCH LdrLoadDll(LPCWSTR search_path, DWORD *load_fl
+             while (bn && bn[k] && k < sizeof(tag) - 1) { tag[k] = (char)bn[k]; k++; }
+             tag[k] = 0;
+             iat_life_sweep( tag );   /* ml701 [iat-life] stage 2 */
++#endif
+         }
+     }
+     if (wm) *hModule = wm->ldr.DllBase;
+@@ -5207,6 +5260,10 @@ static void load_arm64ec_module(void)
+         NtTerminateProcess( GetCurrentProcess(), status );
+     }
+ 
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    agepad_translator_module = wm->ldr.DllBase;
++#endif
++
+     /* Phase 1: set up dispatcher pointers and FEX function pointers BEFORE
+      * the DllMain dependency walk, so that exception dispatch
+      * (KiUserExceptionDispatcher needs __os_arm64x_dispatch_call_no_redirect)
+@@ -5576,7 +5633,12 @@ void loader_init( CONTEXT *context, void **entry )
+         if (NtCurrentTeb()->WowTebOffset) init_wow64( context );
+ #endif
+ #ifdef __arm64ec__
+-        arm64ec_thread_init();
++        if ((status = arm64ec_thread_init()))
++        {
++            ERR( "arm64ec thread initialization failed, status %lx\n", status );
++            RtlLeaveCriticalSection( &loader_section );
++            RtlExitUserThread( status );
++        }
+ #endif
+ 
+         if (NtCurrentTeb()->SkipThreadAttach)
+diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
+index 3ac2fe33ae9..22a69c42b1b 100644
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -1754,7 +1754,8 @@
+ @ extern -private -arch=arm64ec __wine_unix_call_dispatcher_arm64ec
+ @ extern -private -arch=arm64ec p_ios_jit_translate_addr
+ @ extern -private -arch=arm64,arm64ec p_ios_jit_reverse_translate_addr
+-@ extern -private ios_teb_tsd_offset
++@ extern ios_teb_tsd_offset
++@ extern agepad_direct_teb_check
+ @ extern -private __wine_unixlib_handle
+ 
+ # Debugging
+@@ -1768,3 +1769,5 @@
+ @ cdecl wine_get_version()
+ @ cdecl wine_get_build_id()
+ @ cdecl wine_get_host_version(ptr ptr)
++
++@ extern -private agepad_signed_images
+diff --git a/dlls/ntdll/path.c b/dlls/ntdll/path.c
+index 682a1ade24f..1ff82e0a98d 100644
+--- a/dlls/ntdll/path.c
++++ b/dlls/ntdll/path.c
+@@ -1021,14 +1021,20 @@ NTSTATUS WINAPI RtlSetCurrentDirectory_U(const UNICODE_STRING* dir)
+         handle = 0;
+     }
+ 
+-    if (curdir->Handle) NtClose( curdir->Handle );
+-    curdir->Handle = handle;
+-
+     /* append trailing \ if missing */
+     size = newdir.Length / sizeof(WCHAR);
+     ptr = newdir.Buffer;
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    /* Wine's Unix namespace is absolute but has no DOS drive. Retain an
++     * extended-path prefix so descendants do not resolve it as relative. */
++    if (size >= 9 && !wcsnicmp(ptr, L"\\??\\unix\\", 9))
++        ptr[1] = '\\';
++    else
++#endif
++    {
+     ptr += 4;  /* skip \??\ prefix */
+     size -= 4;
++    }
+     if (size && ptr[size - 1] != '\\') ptr[size++] = '\\';
+ 
+     /* convert \??\UNC\ path to \\ prefix */
+@@ -1039,6 +1045,18 @@ NTSTATUS WINAPI RtlSetCurrentDirectory_U(const UNICODE_STRING* dir)
+         *ptr = '\\';
+     }
+ 
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    ERR("[AgePad-cwd] copy bytes=%lu capacity=%u value=%s\n", (size + 1) * sizeof(WCHAR),
++        curdir->DosPath.MaximumLength, debugstr_us(&newdir));
++#endif
++    if ((size + 1) * sizeof(WCHAR) > curdir->DosPath.MaximumLength)
++    {
++        if (handle) NtClose( handle );
++        nts = STATUS_NAME_TOO_LONG;
++        goto out;
++    }
++    if (curdir->Handle) NtClose( curdir->Handle );
++    curdir->Handle = handle;
+     memcpy( curdir->DosPath.Buffer, ptr, size * sizeof(WCHAR));
+     curdir->DosPath.Buffer[size] = 0;
+     curdir->DosPath.Length = size * sizeof(WCHAR);
+diff --git a/dlls/ntdll/signal_arm64ec.c b/dlls/ntdll/signal_arm64ec.c
+index 1e9b581dd4b..511ac75de54 100644
+--- a/dlls/ntdll/signal_arm64ec.c
++++ b/dlls/ntdll/signal_arm64ec.c
+@@ -51,6 +51,8 @@ static void     (WINAPI *pBTCpu64IosAddAliasMapping)(unsigned long long, unsigne
+ static void     (WINAPI *pBTCpu64IosSetMonoBridge)(unsigned long long);  /* ml648 */
+ /* ml618: iOS-only. MUST be obtained via GET_PTR (arm64ec_redirect_ptr), never via a
+  * raw base+RVA lookup — see the registration comment below. */
++static unsigned int (WINAPI *pBTCpu64IosPendingThreadCleanup)(void*);
++static unsigned int (WINAPI *pBTCpu64IosCleanupTerminatedWaiter)(void*);
+ static unsigned int (WINAPI *pBTCpu64IosReleaseThreadHolds)(void*, unsigned long long*, unsigned int*, unsigned int*);
+ static void     (WINAPI *pBTCpu64NotifyMemoryDirty)(void*,SIZE_T);
+ static void     (WINAPI *pBTCpu64NotifyReadFile)(HANDLE,void*,SIZE_T,BOOL,NTSTATUS);
+@@ -69,6 +71,18 @@ static NTSTATUS (WINAPI *pThreadInit)(void);
+ static void     (WINAPI *pThreadTerm)(HANDLE,LONG);
+ static void     (WINAPI *pUpdateProcessorInformation)(SYSTEM_CPU_INFORMATION*);
+ 
++/* Versioned PE callback; FEX invokes it before destroying its thread state. */
++static unsigned int (WINAPI *pBTCpu64IosSetStateClose)(unsigned int, NTSTATUS (WINAPI *)(void *));
++static NTSTATUS WINAPI agepad_close_fex_state(void *target_teb)
++{
++    struct ios_register_hold_release_params params;
++    params.size = sizeof(params);
++    params.version = 6;
++    params.peb = NtCurrentTeb()->Peb;
++    params.callback = target_teb; /* command6 data, not executable callback */
++    return WINE_UNIX_CALL(unix_ios_register_hold_release, &params);
++}
++
+ static BOOLEAN emulated_processor_features[PROCESSOR_FEATURE_MAX];
+ static BYTE KiUserExceptionDispatcher_orig[16]; /* to detect patching */
+ extern void KiUserExceptionDispatcher_thunk(void) asm("EXP+#KiUserExceptionDispatcher");
+@@ -359,6 +373,10 @@ static BOOL send_cross_process_notification( HANDLE process, UINT id, const void
+     int i;
+ 
+     RtlOpenCrossProcessEmulatorWorkConnection( process, &section, (void **)&list );
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    { static unsigned int count; if (count++ < 32)
++        ERR("[AgePad-xproc-send] id=%u target=%p addr=%p size=%Iu list=%p section=%p\n", id, process, addr, size, list, section); }
++#endif
+     if (!list) return FALSE;
+     if ((entry = RtlWow64PopCrossProcessWorkFromFreeList( &list->free_list )))
+     {
+@@ -641,6 +659,9 @@ NTSTATUS arm64ec_process_init_dispatchers( HMODULE module )
+                                       RtlFindExportedRoutineByName( module, #name ), metadata )
+     GET_PTR( BTCpu64FlushInstructionCache );
+     GET_PTR( BTCpu64IosAddAliasMapping );  /* iOS-only; NULL on non-iOS hosts. */
++    GET_PTR( BTCpu64IosSetStateClose );
++    GET_PTR( BTCpu64IosPendingThreadCleanup );
++    GET_PTR( BTCpu64IosCleanupTerminatedWaiter );
+     GET_PTR( BTCpu64IosReleaseThreadHolds );  /* iOS-only; ml618 leaked-hold release. */
+     GET_PTR( BTCpu64IosSetMonoBridge );  /* iOS-only; ml648 Mono backpatcher bridge. */
+     GET_PTR( BTCpu64IsProcessorFeaturePresent );
+@@ -661,6 +682,8 @@ NTSTATUS arm64ec_process_init_dispatchers( HMODULE module )
+     GET_PTR( ThreadTerm );
+     GET_PTR( UpdateProcessorInformation );
+ #undef GET_PTR
++    if (pBTCpu64IosSetStateClose)
++        ERR("[state-close-bind] abi=%x\n", pBTCpu64IosSetStateClose(1, agepad_close_fex_state));
+ 
+     RtlGetCurrentPeb()->ChpeV2ProcessInfo = info;
+     info->NativeMachineType = IMAGE_FILE_MACHINE_ARM64;
+@@ -751,6 +774,28 @@ NTSTATUS arm64ec_process_init_dispatchers( HMODULE module )
+         }
+     }
+ 
++    if (pBTCpu64IosCleanupTerminatedWaiter && pBTCpu64IosCleanupTerminatedWaiter(NULL) == 0x229)
++    {
++        struct ios_register_hold_release_params params;
++        params.size = sizeof(params);
++        params.version = 2; /* Same sized registration, separate callback kind. */
++        params.peb = RtlGetCurrentPeb();
++        params.callback = (void *)pBTCpu64IosCleanupTerminatedWaiter;
++        ERR("[waiter-cleanup] redirected self-test OK; registration status=%lx\n",
++            WINE_UNIX_CALL(unix_ios_register_hold_release, &params));
++    }
++
++    if (pBTCpu64IosPendingThreadCleanup && pBTCpu64IosPendingThreadCleanup(NULL) == 0x230)
++    {
++        struct ios_register_hold_release_params params;
++        params.size = sizeof(params);
++        params.version = 3;
++        params.peb = RtlGetCurrentPeb();
++        params.callback = (void *)pBTCpu64IosPendingThreadCleanup;
++        ERR("[cleanup-pending] redirected self-test OK; registration status=%lx\n",
++            WINE_UNIX_CALL(unix_ios_register_hold_release, &params));
++    }
++
+     return STATUS_SUCCESS;
+ }
+ 
+@@ -1279,7 +1324,10 @@ NTSTATUS SYSCALL_API NtDeviceIoControlFile( HANDLE handle, HANDLE event, PIO_APC
+      * one AND. Returning a status keeps the pseudo-process alive and the
+      * [iosb-guard] line names the caller so the corruption source can be
+      * chased offline. */
+-    if (!io || ((ULONG_PTR)io & (sizeof(void *) - 1)) || (ULONG_PTR)io >= 0x8000000000ull)
++    /* Steam/Chromium also allocates writable buffers above 512 GiB.  A fixed
++     * address ceiling is not a validity check; let the normal syscall path
++     * handle mapped user addresses.  Keep the existing null/alignment guard. */
++    if (!io || ((ULONG_PTR)io & (sizeof(void *) - 1)))
+     {
+         static ULONG bogus_n;
+         if (bogus_n < 16)
+@@ -2253,6 +2301,12 @@ static NTSTATUS WINAPI LdrpSetX64Information( ULONG type, ULONG_PTR input, void
+  */
+ void WINAPI ProcessPendingCrossProcessEmulatorWork(void)
+ {
++    /* Keep the opt-in FEX dispatcher queue probe in sync with this ABI. */
++    C_ASSERT(offsetof(PEB, ChpeV2ProcessInfo) == 0x338);
++    C_ASSERT(offsetof(CHPEV2_PROCESS_INFO, CrossProcessWorkList) == 0x10);
++    C_ASSERT(offsetof(CROSS_PROCESS_WORK_LIST, work_list) == 8);
++    C_ASSERT(offsetof(CROSS_PROCESS_WORK_HDR, first) == 0);
++
+     CHPEV2_PROCESS_INFO *info = RtlGetCurrentPeb()->ChpeV2ProcessInfo;
+     CROSS_PROCESS_WORK_LIST *list = (void *)info->CrossProcessWorkList;
+     CROSS_PROCESS_WORK_ENTRY *entry;
+@@ -2261,6 +2315,10 @@ void WINAPI ProcessPendingCrossProcessEmulatorWork(void)
+ 
+     if (!list) return;
+     entry = RtlWow64PopAllCrossProcessWorkFromWorkList( &list->work_list, &flush );
++#ifdef AGEPAD_SIGNED_WINE_TSD
++    if (entry || flush) { static unsigned int count; if (count++ < 32)
++        ERR("[AgePad-xproc-drain] peb=%p list=%p entry=%p id=%u flush=%u\n", RtlGetCurrentPeb(), list, entry, entry ? entry->id : 0, flush); }
++#endif
+ 
+     if (flush)
+     {
+@@ -4259,7 +4317,27 @@ static void __attribute__((naked)) arm64x_check_call(void)
+           * So: correct-but-unlandable until that false positive is found. The fixed version
+           * is preserved in the task notes. Do not "fix" this without re-running the CEF
+           * check -- verifying IsEcCode flips 0->1 does NOT prove the outcome still works. */
++#ifdef AGEPAD_SIGNED_WINE_TSD
++         /* Opt-in alternative to fault-emulated x18. Preserve the complete
++          * target-classification algorithm below; only obtain PEB differently.
++          * x16/x17 are scratch under this call-check ABI. No fixed TSD slot. */
++         "adrp x17, agepad_direct_teb_check\n\t"
++         "ldr w17, [x17, #:lo12:agepad_direct_teb_check]\n\t"
++         "cbz w17, .Lagepad_legacy_teb\n\t"
++         "adrp x17, ios_teb_tsd_offset\n\t"
++         "ldr w17, [x17, #:lo12:ios_teb_tsd_offset]\n\t"
++         "cbz w17, .Lagepad_legacy_teb\n\t"
++         "mrs x16, tpidrro_el0\n\t"
++         "and x16, x16, #0xfffffffffffffff8\n\t"
++         "ldr x16, [x16, x17]\n\t"
++         "ldr x16, [x16, #0x60]\n\t"
++         "b .Lagepad_have_peb\n\t"
++         ".Lagepad_legacy_teb:\n\t"
++#endif
+          "ldr x16, [x18, #0x60]\n\t"        /* peb -- see above, intentionally x18 */
++#ifdef AGEPAD_SIGNED_WINE_TSD
++         ".Lagepad_have_peb:\n\t"
++#endif
+          "lsr x17, x11, #18\n\t"            /* dest / page_size / 64 */
+          "ldr x16, [x16, #0x368]\n\t"       /* peb->EcCodeBitMap */
+          "lsr x9, x11, #12\n\t"             /* dest / page_size */
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index efada50bb90..7c340bc76f5 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -3020,7 +3020,16 @@ static NTSTATUS find_file_in_dir( int root_fd, char *unix_name, int pos, const W
+     is_name_8_dot_3 = is_name_8_dot_3 && length >= 8 && name[4] == '~';
+ #endif
+ 
++#if defined(WINE_IOS) && TARGET_OS_SIMULATOR
++    /* Simulator fstatat rejects case variants although volume capabilities
++     * report the host APFS volume as insensitive. After an exact lookup fails,
++     * preserve Wine's directory scan for Windows paths in this experiment.
++     * Explicit Unix paths still took the check_case exit above. */
++    if (!getenv("AGEPAD_SIGNED_NTDLL") && !is_name_8_dot_3 &&
++        !get_dir_case_sensitivity(root_fd, unix_name)) goto not_found;
++#else
+     if (!is_name_8_dot_3 && !get_dir_case_sensitivity( root_fd, unix_name )) goto not_found;
++#endif
+ 
+     /* now look for it through the directory */
+ 
+diff --git a/dlls/ntdll/unix/socket.c b/dlls/ntdll/unix/socket.c
+index c03560ad930..0bb10bf68ff 100644
+--- a/dlls/ntdll/unix/socket.c
++++ b/dlls/ntdll/unix/socket.c
+@@ -93,6 +93,21 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(winsock);
+ 
++/* Opt-in boundary diagnostics: never inspect the payload or change errno. */
++static void agepad_afd_result( UINT code, UINT size, size_t expected, NTSTATUS status,
++                               ULONGLONG buffers, unsigned int count, int async )
++{
++#ifdef WINE_IOS
++    int saved_errno = errno;
++    const char *enabled = getenv("AGEPAD_STARTUP_TRACE");
++    if (enabled && enabled[0] == '1')
++        ERR("[AgePad-afd] code=%x size=%u expected=%zu status=%lx buffers=%llx count=%u async=%d wow64=%d\n",
++            code, size, expected, (unsigned long)(unsigned int)status, (unsigned long long)buffers, count, async, in_wow64_call());
++    errno = saved_errno;
++#endif
++}
++
++
+ #define u64_to_user_ptr(u) ((void *)(uintptr_t)(u))
+ 
+ union unix_sockaddr
+@@ -2231,6 +2246,7 @@ NTSTATUS sock_ioctl( HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc, void *apc
+             if (in_size < sizeof(*params))
+             {
+                 status = STATUS_BUFFER_TOO_SMALL;
++                agepad_afd_result( code, in_size, sizeof(*params), status, 0, 0, 0 );
+                 break;
+             }
+ 
+@@ -2244,6 +2260,8 @@ NTSTATUS sock_ioctl( HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc, void *apc
+                                       params->count, u64_to_user_ptr(params->control_ptr),
+                                       u64_to_user_ptr(params->addr_ptr), u64_to_user_ptr(params->addr_len_ptr),
+                                       ws_flags, unix_flags, params->force_async );
++            agepad_afd_result( code, in_size, sizeof(*params), status,
++                               params->buffers_ptr, params->count, params->force_async );
+             if (needs_close) close( fd );
+             return status;
+         }
+@@ -2259,6 +2277,7 @@ NTSTATUS sock_ioctl( HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc, void *apc
+             if (in_size < sizeof(*params))
+             {
+                 status = STATUS_BUFFER_TOO_SMALL;
++                agepad_afd_result( code, in_size, sizeof(*params), status, 0, 0, 0 );
+                 break;
+             }
+ 
+@@ -2271,6 +2290,8 @@ NTSTATUS sock_ioctl( HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc, void *apc
+             status = sock_ioctl_send( handle, event, apc, apc_user, io, fd, u64_to_user_ptr( params->buffers_ptr ),
+                                       params->count, u64_to_user_ptr( params->addr_ptr ), params->addr_len,
+                                       unix_flags, params->force_async );
++            agepad_afd_result( code, in_size, sizeof(*params), status,
++                               params->buffers_ptr, params->count, params->force_async );
+             if (needs_close) close( fd );
+             return status;
+         }
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index 8980818d9ca..67ada4574e2 100644
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -2841,6 +2841,11 @@ NTSTATUS WINAPI NtRemoveIoCompletion( HANDLE handle, ULONG_PTR *key, ULONG_PTR *
+             *value          = reply->cvalue;
+             io->Information = reply->information;
+             io->Status      = reply->status;
++#ifdef WINE_IOS
++    if (getenv("AGEPAD_STARTUP_TRACE") && getenv("AGEPAD_STARTUP_TRACE")[0] == '1')
++        fprintf(stderr, "[AgePad-iocp] client_take port=%p key=%llx value=%llx status=%x info=%llu\n", handle, (unsigned long long)*key, (unsigned long long)*value, (unsigned int)io->Status, (unsigned long long)io->Information);
++#endif
++
+         }
+         else wait_handle = wine_server_ptr_handle( reply->wait_handle );
+     }
+@@ -2858,6 +2863,11 @@ NTSTATUS WINAPI NtRemoveIoCompletion( HANDLE handle, ULONG_PTR *key, ULONG_PTR *
+             *value          = reply->cvalue;
+             io->Information = reply->information;
+             io->Status      = reply->status;
++#ifdef WINE_IOS
++    if (getenv("AGEPAD_STARTUP_TRACE") && getenv("AGEPAD_STARTUP_TRACE")[0] == '1')
++        fprintf(stderr, "[AgePad-iocp] client_take port=%p key=%llx value=%llx status=%x info=%llu\n", handle, (unsigned long long)*key, (unsigned long long)*value, (unsigned int)io->Status, (unsigned long long)io->Information);
++#endif
++
+         }
+     }
+     SERVER_END_REQ;
+diff --git a/dlls/ntdll/unixlib.h b/dlls/ntdll/unixlib.h
+index 04789bc78e3..7eebf690393 100644
+--- a/dlls/ntdll/unixlib.h
++++ b/dlls/ntdll/unixlib.h
+@@ -91,7 +91,7 @@ struct ios_push_jit_aliases_params
+ struct ios_register_hold_release_params
+ {
+     unsigned int size;      /* sizeof(struct) — set by caller, checked by callee */
+-    unsigned int version;   /* 1 */
++    unsigned int version;   /* 1: hold release; 2: waiter cleanup; 3: pending count; 4: retire (NULL callback) */
+     void *peb;              /* selects the pseudo-process this callback serves */
+     void *callback;         /* uint32_t (*)(void *teb, uint64_t*, uint32_t*, uint32_t*) */
+ };
+diff --git a/dlls/sechost/Makefile.in b/dlls/sechost/Makefile.in
+index ec1eb100683..25439e94090 100644
+--- a/dlls/sechost/Makefile.in
++++ b/dlls/sechost/Makefile.in
+@@ -1,7 +1,6 @@
+ MODULE    = sechost.dll
+ IMPORTLIB = sechost
+-IMPORTS   = kernelbase
+-DELAYIMPORTS = rpcrt4
++IMPORTS   = kernelbase rpcrt4
+ 
+ SOURCES = \
+ 	plugplay.idl \
+diff --git a/include/winnt.h b/include/winnt.h
+index 5158d7bd328..ac89f80fa74 100644
+--- a/include/winnt.h
++++ b/include/winnt.h
+@@ -2574,6 +2574,19 @@ static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
+ {
+     return (struct _TEB *)__readfsdword( 0x18 );
+ }
++#elif defined(AGEPAD_SIGNED_WINE_TSD) && defined(__arm64ec__) && defined(__clang__)
++/* Local signed-container path: iOS owns x18. The native Wine loader publishes
++ * the actual pthread TSD slot before entering PE ntdll. Other source-built
++ * Wine DLLs import the same published data export. */
++extern NTSYSAPI unsigned int ios_teb_tsd_offset;
++static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
++{
++    ULONG_PTR tsd;
++    unsigned int offset = ios_teb_tsd_offset;
++    if (!offset) __builtin_trap();
++    __asm__ volatile("mrs %0, tpidrro_el0" : "=r" (tsd) : : "memory");
++    return *(struct _TEB **)((tsd & ~(ULONG_PTR)7) + offset);
++}
+ #elif (defined(__aarch64__) || defined(__arm64ec__)) && defined(__GNUC__)
+ register struct _TEB *__wine_current_teb __asm__("x18");
+ static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
+diff --git a/programs/services/services.c b/programs/services/services.c
+index 2f1b959785d..967822fa595 100644
+--- a/programs/services/services.c
++++ b/programs/services/services.c
+@@ -1126,9 +1126,16 @@ static DWORD process_send_start_message(struct process_entry *process, BOOL shar
+         if (GetLastError() == ERROR_IO_PENDING)
+         {
+             HANDLE handles[2];
++            DWORD wait_result, child_code = 0;
++            ULONGLONG wait_start = GetTickCount64();
+             handles[0] = process->overlapped_event;
+             handles[1] = process->process;
+-            if (WaitForMultipleObjects( 2, handles, FALSE, service_pipe_timeout ) != WAIT_OBJECT_0)
++            wait_result = WaitForMultipleObjects( 2, handles, FALSE, service_pipe_timeout );
++            GetExitCodeProcess(process->process, &child_code);
++            WINE_ERR("[AgePad-service-connect] service=%s wait=%#lx child=%lu elapsed=%llu timeout=%lu\n",
++                     wine_dbgstr_w(name), wait_result, child_code,
++                     GetTickCount64() - wait_start, service_pipe_timeout);
++            if (wait_result != WAIT_OBJECT_0)
+                 CancelIo(process->control_pipe);
+             if (!GetOverlappedResult(process->control_pipe, &overlapped, &len, FALSE))
+             {
+diff --git a/server/async.c b/server/async.c
+index d56478a5623..bb43cf4a4ae 100644
+--- a/server/async.c
++++ b/server/async.c
+@@ -221,6 +221,13 @@ static void async_destroy( struct object *obj )
+     struct async *async = (struct async *)obj;
+     assert( obj->ops == &async_ops );
+ 
++#ifdef WINE_IOS
++    if (agepad_server_signed_ntdll)
++        fprintf(stderr, "[AgePad-async-destroy] async=%p next=%p prev=%p canceled=%u terminated=%u\n",
++                async, async->process_entry.next, async->process_entry.prev,
++                async->canceled, async->terminated);
++#endif
++
+     assert( !async->async_cancel );
+     list_remove( &async->process_entry );
+ 
+@@ -644,6 +651,11 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
+ 
+     assert( async->terminated );  /* it must have been woken up if we get a result */
+ 
++
++#ifdef WINE_IOS
++    if (agepad_server_startup_trace)
++        fprintf(stderr, "[AgePad-iocp] async_result owner=%p context=%llx iosb=%llx status=%x info=%llu pending=%d alerted=%d\n", async, (unsigned long long)async->data.apc_context, (unsigned long long)async->data.iosb, status, (unsigned long long)total, async->pending, async->alerted);
++#endif
+     if (async->unknown_status) async_set_initial_status( async, status );
+ 
+     if (async->alerted && status == STATUS_PENDING)  /* restart it */
+@@ -752,6 +764,9 @@ static int cancel_process_async( struct process *process, struct object *obj, st
+ 
+     if (thread && !(cancel = create_async_cancel( process ))) return 0;
+ 
++    /* Hold the group open while callbacks can complete synchronously. */
++    if (cancel) cancel->count++;
++
+     list_init( &tracked );
+ 
+     /* We can't simply use LIST_FOR_EACH_ENTRY_SAFE here, because currently
+@@ -766,15 +781,33 @@ restart:
+             (!thread || async->thread == thread) &&
+             (!iosb || async->data.iosb == iosb))
+         {
+-            if (!async->canceled) cancel_async( async );
++            /* Cancellation can drop the final queue reference. Keep this
++             * object alive until it is restored to the process list, and
++             * install completion tracking before invoking the callback. */
++            grab_object( async );
++            list_remove( &async->process_entry );
++            list_add_tail( &tracked, &async->process_entry );
+             if (cancel)
+             {
+                 assert( !async->async_cancel );
+                 async->async_cancel = cancel;
+                 cancel->count++;
+             }
+-            list_remove( &async->process_entry );
+-            list_add_tail( &tracked, &async->process_entry );
++            if (!async->canceled)
++            {
++#ifdef WINE_IOS
++                if (agepad_server_signed_ntdll)
++                    fprintf(stderr, "[AgePad-async-cancel-enter] async=%p refs=%u next=%p prev=%p tracker=%p\n",
++                            async, async->obj.refcount, async->process_entry.next,
++                            async->process_entry.prev, cancel);
++#endif
++                cancel_async( async );
++#ifdef WINE_IOS
++                /* Pointer identity only: the callback may have destroyed it. */
++                if (agepad_server_signed_ntdll)
++                    fprintf(stderr, "[AgePad-async-cancel-return] async=%p\n", async);
++#endif
++            }
+             count++;
+             goto restart;
+         }
+@@ -784,9 +817,11 @@ restart:
+     {
+         list_remove( &async->process_entry );
+         list_add_tail( &process->asyncs, &async->process_entry );
++        release_object( async );
+     }
+     if (cancel)
+     {
++        cancel->count--; /* release the synchronous-callback sentinel */
+         if (!cancel->count) release_object( cancel );
+         else *wait_handle = alloc_handle( process, cancel, SYNCHRONIZE, 0 );
+     }
+diff --git a/server/completion.c b/server/completion.c
+index 79c646c3df3..d48a2457075 100644
+--- a/server/completion.c
++++ b/server/completion.c
+@@ -25,6 +25,7 @@
+ 
+ #include <stdarg.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ #include "ntstatus.h"
+ #include "windef.h"
+@@ -308,6 +309,11 @@ void add_completion( struct completion *completion, apc_param_t ckey, apc_param_
+     msg->status = status;
+     msg->information = information;
+ 
++#ifdef WINE_IOS
++    if (agepad_server_startup_trace)
++        fprintf(stderr, "[AgePad-iocp] queue_add port=%p packet=%p key=%llx value=%llx status=%x info=%llu\n", completion, msg, (unsigned long long)ckey, (unsigned long long)cvalue, status, (unsigned long long)information);
++#endif
++
+     list_add_tail( &completion->queue, &msg->queue_entry );
+     completion->depth++;
+     LIST_FOR_EACH_ENTRY( wait, &completion->wait_queue, struct completion_wait, wait_queue_entry )
+@@ -414,6 +420,11 @@ DECL_HANDLER(remove_completion)
+         reply->cvalue = msg->cvalue;
+         reply->status = msg->status;
+         reply->information = msg->information;
++
++#ifdef WINE_IOS
++    if (agepad_server_startup_trace)
++        fprintf(stderr, "[AgePad-iocp] queue_take port=%p packet=%p key=%llx value=%llx status=%x info=%llu\n", completion, msg, (unsigned long long)msg->ckey, (unsigned long long)msg->cvalue, msg->status, (unsigned long long)msg->information);
++#endif
+         free( msg );
+         reply->wait_handle = 0;
+         if (list_empty( &completion->queue )) reset_sync( completion->sync );
+@@ -437,6 +448,11 @@ DECL_HANDLER(get_thread_completion)
+     reply->cvalue = msg->cvalue;
+     reply->status = msg->status;
+     reply->information = msg->information;
++
++#ifdef WINE_IOS
++    if (agepad_server_startup_trace)
++        fprintf(stderr, "[AgePad-iocp] thread_take packet=%p key=%llx value=%llx status=%x info=%llu\n", msg, (unsigned long long)msg->ckey, (unsigned long long)msg->cvalue, msg->status, (unsigned long long)msg->information);
++#endif
+     free( msg );
+     current->completion_wait->msg = NULL;
+     if (!current->completion_wait->completion) cleanup_thread_completion( current );
+diff --git a/server/object.h b/server/object.h
+index d1ca92f482a..48f06c1f92b 100644
+--- a/server/object.h
++++ b/server/object.h
+@@ -26,6 +26,15 @@
+ #include "wine/server_protocol.h"
+ #include "wine/list.h"
+ 
++#ifdef WINE_IOS
++#include <stdio.h>
++/* The embedded server must not share a FILE lock with suspended guests. */
++extern FILE *agepad_server_log_stream;
++extern int agepad_server_init_log_stream(void);
++#undef stderr
++#define stderr agepad_server_log_stream
++#endif
++
+ #define DEBUG_OBJECTS
+ 
+ /* kernel objects */
+diff --git a/server/sock.c b/server/sock.c
+index 46969485346..573bbb52dc3 100644
+--- a/server/sock.c
++++ b/server/sock.c
+@@ -1059,6 +1059,12 @@ static void complete_async_accept( struct sock *sock, struct accept_req *req )
+     {
+         if (!accept_into_socket( sock, acceptsock ))
+         {
++#ifdef WINE_IOS
++            static unsigned accept_failures;
++            if (accept_failures++ < 32)
++                fprintf( stderr, "[AgePad-accept-failure] into=1 status=%08x state=%u nonblocking=%u\n",
++                         get_error(), sock->state, sock->nonblocking );
++#endif
+             async_terminate( async, get_error() );
+             return;
+         }
+diff --git a/server/thread.c b/server/thread.c
+index e173b9223af..297c0fb55a2 100644
+--- a/server/thread.c
++++ b/server/thread.c
+@@ -94,6 +94,52 @@ struct thread_apc
+     union apc_result    result;   /* call results once executed */
+ };
+ 
++#ifdef WINE_IOS
++/* Snapshot before the request loop. A signal-interrupted client can hold the
++ * shared libc environment lock while waiting for this server to reply. */
++FILE *agepad_server_log_stream;
++int agepad_server_init_log_stream(void)
++{
++    int fd;
++    if (agepad_server_log_stream) return 1;
++    fd = dup(STDERR_FILENO);
++    if (fd < 0) return 0;
++    agepad_server_log_stream = fdopen(fd, "a");
++    if (!agepad_server_log_stream)
++    {
++        close(fd);
++        return 0;
++    }
++    setvbuf(agepad_server_log_stream, NULL, _IOLBF, 0);
++    return 1;
++}
++
++int agepad_server_startup_trace;
++int agepad_server_signed_ntdll;
++void agepad_server_init_trace(void)
++{
++    const char *enabled = getenv("AGEPAD_STARTUP_TRACE");
++    agepad_server_startup_trace = enabled && enabled[0] == '1';
++    agepad_server_signed_ntdll = getenv("AGEPAD_SIGNED_NTDLL") != NULL;
++}
++#endif
++
++/* Opt-in APC lifetime diagnostics; preserve errno used by signal paths. */
++static void agepad_trace_apc( const char *stage, struct thread_apc *apc,
++                             struct thread *thread, int detail )
++{
++#ifdef WINE_IOS
++    int saved_errno = errno;
++    if (agepad_server_startup_trace && apc->call.type == APC_ASYNC_IO)
++        fprintf(stderr, "[AgePad-apc] stage=%s apc=%p owner=%p thread=%x state=%d unix_pid=%d unix_tid=%d executed=%d result_type=%u call_status=%x detail=%d errno=%d\n",
++                stage, apc, apc->owner, thread ? thread->id : 0,
++                thread ? thread->state : -1, thread ? thread->unix_pid : -1,
++                thread ? thread->unix_tid : -1, apc->executed, apc->result.type,
++                apc->call.async_io.status, detail, saved_errno);
++    errno = saved_errno;
++#endif
++}
++
+ static void dump_thread_apc( struct object *obj, int verbose );
+ static struct object *thread_apc_get_sync( struct object *obj );
+ static void thread_apc_destroy( struct object *obj );
+@@ -133,10 +179,28 @@ struct context
+     struct object          *sync;       /* sync object for wait/signal */
+     unsigned int            status;     /* status of the context */
+     struct context_data     regs[2];    /* context data */
++#ifdef WINE_IOS
++    int                     ios_mach_snapshot;
++    unsigned int            ios_modified_flags[2];
++#endif
+ };
+ #define CTX_NATIVE  0  /* context for native machine */
+ #define CTX_WOW     1  /* context if thread is inside WoW */
+ 
++#ifdef WINE_IOS
++/* A Mach snapshot is complete without a client select. A later SIGUSR1 must
++ * publish its fresh context, retaining only explicit SetThreadContext edits
++ * from the snapshot; retaining all snapshot flags would restore stale PCs. */
++static void ios_context_begin_signal( struct context *context )
++{
++    if (!context->ios_mach_snapshot || context->status != STATUS_SUCCESS) return;
++    context->regs[CTX_NATIVE].flags &= context->ios_modified_flags[CTX_NATIVE];
++    context->regs[CTX_WOW].flags &= context->ios_modified_flags[CTX_WOW];
++    context->ios_mach_snapshot = 0;
++    context->status = STATUS_PENDING;
++}
++#endif
++
+ /* flags for registers that always need to be set from the server side */
+ static const unsigned int system_flags = SERVER_CTX_DEBUG_REGISTERS;
+ 
+@@ -495,6 +559,10 @@ static struct context *create_thread_context( struct thread *thread )
+     if (!(context = alloc_object( &context_ops ))) return NULL;
+     context->sync   = NULL;
+     context->status = STATUS_PENDING;
++#ifdef WINE_IOS
++    context->ios_mach_snapshot = 0;
++    memset( context->ios_modified_flags, 0, sizeof(context->ios_modified_flags) );
++#endif
+     memset( &context->regs, 0, sizeof(context->regs) );
+     context->regs[CTX_NATIVE].machine = native_machine;
+ 
+@@ -724,9 +792,14 @@ static void thread_apc_destroy( struct object *obj )
+ {
+     struct thread_apc *apc = (struct thread_apc *)obj;
+ 
++    agepad_trace_apc("destroy", apc, NULL, 0);
+     if (apc->caller) release_object( apc->caller );
+     if (apc->owner)
+     {
++#ifdef WINE_IOS
++        if (agepad_server_startup_trace && apc->call.type == APC_ASYNC_IO)
++            fprintf(stderr, "[AgePad-iocp] apc_finish owner=%p result_type=%u call_status=%x result_status=%x info=%llu\n", apc->owner, apc->result.type, apc->call.async_io.status, apc->result.type == APC_ASYNC_IO ? apc->result.async_io.status : 0, apc->result.type == APC_ASYNC_IO ? (unsigned long long)apc->result.async_io.total : 0ULL);
++#endif
+         if (apc->result.type == APC_ASYNC_IO)
+             async_set_result( apc->owner, apc->result.async_io.status, apc->result.async_io.total );
+         else if (apc->call.type == APC_ASYNC_IO)
+@@ -976,18 +1049,17 @@ void stop_thread( struct thread *thread )
+     /* can't stop a thread while initialisation is in progress */
+     if (!is_process_init_done(thread->process)) return;
+ #ifdef WINE_IOS
+-    /* iOS (task #32): POSIX signal suspend is dead (SIGUSR1 via __pthread_kill
+-     * never runs the target's usr1_handler), so the target-fills-its-own-context
+-     * path never completes and GetThreadContext hung forever. Capture the
+-     * context synchronously via Mach (thread_suspend + thread_get_state + read
+-     * the guest CPU-area context) and signal the sync so the client returns
+-     * without STATUS_PENDING. */
++    /* Capture native and guest context synchronously through the existing Mach
++     * path. SIGUSR1 delivery now also works for system APCs; mark this completed
++     * snapshot so a later client context publication can replace stale register
++     * groups while retaining explicit SetThreadContext edits. */
+     {
+         extern int ios_fill_thread_context( struct thread *, struct context_data *,
+                                             struct context_data * );
+         if (ios_fill_thread_context( thread, &thread->context->regs[CTX_NATIVE],
+                                      &thread->context->regs[CTX_WOW] ))
+         {
++            thread->context->ios_mach_snapshot = 1;
+             thread->context->status = STATUS_SUCCESS;
+             signal_sync( thread->context->sync );
+         }
+@@ -1544,6 +1616,7 @@ static int queue_apc( struct process *process, struct thread *thread, struct thr
+ {
+     struct list *queue;
+ 
++    agepad_trace_apc("queue_enter", apc, thread, 0);
+     if (thread && thread->state == TERMINATED && process)
+         thread = NULL;
+ 
+@@ -1583,7 +1656,9 @@ static int queue_apc( struct process *process, struct thread *thread, struct thr
+         /* send signal for system APCs if needed */
+         if (queue == &thread->system_apc && list_empty( queue ) && !is_in_apc_wait( thread ))
+         {
+-            if (!send_thread_signal( thread, SIGUSR1 )) return 0;
++            int signaled = send_thread_signal( thread, SIGUSR1 );
++            agepad_trace_apc("signal", apc, thread, signaled);
++            if (!signaled) return 0;
+         }
+         /* cancel a possible previous APC with the same owner */
+         if (apc->owner) thread_cancel_apc( thread, apc->owner, apc->call.type );
+@@ -1591,6 +1666,7 @@ static int queue_apc( struct process *process, struct thread *thread, struct thr
+ 
+     grab_object( apc );
+     list_add_tail( queue, &apc->entry );
++    agepad_trace_apc("queued", apc, thread, 0);
+     if (!list_prev( queue, &apc->entry ))  /* first one */
+     {
+         if (apc->call.type == APC_USER && thread->alert_sync)
+@@ -1610,6 +1686,7 @@ int thread_queue_apc( struct process *process, struct thread *thread, struct obj
+     if ((apc = create_apc( owner, call_data )))
+     {
+         ret = queue_apc( process, thread, apc );
++        agepad_trace_apc("queue_return", apc, thread, ret);
+         release_object( apc );
+     }
+     return ret;
+@@ -1624,6 +1701,7 @@ void thread_cancel_apc( struct thread *thread, struct object *owner, enum apc_ty
+     LIST_FOR_EACH_ENTRY( apc, queue, struct thread_apc, entry )
+     {
+         if (apc->owner != owner) continue;
++        agepad_trace_apc("cancel", apc, thread, 0);
+         list_remove( &apc->entry );
+         apc->executed = 1;
+         signal_sync( apc->sync );
+@@ -1643,6 +1721,7 @@ static struct thread_apc *thread_dequeue_apc( struct thread *thread, int system
+     if (ptr)
+     {
+         apc = LIST_ENTRY( ptr, struct thread_apc, entry );
++        agepad_trace_apc("dequeue", apc, thread, system);
+         list_remove( ptr );
+         if (list_empty( &thread->user_apc ) && thread->alert_sync)
+             reset_inproc_sync( thread->alert_sync );
+@@ -1658,6 +1737,7 @@ static void clear_apc_queue( struct list *queue )
+     while ((ptr = list_head( queue )))
+     {
+         struct thread_apc *apc = LIST_ENTRY( ptr, struct thread_apc, entry );
++        agepad_trace_apc("clear", apc, NULL, 0);
+         list_remove( &apc->entry );
+         apc->executed = 1;
+         signal_sync( apc->sync );
+@@ -2112,6 +2192,9 @@ DECL_HANDLER(select)
+ 
+         if ((ctx = current->context))
+         {
++#ifdef WINE_IOS
++            ios_context_begin_signal( ctx );
++#endif
+             if (ctx->status != STATUS_PENDING) goto invalid_param;
+             /* if context was modified in pending state, discard irrelevant changes */
+             if (wow_context) ctx->regs[CTX_NATIVE].flags &= ~ctx->regs[CTX_WOW].flags;
+@@ -2147,6 +2230,7 @@ DECL_HANDLER(select)
+         if (!(apc = (struct thread_apc *)get_handle_obj( current->process, req->prev_apc,
+                                                          0, &thread_apc_ops ))) return;
+         apc->result = *result;
++        agepad_trace_apc("result_store", apc, current, result->type);
+         apc->executed = 1;
+         if (apc->result.type == APC_CREATE_THREAD)  /* transfer the handle to the caller process */
+         {
+@@ -2472,6 +2556,10 @@ DECL_HANDLER(set_thread_context)
+ 
+                 copy_context( ctx, &contexts[CTX_WOW], flags );
+                 ctx->flags |= flags;
++#ifdef WINE_IOS
++                if (thread->context->ios_mach_snapshot)
++                    thread->context->ios_modified_flags[CTX_WOW] |= flags;
++#endif
+             }
+ 
+             if (native_flags)
+@@ -2479,6 +2567,10 @@ DECL_HANDLER(set_thread_context)
+                 struct context_data *ctx = &thread->context->regs[CTX_NATIVE];
+                 copy_context( ctx, &contexts[CTX_NATIVE], native_flags );
+                 ctx->flags |= native_flags;
++#ifdef WINE_IOS
++                if (thread->context->ios_mach_snapshot)
++                    thread->context->ios_modified_flags[CTX_NATIVE] |= native_flags;
++#endif
+             }
+         }
+     }
+diff --git a/server/thread.h b/server/thread.h
+index 4c6a90ea789..264db16eabb 100644
+--- a/server/thread.h
++++ b/server/thread.h
+@@ -23,6 +23,12 @@
+ 
+ #include "object.h"
+ 
++#ifdef WINE_IOS
++extern int agepad_server_startup_trace;
++extern int agepad_server_signed_ntdll;
++extern void agepad_server_init_trace(void);
++#endif
++
+ /* thread structure */
+ 
+ struct process;

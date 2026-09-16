@@ -1,0 +1,247 @@
+{
+  "updated": "2026-09-09",
+  "iteration": 269,
+  "objective": "Actual AoE II DE locally on iPad with touch, sustained gameplay performance and retail multiplayer",
+  "active_run": "windows-steam-rcpc-215",
+  "preserve_session": true,
+  "review_sha256": "ef877a17e6edc64ef93399189b408bb157bf53de161fe59013f483507f863e7d",
+  "next_experiment": "Mac original-engine Simulator launch lifecycle/Steam startup investigation, see DE-STATUS.md and generated/mac-de-simulator-270/result.json",
+  "gates": {
+    "original_windows_de_input": {
+      "status": "missing",
+      "evidence": "ref search268: no AoE2DE_s.exe or AoE2DE.exe"
+    },
+    "physical_device": {
+      "status": "missing",
+      "evidence": "devicectl268: No devices found"
+    },
+    "runtime_components": {
+      "status": "bounded_pass",
+      "evidence": [
+        "WINDOWS-DE-STATUS.md",
+        "../tests/test-bus-rcpc-direction.py"
+      ]
+    },
+    "resource_lifecycle": {
+      "status": "failing",
+      "evidence": "Banks remain finite/nonrecycled. Experimental237/238 four/sixteen-worker fixtures both retain16,785,408 bytes after first child and only4096 additional bytes after second; native identities and callbacks still require retirement."
+    },
+    "steam_authentication": {
+      "status": "awaiting_user_attempt",
+      "evidence": "No authenticated success; last inspected222 screenshot needs QR refresh, not an immediately scannable challenge"
+    },
+    "de_gameplay": {
+      "status": "unproved"
+    },
+    "sustained_fps": {
+      "status": "unproved"
+    },
+    "device_execution": {
+      "status": "unproved",
+      "missing": "Connected iPad, user signing and JIT setup; root-process package268 ready for provisioning, runtime untested"
+    },
+    "touch_de": {
+      "status": "unproved"
+    },
+    "retail_multiplayer": {
+      "status": "unproved"
+    },
+    "allocation_failure": {
+      "status": "targeted_secondary_thread_reserve_and_commit_guest_pass",
+      "evidence": [
+        "../generated/madeira-signed-startup/windows-thread-failure-222/runtime-followup.log",
+        "../generated/madeira-signed-startup/windows-thread-commit-failure-223/runtime-followup.log"
+      ],
+      "missing": "broader constructors and process/lifecycle exhaustion"
+    },
+    "rootstore_error_handling": {
+      "status": "error_as_eof_guard_unit_tested_built_not_deployed",
+      "missing": "Guest integration, owner reuse and PE import restart/retry semantics; native empty-load retry now unit tested and built, not deployed"
+    },
+    "socket_capacity": {
+      "status": "native_helper_pass_built_not_deployed",
+      "evidence": "../tests/test-proc-socket-capacity.py",
+      "missing": "guest startup rejection integration, owner quiescence and reuse"
+    },
+    "normal_thread_churn": {
+      "status": "64_guest_workers_pass_measured_band_plateau_after_8",
+      "evidence": "../generated/steam-226-band-census.json",
+      "scope": "Normal worker return under probe workload; guest-visible 16GiB band only, not whole-process exit or native residency"
+    },
+    "process_exit_comparison": {
+      "status": "guest_exit_statuses_pass_worker_cleanup_bypass_observed",
+      "evidence": "../generated/steam-227-band-census.json",
+      "missing": "main-thread/context teardown and complete process quiescence; waiter cleanup passed231/232"
+    },
+    "abort_cleanup_preparation": {
+      "status": "opt_in_actual_4_and_16_worker_process_exit_cleanup_pass",
+      "evidence": "../generated/steam-232-band-census.json",
+      "default_enabled": false,
+      "missing": "contention/workload coverage, failure quarantine guest validation, remaining process teardown/reuse"
+    },
+    "cleanup_completion_tracking": {
+      "status": "integrated_opt_in_process_exit_barrier_guest_pass",
+      "evidence": "../tests/test-thread-cleanup-pending.py",
+      "missing": "broader workload/failure coverage and full native quiescence"
+    },
+    "allocator_ownership": {
+      "status": "actual_host_allocator_cross_thread_lifetime_test_pass",
+      "evidence": "../tests/test-rpmalloc-retired-heap.py",
+      "scope": "Host configuration with diagnostic stubs; retired heaps can contain live and deferred-free objects",
+      "missing": "Broader retail lifetime qualification and complete native callback retirement before reuse"
+    },
+    "process_teardown_order": {
+      "status": "x64_tls_dll_detach_after_worker_drain_guest_pass_crt_order_inspected",
+      "evidence": "../generated/madeira-signed-startup/windows-detach-order-235/detach-verification.json",
+      "missing": "General retail callback order and full native callback retirement; post-CRT allocator reclamation passes237 fixture"
+    },
+    "main_thread_cleanup": {
+      "status": "test_build_actual_guest_detach_fixture_pass",
+      "default_enabled": false,
+      "evidence": "../generated/steam-236-main-cleanup.json",
+      "missing": "General retail loader graph qualification and bank reuse"
+    },
+    "allocator_reclamation": {
+      "status": "experimental_4_and_16_worker_two_child_guest_detach_fixtures_pass",
+      "default_enabled": false,
+      "evidence": "../generated/steam-238-allocator-census.json",
+      "first_child_growth_bytes": 16785408,
+      "second_child_growth_bytes": 4096,
+      "scope": "Guest-visible constrained VA, not device resident memory or full process lifecycle",
+      "missing": "Native callback retirement, safe bank reuse, retail loader graphs and soak"
+    },
+    "callback_retirement": {
+      "status": "opt_in_final_exit_actual_16_worker_guest_fixture_pass",
+      "evidence": "../generated/madeira-signed-startup/windows-callback-retire-240/detach-verification.json",
+      "scope": "Three PEB-owned FEX callback types; stable tombstones, no reuse, no exit hook yet",
+      "missing": "Other callback systems and native-thread lifetime; early retirement now passes242fixture"
+    },
+    "early_callback_retirement": {
+      "status": "actual_16_worker_guest_fixture_pass_before_main_state_destruction",
+      "evidence": "../generated/madeira-signed-startup/windows-early-retire-242/detach-verification.json",
+      "missing": "Other native references, forced late mapping, guest failure quarantine, retail loader graphs and bank reuse"
+    },
+    "alias_callback_lifetime": {
+      "status": "owner_tracking_concurrency_and_16_worker_guest_regression_pass",
+      "evidence": "../tests/test-alias-callback-ownership.py",
+      "missing": "Legacy delivery integration parked after244/245 showed copy pool inactive; unit ownership and startup/shutdown pass, not copied-image delivery"
+    },
+    "parent_late_load": {
+      "status": "guest_execution_pass_alias_path_not_exercised",
+      "evidence": "../generated/steam-244-late-load-result.json",
+      "scope": "Two x64 DLLs after child exit; does not prove alias-copy fallback or device behavior"
+    },
+    "legacy_image_copy": {
+      "status": "legacy_pool_unconfigured_parked",
+      "evidence": "../generated/steam-245-fallback-result.json"
+    },
+    "signed_bank_lifetime": {
+      "status": "source_audit_identifies_retained_data_handles_native_registry_and_owner_scoped_jit",
+      "evidence": "reviews/ACTIVE-SIGNED-BANK-LIFETIME.md",
+      "missing": "Native reader quiescence, signed-data reset/rollback, registry recycling and JIT transfer"
+    },
+    "native_thread_snapshot": {
+      "status": "readers_migrated_concurrent_helper_and_16_worker_guest_regression_pass",
+      "evidence": "../generated/madeira-signed-startup/windows-thread-snapshots-248/detach-verification.json",
+      "missing": "Lifetime pinning/drain, cached reference invalidation, slot0 fallback semantics, Mach rights and retirement"
+    },
+    "native_thread_leases": {
+      "status": "Mach_request_scope_integrated_scope_tests_and_guest_regression_pass",
+      "evidence": "../tests/test-native-thread-request-scope.py",
+      "missing": "Other reader scopes, cached references, actual live-request retirement, Mach rights, terminal retirement and bank reuse"
+    },
+    "native_owned_port": {
+      "status": "actual_helper_tests_and_native_build_pass_not_guest_qualified",
+      "evidence": "../tests/test-native-thread-owned-port.py",
+      "missing": "Actual cross-thread termination, other reader lifetimes and native retirement"
+    },
+    "native_diagnostic_scan": {
+      "status": "actual_helper_tests_and_native_build_pass_not_guest_qualified",
+      "evidence": "../tests/test-native-thread-scan.py",
+      "missing": "Actual diagnostic-path qualification, arbitrary followed pointers, remaining reader scopes, terminal retirement and bank reuse"
+    },
+    "native_signal_diagnostic": {
+      "status": "actual_helper_tests_and_native_build_pass_not_guest_qualified",
+      "evidence": "../tests/test-native-thread-teb-scope.py",
+      "missing": "Signal delivery/retirement overlap, nonlocal exits, independently freed frame lifetime and terminal retirement"
+    },
+    "joined_thread_retirement": {
+      "status": "experimental_16_worker_guest_normal_exit_pass",
+      "default_enabled": false,
+      "evidence": "../generated/madeira-signed-startup/windows-joined-retire-255/detach-verification.json",
+      "missing": "Forced pending-reader/join-failure guest paths, deferred reclamation, final worker/process teardown, independent FEX frame lifetime, rights and slot reuse"
+    },
+    "fex_frame_lifetime": {
+      "status": "source_and_guest_log_order_gap_confirmed",
+      "evidence": "reviews/FEX-FRAME-LIFETIME.md",
+      "missing": "Independent state-reader closure/drain, failure propagation, held-reader guest validation across frame destruction"
+    },
+    "fex_state_references": {
+      "status": "three_native_frame_diagnostics_migrated_helper_tests_and_build_pass",
+      "evidence": "../tests/test-native-state-lifetime.py",
+      "missing": "Remaining raw-register readers, PE/native pre-destruction closure and failure propagation, forced-reader guest validation, process teardown and reuse"
+    },
+    "fex_state_close_boundary": {
+      "status": "owner_checked_helper_tests_and_native_build_pass_unconnected",
+      "evidence": "../tests/test-native-state-close-owner.py",
+      "missing": "Validated PE caller/ABI, pending/error propagation, all teardown paths and reader scopes, guest race qualification"
+    },
+    "fex_state_close_command": {
+      "status": "native_dispatcher_test_and_build_pass_no_PE_caller",
+      "default_enabled": false,
+      "evidence": "../tests/test-native-state-command.py",
+      "missing": "PE caller ABI and pending/error handling, all teardown paths/readers, allocator retention, guest held-reader validation"
+    },
+    "fex_pre_destruction_guard": {
+      "status": "guest262_failed_second_child_closed_TEB_alias_lookup",
+      "default_enabled": false,
+      "evidence": "../generated/steam-262-state-result.json",
+      "missing": "Lookup correction built/helper-tested not guest-rerun; remaining readers, forced races, process coverage and reuse; parked for engine/device priorities"
+    },
+    "device_native_build": {
+      "status": "iphoneos_34_components_pass_platform_verified_shared_files_restored",
+      "evidence": "../generated/device-gate-263/result.json",
+      "missing": "Device app link/signing and hardware execution"
+    },
+    "device_wineserver_build": {
+      "status": "iphoneos_46_components_pass",
+      "evidence": "../generated/madeira-wineserver-iphoneos/manifest.json"
+    },
+    "device_fex_build": {
+      "status": "seven_required_static_libraries_pass_sample_IOS_verified",
+      "evidence": "../generated/device-gate-264/fex-libraries.json",
+      "missing": "App link and device execution; all-target unrelated executable failed"
+    },
+    "device_graphics_build": {
+      "status": "DXMT_device_20_components_pass_LLVM_still_compiling",
+      "evidence": "../generated/device-gate-266/dxmt-result.json",
+      "missing": "DXMT compile/link, generated shader acceptance, drawing and gameplayFPS on device",
+      "running_exec_sessions": {
+        "llvm": 43201
+      }
+    },
+    "device_font_windowing": {
+      "status": "freetype_and_46_win32u_components_build_pass_sample_IOS",
+      "evidence": "../generated/device-gate-265/font-windowing.json",
+      "missing": "App link and device rendering"
+    },
+    "device_app_project": {
+      "status": "isolated_project_validated_settings_resolve_not_linked",
+      "evidence": "../generated/madeira-device-project-265/libraries.json",
+      "missing": "Device combined graphics archive, full app link/signing and execution"
+    },
+    "device_app_build": {
+      "status": "unsigned_iphoneos_app_link_pass",
+      "evidence": "../generated/device-gate-267/result.json",
+      "missing": "User signing, hardware JIT/execution/graphics acceptance; root PE containers packaged268"
+    },
+    "device_runtime_package": {
+      "status": "root_process_package_built_platform_and_code_bytes_verified",
+      "evidence": "../generated/device-gate-268/result.json",
+      "missing": "User signing, install, actual device JIT/execution/graphics; no child banks"
+    }
+  },
+  "loop_status": "supplied_mac_simulator_investigation_resumed",
+  "blocked_audit": "../generated/device-gate-269/blocked-audit.json",
+  "user_priority": "Simulator first; supplied Mac DE input investigation resumed270"
+}

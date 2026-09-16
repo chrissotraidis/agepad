@@ -1,0 +1,748 @@
+diff --git a/meson.build b/meson.build
+index 5859ef4..32d7973 100644
+--- a/meson.build
++++ b/meson.build
+@@ -126,12 +126,12 @@ xcrun = find_program('xcrun')
+ 
+ metalir_generator = generator(xcrun,
+   output    : [ '@BASENAME@.air'],
+-  arguments : [ '-sdk', 'macosx', 'metal', '-o', '@OUTPUT@', '-c', '@INPUT@', '@EXTRA_ARGS@'],
++  arguments : [ '-sdk', get_option('metal_sdk'), 'metal', '-o', '@OUTPUT@', '-c', '@INPUT@', '@EXTRA_ARGS@'],
+ )
+ 
+ metallib_generator = generator(xcrun,
+   output    : [ '@BASENAME@.metallib'],
+-  arguments : [ '-sdk', 'macosx', 'metallib', '-o', '@OUTPUT@', '@INPUT@'],
++  arguments : [ '-sdk', get_option('metal_sdk'), 'metallib', '-o', '@OUTPUT@', '@INPUT@'],
+ )
+ 
+ xxd = find_program('xxd')
+diff --git a/meson.options b/meson.options
+index 644c404..f2497eb 100644
+--- a/meson.options
++++ b/meson.options
+@@ -7,4 +7,6 @@ option('wine_install_path', type : 'string')
+ option('wine_builtin_dll', type : 'boolean', value : false)
+ option('enable_tests', type : 'boolean', value : false)
+ option('enable_nvapi', type : 'boolean', value : false)
+-option('enable_nvngx', type : 'boolean', value : false)
+\ No newline at end of file
++option('enable_nvngx', type : 'boolean', value : false)
++option('wine_tools_path', type: 'string', value: '')
++option('metal_sdk', type: 'combo', choices: ['macosx', 'iphoneos', 'iphonesimulator'], value: 'macosx')
+diff --git a/src/airconv/airconv_context.cpp b/src/airconv/airconv_context.cpp
+index 69dfc77..5e7a4bb 100644
+--- a/src/airconv/airconv_context.cpp
++++ b/src/airconv/airconv_context.cpp
+@@ -38,7 +38,13 @@ namespace dxmt {
+ 
+ void initializeModule(llvm::Module &M) {
+   M.setSourceFileName("airconv_generated.metal");
++#ifdef AGEPAD_SIMULATOR_AIR
++  M.setTargetTriple("air64-apple-ios18.0.0-simulator");
++#elif defined(AGEPAD_DEVICE_AIR)
++  M.setTargetTriple("air64-apple-ios18.0.0");
++#else
+   M.setTargetTriple("air64-apple-macosx14.0.0");
++#endif
+   M.setDataLayout(
+     "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:"
+     "64:64-v16:16:16-v24:32:32-v32:32:32-v48:64:64-v64:64:64-v96:128:128-"
+diff --git a/src/airconv/dxbc_converter.cpp b/src/airconv/dxbc_converter.cpp
+index c49a7b3..2e08db6 100644
+--- a/src/airconv/dxbc_converter.cpp
++++ b/src/airconv/dxbc_converter.cpp
+@@ -1401,6 +1401,13 @@ AIRCONV_API int SM50Compile(
+     linkSamplePos(*pModule);
+ 
+   runOptimizationPasses(*pModule);
++#ifdef AGEPAD_SIMULATOR_AIR
++  if (getenv("AGEPAD_DUMP_AIR")) {
++    llvm::errs() << "[AgePad-AIR-BEGIN] " << FunctionName << "\n";
++    pModule->print(llvm::errs(), nullptr);
++    llvm::errs() << "[AgePad-AIR-END]\n";
++  }
++#endif
+ 
+   // Serialize AIR
+   auto compiled = new SM50CompiledBitcodeInternal();
+diff --git a/src/airconv/metallib_writer.cpp b/src/airconv/metallib_writer.cpp
+index ec97552..be5d390 100644
+--- a/src/airconv/metallib_writer.cpp
++++ b/src/airconv/metallib_writer.cpp
+@@ -397,6 +397,21 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+   header.OS = OS::MTLBOS_macOS;
+   header.OSVersionMajor = 14;
+   header.OSVersionMinor = 4;
++#ifdef AGEPAD_SIMULATOR_AIR
++  // Platform/OS bytes measured from this SDK's metal + metallib output
++  // targeting air64-apple-ios18.0-simulator. Keep DXMT's format version.
++  header.Platform = static_cast<Platform>(0x0001);
++  header.OS = static_cast<dxmt::metallib::OS>(0x87);
++  header.OSVersionMajor = 18;
++  header.OSVersionMinor = 0;
++#elif defined(AGEPAD_DEVICE_AIR)
++  // Measured from iphoneos metal/metallib targeting air64-apple-ios18.0.
++  // Preserve this writer's existing format version; device acceptance is pending.
++  header.Platform = static_cast<Platform>(0x0001);
++  header.OS = static_cast<dxmt::metallib::OS>(0x82);
++  header.OSVersionMajor = 18;
++  header.OSVersionMinor = 0;
++#endif
+ 
+   // write to stream
+   OS << value(header);
+diff --git a/src/dxmt/dxmt_command.cpp b/src/dxmt/dxmt_command.cpp
+index 9f9467d..985c6d9 100644
+--- a/src/dxmt/dxmt_command.cpp
++++ b/src/dxmt/dxmt_command.cpp
+@@ -21,7 +21,7 @@ InternalCommandLibrary::InternalCommandLibrary(WMT::Device device) {
+   }
+ };
+ 
+-EmulatedCommandContext::EmulatedCommandContext(WMT::Device device, InternalCommandLibrary &lib, ArgumentEncodingContext &ctx): ctx(ctx) {
++EmulatedCommandContext::EmulatedCommandContext(WMT::Device device, InternalCommandLibrary &lib, ArgumentEncodingContext &ctx): ctx(ctx), marshal_device_(device), marshal_library_(lib.getLibrary()) {
+   auto pool = WMT::MakeAutoreleasePool();
+ 
+   auto library = lib.getLibrary();
+@@ -43,22 +43,29 @@ EmulatedCommandContext::EmulatedCommandContext(WMT::Device device, InternalComma
+   CREATE_PIPELINE(clear_texture_buffer_float);
+ 
+ 
+-  auto gs_draw_arguments_marshal_vs = library.newFunction("gs_draw_arguments_marshal");
+-  {
+-    WMTRenderPipelineInfo gs_marshal_pipeline;
+-    WMT::InitializeRenderPipelineInfo(gs_marshal_pipeline);
+-    gs_marshal_pipeline.vertex_function = gs_draw_arguments_marshal_vs;
+-    gs_marshal_pipeline.rasterization_enabled = false;
+-    gs_draw_arguments_marshal = device.newRenderPipelineState(gs_marshal_pipeline, error);
+-  }
+ 
+-  auto ts_draw_arguments_marshal_vs = library.newFunction("ts_draw_arguments_marshal");
+-  {
+-    WMTRenderPipelineInfo ts_marshal_pipeline;
+-    WMT::InitializeRenderPipelineInfo(ts_marshal_pipeline);
+-    ts_marshal_pipeline.vertex_function = ts_draw_arguments_marshal_vs;
+-    ts_marshal_pipeline.rasterization_enabled = false;
+-    ts_draw_arguments_marshal = device.newRenderPipelineState(ts_marshal_pipeline, error);
++}
++
++// Device creation must not eagerly compile an unused GS/TS helper. Some
++// Simulator Metal devices reject these attachment-free render pipelines.
++// First use retains the real pipeline operation and reports its actual failure.
++void
++EmulatedCommandContext::ensureMarshalPipeline(bool tessellation) {
++  auto &state = tessellation ? ts_draw_arguments_marshal : gs_draw_arguments_marshal;
++  if (state) return;
++  auto pool = WMT::MakeAutoreleasePool();
++  const char *name = tessellation ? "ts_draw_arguments_marshal" : "gs_draw_arguments_marshal";
++  auto function = marshal_library_.newFunction(name);
++  WMTRenderPipelineInfo info;
++  WMT::InitializeRenderPipelineInfo(info);
++  info.vertex_function = function;
++  info.rasterization_enabled = false;
++  WMT::Reference<WMT::Error> error;
++  state = marshal_device_.newRenderPipelineState(info, error);
++  if (!state) {
++    ERR("Unable to create required marshal pipeline: ", name);
++    if (error) ERR(error.description().getUTF8String());
++    abort();
+   }
+ }
+ 
+diff --git a/src/dxmt/dxmt_command.hpp b/src/dxmt/dxmt_command.hpp
+index d3f59d7..32af15a 100644
+--- a/src/dxmt/dxmt_command.hpp
++++ b/src/dxmt/dxmt_command.hpp
+@@ -129,6 +129,7 @@ public:
+ 
+   void
+   MarshalGSDispatchArguments(WMT::RenderCommandEncoder encoder, WMT::Buffer commands, uint32_t commands_offset) {
++    ensureMarshalPipeline(false);
+     encoder.setRenderPipelineState(gs_draw_arguments_marshal);
+     encoder.setVertexBuffer(commands, commands_offset, 0);
+     encoder.drawPrimitives(WMTPrimitiveTypePoint, 0, 1);
+@@ -138,6 +139,7 @@ public:
+ 
+   void
+   MarshalTSDispatchArguments(WMT::RenderCommandEncoder encoder, WMT::Buffer commands, uint32_t commands_offset) {
++    ensureMarshalPipeline(true);
+     encoder.setRenderPipelineState(ts_draw_arguments_marshal);
+     encoder.setVertexBuffer(commands, commands_offset, 0);
+     encoder.drawPrimitives(WMTPrimitiveTypePoint, 0, 1);
+@@ -171,6 +173,9 @@ private:
+   WMT::Reference<WMT::ComputePipelineState> clear_texture_3d_float_pipeline;
+   WMT::Reference<WMT::ComputePipelineState> clear_texture_buffer_float_pipeline;
+ 
++  void ensureMarshalPipeline(bool tessellation);
++  WMT::Reference<WMT::Device> marshal_device_;
++  WMT::Reference<WMT::Library> marshal_library_;
+   WMT::Reference<WMT::RenderPipelineState> gs_draw_arguments_marshal;
+   WMT::Reference<WMT::RenderPipelineState> ts_draw_arguments_marshal;
+ };
+diff --git a/src/dxmt/dxmt_ring_bump_allocator.hpp b/src/dxmt/dxmt_ring_bump_allocator.hpp
+index b43970b..bdd6eb5 100644
+--- a/src/dxmt/dxmt_ring_bump_allocator.hpp
++++ b/src/dxmt/dxmt_ring_bump_allocator.hpp
+@@ -95,12 +95,13 @@ public:
+     WMT::Reference<WMT::Buffer> buffer;
+     uint64_t gpu_address;
+     void *mapped_address;
++    bool owns_host_memory = false;
+ 
+     ~Block() {
+       mem_census_sub(MEMOWN_STAGING_RING, census_bytes);   /* ml677 */
+       census_bytes = 0;
+       if (mapped_address) {
+-        free(mapped_address);
++        if (owns_host_memory) free(mapped_address);
+         mapped_address = nullptr;
+       }
+     };
+@@ -113,6 +114,8 @@ public:
+       buffer = std::move(move.buffer);
+       gpu_address = move.gpu_address;
+       mapped_address = move.mapped_address;
++      owns_host_memory = move.owns_host_memory;
++      move.owns_host_memory = false;
+       census_bytes = move.census_bytes;                    /* ml677: move the debt too */
+       move.census_bytes = 0;
+       move.mapped_address = nullptr;
+@@ -122,12 +125,27 @@ public:
+   Block
+   allocate(size_t block_size) {
+     Block block{};
++#ifndef DXMT_IOS
+     block.mapped_address = placed_buffer_ ? malloc(block_size) : nullptr;
++    block.owns_host_memory = block.mapped_address != nullptr;
++#endif
++    // On iOS let Metal own shared backing. malloc is not page-aligned and
++    // cannot satisfy newBufferWithBytesNoCopy's contract. The returned CPU
++    // mapping belongs to the MTLBuffer and must never go through CRT free.
+     WMTBufferInfo info;
+     info.options = buffer_info_;
+     info.memory.set(block.mapped_address);
+     info.length = block_size;
+     block.buffer = device_.newBuffer(info);
++#ifdef DXMT_IOS
++    if (placed_buffer_) {
++      block.mapped_address = info.memory.get();
++      if (!block.buffer || !block.mapped_address) {
++        ERR("Failed to allocate Metal-owned mapped argument buffer");
++        abort();
++      }
++    }
++#endif
+     block.gpu_address = info.gpu_address;
+     block.census_bytes = block_size;                       /* ml677 */
+     mem_census_add(MEMOWN_STAGING_RING, block_size);
+diff --git a/src/winemetal/meson.build b/src/winemetal/meson.build
+index 8e6d2a9..9c0dce2 100644
+--- a/src/winemetal/meson.build
++++ b/src/winemetal/meson.build
+@@ -35,6 +35,10 @@ else
+   error('One of the options -Dwine_build_path or -Dwine_install_path is required')
+ endif
+ 
++if get_option('wine_tools_path') != ''
++  winebuild = join_paths(get_option('wine_tools_path'), 'tools/winebuild/winebuild')
++endif
++
+ winemetal_dll = shared_library('winemetal', winemetal_src,
+   name_prefix         : '',
+   dependencies        : [ lib_winecrt0, lib_ntdll, lib_dbghelp, airconv_forward_dep ],
+diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
+index 54b495c..e72f314 100644
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -16,7 +16,9 @@ static inline CGDirectDisplayID CGMainDisplayID(void) { return 1; }
+ #endif
+ #import <CoreFoundation/CFRunLoop.h>
+ #import <Metal/Metal.h>
++#if !TARGET_OS_SIMULATOR
+ #import <MetalFX/MetalFX.h>
++#endif
+ #import <QuartzCore/QuartzCore.h>
+ #if TARGET_OS_IOS
+ #include <objc/message.h>
+@@ -348,6 +350,12 @@ _MTLDevice_newBuffer(void *obj) {
+   }
+   params->ret = (obj_handle_t)buffer;
+   info->gpu_address = [buffer gpuAddress];
++#if TARGET_OS_SIMULATOR
++  if (getenv("AGEPAD_SIGNED_NTDLL")) {
++    static unsigned count;
++    if (count++ < 16) dprintf(2, "[AgePad-buffer] length=%lu gpu=%llx contents=%p\n", (unsigned long)buffer.length, (unsigned long long)info->gpu_address, buffer.contents);
++  }
++#endif
+   return STATUS_SUCCESS;
+ }
+ 
+@@ -389,6 +397,11 @@ _MTLDevice_newSamplerState(void *obj) {
+ 
+   id<MTLSamplerState> sampler = [device newSamplerStateWithDescriptor:sampler_desc];
+   info->gpu_resource_id = info->support_argument_buffers ? [sampler gpuResourceID]._impl : 0;
++#if TARGET_OS_SIMULATOR
++  static unsigned agepad_sampler_count;
++  if (getenv("AGEPAD_SIGNED_NTDLL") && __atomic_fetch_add(&agepad_sampler_count, 1, __ATOMIC_RELAXED) < 16)
++    dprintf(2, "[AgePad-resource-id] sampler object=%p id=%llx\n", (void *)sampler, (unsigned long long)info->gpu_resource_id);
++#endif
+   params->ret = (obj_handle_t)sampler;
+   [sampler_desc release];
+   return STATUS_SUCCESS;
+@@ -642,6 +655,41 @@ extract_texture_descriptor(id<MTLTexture> desc, struct WMTTextureInfo *info) {
+   info->reserved = 0;
+ };
+ 
++/* DXMT stores one eight-byte texture binding in its argument table. */
++static uint64_t
++agepad_texture_binding(id<MTLTexture> texture) {
++  uint64_t direct = [texture gpuResourceID]._impl;
++#if TARGET_OS_SIMULATOR
++  const char *enabled = getenv("AGEPAD_ENCODE_TEXTURE_IDS");
++  if (!texture || direct || !enabled || strcmp(enabled, "1")) return direct;
++  MTLArgumentDescriptor *arg = [[MTLArgumentDescriptor alloc] init];
++  arg.dataType = MTLDataTypeTexture; arg.index = 0;
++  arg.access = MTLArgumentAccessReadOnly; arg.textureType = texture.textureType;
++  NSArray *arguments = [[NSArray alloc] initWithObjects:arg, nil];
++  id<MTLArgumentEncoder> encoder = [texture.device newArgumentEncoderWithArguments:arguments];
++  [arguments release]; [arg release];
++  uint64_t encoded = 0;
++  /* Reject other layouts; never truncate a larger opaque encoding. */
++  if (encoder && encoder.encodedLength == sizeof(encoded)) {
++    id<MTLBuffer> buffer = [texture.device newBufferWithLength:sizeof(encoded) options:MTLResourceStorageModeShared];
++    if (buffer && buffer.contents) {
++      memset(buffer.contents, 0, sizeof(encoded));
++      [encoder setArgumentBuffer:buffer offset:0];
++      [encoder setTexture:texture atIndex:0];
++      memcpy(&encoded, buffer.contents, sizeof(encoded));
++    }
++    [buffer release];
++  }
++  static unsigned count;
++  if (__atomic_fetch_add(&count, 1, __ATOMIC_RELAXED) < 16)
++    dprintf(2, "[AgePad-texture-binding] length=%llu direct=%llx encoded=%llx\n", (unsigned long long)encoder.encodedLength, (unsigned long long)direct, (unsigned long long)encoded);
++  [encoder release];
++  return encoded;
++#else
++  return direct;
++#endif
++}
++
+ static NTSTATUS
+ _MTLDevice_newTexture(void *obj) {
+   struct unixcall_mtldevice_newtexture *params = obj;
+@@ -671,9 +719,15 @@ _MTLDevice_newTexture(void *obj) {
+ 
+   id<MTLTexture> ret = [device newTextureWithDescriptor:desc];
+   params->ret = (obj_handle_t)ret;
+-  info->gpu_resource_id = [ret gpuResourceID]._impl;
++  info->gpu_resource_id = agepad_texture_binding(ret);
++#if TARGET_OS_SIMULATOR
++  static unsigned agepad_texture_count;
++  if (getenv("AGEPAD_SIGNED_NTDLL") && __atomic_fetch_add(&agepad_texture_count, 1, __ATOMIC_RELAXED) < 16)
++    dprintf(2, "[AgePad-resource-id] texture object=%p id=%llx\n", (void *)ret, (unsigned long long)info->gpu_resource_id);
++#endif
+   info->mach_port = 0;
+ 
++
+   [desc release];
+   return STATUS_SUCCESS;
+ }
+@@ -706,7 +760,12 @@ _MTLBuffer_newTexture(void *obj) {
+ 
+   id<MTLTexture> ret = [buffer newTextureWithDescriptor:desc offset:params->offset bytesPerRow:params->bytes_per_row];
+   params->ret = (obj_handle_t)ret;
+-  info->gpu_resource_id = [ret gpuResourceID]._impl;
++  info->gpu_resource_id = agepad_texture_binding(ret);
++#if TARGET_OS_SIMULATOR
++  static unsigned agepad_texture_count;
++  if (getenv("AGEPAD_SIGNED_NTDLL") && __atomic_fetch_add(&agepad_texture_count, 1, __ATOMIC_RELAXED) < 16)
++    dprintf(2, "[AgePad-resource-id] texture object=%p id=%llx\n", (void *)ret, (unsigned long long)info->gpu_resource_id);
++#endif
+   info->mach_port = 0;
+ 
+   [desc release];
+@@ -765,7 +824,12 @@ _MTLTexture_newTextureView(void *obj) {
+                              slices:NSMakeRange(params->slice_start, params->slice_count)
+                             swizzle:to_metal_swizzle(params->swizzle, params->format)];
+   params->ret = (obj_handle_t)ret;
+-  params->gpu_resource_id = [ret gpuResourceID]._impl;
++  params->gpu_resource_id = agepad_texture_binding(ret);
++#if TARGET_OS_SIMULATOR
++  static unsigned agepad_view_count;
++  if (getenv("AGEPAD_SIGNED_NTDLL") && __atomic_fetch_add(&agepad_view_count, 1, __ATOMIC_RELAXED) < 16)
++    dprintf(2, "[AgePad-resource-id] view object=%p id=%llx\n", (void *)ret, (unsigned long long)params->gpu_resource_id);
++#endif
+   return STATUS_SUCCESS;
+ }
+ 
+@@ -1105,6 +1169,14 @@ _MTLDevice_newRenderPipelineState(void *obj) {
+   if (info->num_binary_archives_for_lookup && info->binary_archives_for_lookup.ptr)
+     descriptor.binaryArchives = [NSArray arrayWithObjects:(id<MTLBinaryArchive> *)info->binary_archives_for_lookup.ptr
+                                                     count:info->num_binary_archives_for_lookup];
++#if TARGET_OS_SIMULATOR
++  dprintf(2, "[AgePad-PSO] vertex=%s fragment=%s raster=%d samples=%lu colors=%lu,%lu depth=%lu stencil=%lu\n",
++          descriptor.vertexFunction ? descriptor.vertexFunction.name.UTF8String : "(null)",
++          descriptor.fragmentFunction ? descriptor.fragmentFunction.name.UTF8String : "(null)",
++          descriptor.rasterizationEnabled, (unsigned long)descriptor.rasterSampleCount,
++          (unsigned long)descriptor.colorAttachments[0].pixelFormat, (unsigned long)descriptor.colorAttachments[1].pixelFormat,
++          (unsigned long)descriptor.depthAttachmentPixelFormat, (unsigned long)descriptor.stencilAttachmentPixelFormat);
++#endif
+   NSError *err = NULL;
+   MTLPipelineOption options =
+       info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
+@@ -1677,6 +1749,9 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
+   wmt_shadow_batch(next);
+   wmt_census_batch(next, 0);
+   id<MTLRenderCommandEncoder> encoder = (id<MTLRenderCommandEncoder>)params->encoder;
++#if TARGET_OS_SIMULATOR
++  static _Thread_local id<MTLBuffer> agepad_vertex_buffers[32];
++#endif
+   while (next) {
+     switch ((enum WMTRenderCommandType)next->type) {
+     default:
+@@ -1686,6 +1761,16 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
+       break;
+     case WMTRenderCommandUseResource: {
+       struct wmtcmd_render_useresource *body = (struct wmtcmd_render_useresource *)next;
++#if TARGET_OS_SIMULATOR
++      if (getenv("AGEPAD_SIGNED_NTDLL")) dprintf(2, "[AgePad-resident] object=%p class=%s usage=%u stages=%u\n", (void *)body->resource, object_getClassName((id)body->resource), body->usage, body->stages);
++      if (getenv("AGEPAD_SIGNED_NTDLL") && [(id)body->resource respondsToSelector:@selector(contents)]) {
++        id<MTLBuffer> buffer = (id<MTLBuffer>)body->resource;
++        if (buffer.length == 256 && buffer.contents) {
++          const float *v = buffer.contents;
++          dprintf(2, "[AgePad-vertex-data] gpu=%llx values=%g,%g,%g;%g,%g,%g;%g,%g,%g;%g,%g,%g\n", (unsigned long long)buffer.gpuAddress, v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11]);
++        }
++      }
++#endif
+       [encoder useResource:(id<MTLResource>)body->resource
+                      usage:(MTLResourceUsage)body->usage
+                     stages:(MTLRenderStages)body->stages];
+@@ -1693,16 +1778,40 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
+     }
+     case WMTRenderCommandSetVertexBuffer: {
+       struct wmtcmd_render_setbuffer *body = (struct wmtcmd_render_setbuffer *)next;
++#if TARGET_OS_SIMULATOR
++      if (body->index < 32) agepad_vertex_buffers[body->index] = (id<MTLBuffer>)body->buffer;
++#endif
+       [encoder setVertexBuffer:(id<MTLBuffer>)body->buffer offset:body->offset atIndex:body->index];
+       break;
+     }
+     case WMTRenderCommandSetVertexBufferOffset: {
+       struct wmtcmd_render_setbufferoffset *body = (struct wmtcmd_render_setbufferoffset *)next;
++#if TARGET_OS_SIMULATOR
++      if (getenv("AGEPAD_SIGNED_NTDLL") && body->index == 16) {
++        id<MTLBuffer> b = agepad_vertex_buffers[16];
++        if (b && b.contents && body->offset <= b.length && b.length - body->offset >= 16) {
++          const uint64_t *e = (const void *)((const char *)b.contents + body->offset);
++          dprintf(2, "[AgePad-vertex-table] offset=%llu address=%llx stride=%u length=%u\n", (unsigned long long)body->offset, (unsigned long long)e[0], ((const uint32_t*)e)[2], ((const uint32_t*)e)[3]);
++        }
++      }
++#endif
+       [encoder setVertexBufferOffset:body->offset atIndex:body->index];
+       break;
+     }
+     case WMTRenderCommandSetFragmentBuffer: {
+       struct wmtcmd_render_setbuffer *body = (struct wmtcmd_render_setbuffer *)next;
++#if TARGET_OS_SIMULATOR
++      static unsigned agepad_fragment_table_count;
++      if (getenv("AGEPAD_SIGNED_NTDLL") && __atomic_fetch_add(&agepad_fragment_table_count, 1, __ATOMIC_RELAXED) < 16) {
++        id<MTLBuffer> b = (id<MTLBuffer>)body->buffer;
++        if (b && b.contents && body->offset <= b.length && b.length - body->offset >= 64) {
++          const uint64_t *e = (const void *)((const char *)b.contents + body->offset);
++          dprintf(2, "[AgePad-fragment-table] index=%u offset=%llu words=%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx\n", body->index, (unsigned long long)body->offset,
++            (unsigned long long)e[0], (unsigned long long)e[1], (unsigned long long)e[2], (unsigned long long)e[3],
++            (unsigned long long)e[4], (unsigned long long)e[5], (unsigned long long)e[6], (unsigned long long)e[7]);
++        }
++      }
++#endif
+       [encoder setFragmentBuffer:(id<MTLBuffer>)body->buffer offset:body->offset atIndex:body->index];
+       break;
+     }
+@@ -1754,12 +1863,24 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
+     case WMTRenderCommandSetViewports: {
+       struct wmtcmd_render_setviewports *body = (struct wmtcmd_render_setviewports *)next;
+       wmt_census_viewports(body->viewport_count);
++#if TARGET_OS_SIMULATOR
++      if (getenv("AGEPAD_SIGNED_NTDLL") && body->viewport_count) {
++        const MTLViewport *v = body->viewports.ptr;
++        dprintf(2, "[AgePad-viewport] count=%u xy=%g,%g wh=%g,%g depth=%g,%g\n", body->viewport_count, v->originX, v->originY, v->width, v->height, v->znear, v->zfar);
++      }
++#endif
+       [encoder setViewports:(const MTLViewport *)body->viewports.ptr count:body->viewport_count];
+       break;
+     }
+     case WMTRenderCommandSetScissorRects: {
+       struct wmtcmd_render_setscissorrects *body = (struct wmtcmd_render_setscissorrects *)next;
+       wmt_census_scissors(body->rect_count);
++#if TARGET_OS_SIMULATOR
++      if (getenv("AGEPAD_SIGNED_NTDLL") && body->rect_count) {
++        const MTLScissorRect *v = body->scissor_rects.ptr;
++        dprintf(2, "[AgePad-scissor] xy=%lu,%lu wh=%lu,%lu\n", (unsigned long)v->x, (unsigned long)v->y, (unsigned long)v->width, (unsigned long)v->height);
++      }
++#endif
+       [encoder setScissorRects:(const MTLScissorRect *)body->scissor_rects.ptr count:body->rect_count];
+       break;
+     }
+@@ -1788,6 +1909,9 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
+     case WMTRenderCommandDraw: {
+       struct wmtcmd_render_draw *body = (struct wmtcmd_render_draw *)next;
+       atomic_fetch_add_explicit(&g_madeira_draw_calls, 1, memory_order_relaxed);
++#if TARGET_OS_SIMULATOR
++      if (getenv("AGEPAD_SIGNED_NTDLL")) dprintf(2, "[AgePad-draw] encoder=%p type=%u start=%u count=%u instances=%u\n", encoder, body->primitive_type, body->vertex_start, body->vertex_count, body->instance_count);
++#endif
+       [encoder drawPrimitives:(MTLPrimitiveType)body->primitive_type
+                   vertexStart:body->vertex_start
+                   vertexCount:body->vertex_count
+@@ -2182,6 +2306,70 @@ void madeira_set_vsync_locked(int mode) {
+ }
+ int madeira_get_vsync_locked(void) { return g_madeira_vsync_mode; }
+ 
++#if TARGET_OS_SIMULATOR
++/* Opt-in bounded readback of the actual drawable, ordered after rendering and
++ * before presentation in the same command buffer. No synchronous GPU wait. */
++static int agepad_present_readback_enabled(void) {
++  const char *value = getenv("AGEPAD_PRESENT_READBACK");
++  return value && value[0] == '1' && !value[1];
++}
++static void agepad_present_readback(id<MTLCommandBuffer> command, id<CAMetalDrawable> drawable) {
++  if (!agepad_present_readback_enabled()) return;
++  static _Atomic uint64_t calls;
++  uint64_t n = atomic_fetch_add_explicit(&calls, 1, memory_order_relaxed) + 1;
++  if (n != 1 && n != 64 && n != 512 && n != 2048) return;
++  id<MTLTexture> texture = drawable.texture;
++  NSUInteger width = texture.width, height = texture.height;
++  MTLPixelFormat format = texture.pixelFormat;
++  if (!texture || texture.framebufferOnly || !width || !height || width > 4096 || height > 4096 ||
++      (format != MTLPixelFormatBGRA8Unorm && format != MTLPixelFormatBGRA8Unorm_sRGB &&
++       format != MTLPixelFormatRGBA8Unorm && format != MTLPixelFormatRGBA8Unorm_sRGB)) {
++    dprintf(2, "[AgePad-readback] sample=%llu unsupported format=%lu framebufferOnly=%d size=%lux%lu\n",
++            n, (unsigned long)format, texture.framebufferOnly, (unsigned long)width, (unsigned long)height);
++    return;
++  }
++  NSUInteger stride = (width * 4 + 255) & ~(NSUInteger)255;
++  id<MTLBuffer> buffer = [command.device newBufferWithLength:stride * height options:MTLResourceStorageModeShared];
++  if (!buffer) return;
++  id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
++  if (!blit) { [buffer release]; return; }
++  [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
++            sourceSize:MTLSizeMake(width,height,1) toBuffer:buffer destinationOffset:0
++            destinationBytesPerRow:stride destinationBytesPerImage:stride * height];
++  [blit endEncoding];
++  [command addCompletedHandler:^(id<MTLCommandBuffer> completed) {
++    if (completed.status != MTLCommandBufferStatusCompleted) {
++      dprintf(2, "[AgePad-readback] sample=%llu status=%lu error=%s\n", n,
++              (unsigned long)completed.status, completed.error.description.UTF8String ?: "none");
++      return;
++    }
++    const unsigned char *bytes = buffer.contents;
++    NSUInteger nonblack = 0;
++    for (NSUInteger y = 0; y < height; ++y) for (NSUInteger x = 0; x < width; ++x) {
++      const unsigned char *pixel = bytes + y * stride + x * 4;
++      nonblack += pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0;
++    }
++    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:
++                       [NSString stringWithFormat:@"Documents/agepad-present-%llu.ppm", n]];
++    FILE *file = fopen(path.fileSystemRepresentation, "wb");
++    BOOL bgra = format == MTLPixelFormatBGRA8Unorm || format == MTLPixelFormatBGRA8Unorm_sRGB;
++    if (file) {
++      fprintf(file, "P6\n%lu %lu\n255\n", (unsigned long)width, (unsigned long)height);
++      for (NSUInteger y = 0; y < height; ++y) for (NSUInteger x = 0; x < width; ++x) {
++        const unsigned char *pixel = bytes + y * stride + x * 4;
++        unsigned char rgb[3] = {pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
++        fwrite(rgb, 1, 3, file);
++      }
++      fclose(file);
++    }
++    dprintf(2, "[AgePad-readback] sample=%llu completed size=%lux%lu nonblack=%lu/%lu file=%s\n",
++            n, (unsigned long)width, (unsigned long)height, (unsigned long)nonblack,
++            (unsigned long)(width * height), path.fileSystemRepresentation);
++  }];
++  [buffer release]; /* copied completion block retains its captured buffer */
++}
++#endif
++
+ static NTSTATUS
+ _MTLCommandBuffer_presentDrawable(void *obj) {
+   struct unixcall_generic_obj_obj_noret *params = obj;
+@@ -2193,6 +2381,17 @@ _MTLCommandBuffer_presentDrawable(void *obj) {
+     return STATUS_SUCCESS;
+   }
+   int mode = g_madeira_vsync_mode;
++#if TARGET_OS_SIMULATOR
++  agepad_present_readback((id<MTLCommandBuffer>)params->handle, (id<CAMetalDrawable>)params->arg);
++  /* MTLSimCommandBuffer lacks timed presentation on the tested runtime.
++   * Plain presentation is real display work but does not enforce our 60 Hz cap. */
++  if (mode == 1 && ![(id)params->handle respondsToSelector:@selector(presentDrawable:afterMinimumDuration:)]) {
++    static int reported;
++    if (!reported++) dprintf(2, "[AgePad-present] Simulator lacks timed present; using plain present, cadence unqualified\n");
++    [(id<MTLCommandBuffer>)params->handle presentDrawable:(id<MTLDrawable>)params->arg];
++    return STATUS_SUCCESS;
++  }
++#endif
+   if (mode == 1) {
+     madeira_log_present_cadence("presentDrawable60", 0.0);
+     [(id<MTLCommandBuffer>)params->handle presentDrawable:(id<MTLDrawable>)params->arg
+@@ -2346,6 +2545,11 @@ static const int SIGNALS[] = {
+ 
+ static NTSTATUS
+ _MTLDevice_newTemporalScaler(void *obj) {
++#if TARGET_OS_SIMULATOR
++  /* Simulator SDK has no MetalFX. Report unavailable; never fake an upscale. */
++  ((struct unixcall_mtldevice_newfxtemporalscaler *)obj)->ret = 0;
++  return (NTSTATUS)0xC00000BB;
++#else
+   struct unixcall_mtldevice_newfxtemporalscaler *params = obj;
+   MTLFXTemporalScalerDescriptor *desc = [[MTLFXTemporalScalerDescriptor alloc] init];
+   const struct WMTFXTemporalScalerInfo *info = params->info.ptr;
+@@ -2385,10 +2589,16 @@ _MTLDevice_newTemporalScaler(void *obj) {
+ 
+   [desc release];
+   return STATUS_SUCCESS;
++#endif
+ }
+ 
+ static NTSTATUS
+ _MTLDevice_newSpatialScaler(void *obj) {
++#if TARGET_OS_SIMULATOR
++  /* Simulator SDK has no MetalFX. Report unavailable; never fake an upscale. */
++  ((struct unixcall_mtldevice_newfxspatialscaler *)obj)->ret = 0;
++  return (NTSTATUS)0xC00000BB;
++#else
+   struct unixcall_mtldevice_newfxspatialscaler *params = obj;
+   MTLFXSpatialScalerDescriptor *desc = [[MTLFXSpatialScalerDescriptor alloc] init];
+   const struct WMTFXSpatialScalerInfo *info = params->info.ptr;
+@@ -2401,10 +2611,15 @@ _MTLDevice_newSpatialScaler(void *obj) {
+   params->ret = (obj_handle_t)[desc newSpatialScalerWithDevice:(id<MTLDevice>)params->device];
+   [desc release];
+   return STATUS_SUCCESS;
++#endif
+ }
+ 
+ static NTSTATUS
+ _MTLCommandBuffer_encodeTemporalScale(void *obj) {
++#if TARGET_OS_SIMULATOR
++  /* Simulator SDK has no MetalFX. Report unavailable; never fake an upscale. */
++  return (NTSTATUS)0xC00000BB;
++#else
+   struct unixcall_mtlcommandbuffer_temporal_scale *params = obj;
+   id<MTLCommandBuffer> cmdbuf = (id<MTLCommandBuffer>)params->cmdbuf;
+   id<MTLFXTemporalScaler> scaler = (id<MTLFXTemporalScaler>)params->scaler;
+@@ -2426,10 +2641,15 @@ _MTLCommandBuffer_encodeTemporalScale(void *obj) {
+   scaler.preExposure = props->pre_exposure;
+   [scaler encodeToCommandBuffer:cmdbuf];
+   return STATUS_SUCCESS;
++#endif
+ }
+ 
+ static NTSTATUS
+ _MTLCommandBuffer_encodeSpatialScale(void *obj) {
++#if TARGET_OS_SIMULATOR
++  /* Simulator SDK has no MetalFX. Report unavailable; never fake an upscale. */
++  return (NTSTATUS)0xC00000BB;
++#else
+   struct unixcall_mtlcommandbuffer_spatial_scale *params = obj;
+   id<MTLCommandBuffer> cmdbuf = (id<MTLCommandBuffer>)params->cmdbuf;
+   id<MTLFXSpatialScaler> scaler = (id<MTLFXSpatialScaler>)params->scaler;
+@@ -2438,6 +2658,7 @@ _MTLCommandBuffer_encodeSpatialScale(void *obj) {
+   scaler.fence = (id<MTLFence>)params->fence;
+   [scaler encodeToCommandBuffer:cmdbuf];
+   return STATUS_SUCCESS;
++#endif
+ }
+ 
+ static NTSTATUS
+@@ -2570,16 +2791,28 @@ _MetalLayer_nextDrawable(void *obj) {
+ 
+ static NTSTATUS
+ _MTLDevice_supportsFXSpatialScaler(void *obj) {
++#if TARGET_OS_SIMULATOR
++  /* Simulator SDK has no MetalFX. Report unavailable; never fake an upscale. */
++  ((struct unixcall_generic_obj_uint64_ret *)obj)->ret = 0;
++  return STATUS_SUCCESS;
++#else
+   struct unixcall_generic_obj_uint64_ret *params = obj;
+   params->ret = [MTLFXSpatialScalerDescriptor supportsDevice:(id<MTLDevice>)params->handle];
+   return STATUS_SUCCESS;
++#endif
+ }
+ 
+ static NTSTATUS
+ _MTLDevice_supportsFXTemporalScaler(void *obj) {
++#if TARGET_OS_SIMULATOR
++  /* Simulator SDK has no MetalFX. Report unavailable; never fake an upscale. */
++  ((struct unixcall_generic_obj_uint64_ret *)obj)->ret = 0;
++  return STATUS_SUCCESS;
++#else
+   struct unixcall_generic_obj_uint64_ret *params = obj;
+   params->ret = [MTLFXTemporalScalerDescriptor supportsDevice:(id<MTLDevice>)params->handle];
+   return STATUS_SUCCESS;
++#endif
+ }
+ 
+ static NTSTATUS
+@@ -2599,6 +2832,9 @@ _MetalLayer_setProps(void *obj) {
+     layer.device = (id<MTLDevice>)props->device;
+     layer.opaque = props->opaque;
+     layer.framebufferOnly = props->framebuffer_only;
++#if TARGET_OS_SIMULATOR
++    if (agepad_present_readback_enabled()) layer.framebufferOnly = NO;
++#endif
+     layer.contentsScale = props->contents_scale;
+ #if !TARGET_OS_IOS
+     layer.displaySyncEnabled = props->display_sync_enabled;
+@@ -3786,16 +4022,22 @@ _DispatchData_alloc_init(void *obj) {
+   return STATUS_SUCCESS;
+ }
+ 
++#if !TARGET_OS_SIMULATOR
+ @interface MTLSharedTextureHandle ()
+ 
+ - (MTLSharedTextureHandle *)initWithMachPort:(mach_port_t)port;
+ - (mach_port_t)createMachPort;
+ 
+ @end
++#endif
+ 
+ static NTSTATUS
+ _MTLDevice_newSharedTexture(void *obj) {
+   struct unixcall_mtldevice_newtexture *params = obj;
++  #if TARGET_OS_SIMULATOR
++  params->ret = 0;
++  return (NTSTATUS)0xC00000BB; /* STATUS_NOT_SUPPORTED: cross-process textures unavailable. */
++  #else
+   id<MTLDevice> device = (id<MTLDevice>)params->device;
+   struct WMTTextureInfo *info = params->info.ptr;
+ 
+@@ -3805,6 +4047,11 @@ _MTLDevice_newSharedTexture(void *obj) {
+     extract_texture_descriptor(ret, info);
+     params->ret = (obj_handle_t)ret;
+     info->gpu_resource_id = [ret gpuResourceID]._impl;
++#if TARGET_OS_SIMULATOR
++  static unsigned agepad_texture_count;
++  if (getenv("AGEPAD_SIGNED_NTDLL") && __atomic_fetch_add(&agepad_texture_count, 1, __ATOMIC_RELAXED) < 16)
++    dprintf(2, "[AgePad-resource-id] texture object=%p id=%llx\n", (void *)ret, (unsigned long long)info->gpu_resource_id);
++#endif
+     [handle release];
+   } else {
+     MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
+@@ -3813,12 +4060,18 @@ _MTLDevice_newSharedTexture(void *obj) {
+     MTLSharedTextureHandle *handle = [ret newSharedTextureHandle];
+     params->ret = (obj_handle_t)ret;
+     info->gpu_resource_id = [ret gpuResourceID]._impl;
++#if TARGET_OS_SIMULATOR
++  static unsigned agepad_texture_count;
++  if (getenv("AGEPAD_SIGNED_NTDLL") && __atomic_fetch_add(&agepad_texture_count, 1, __ATOMIC_RELAXED) < 16)
++    dprintf(2, "[AgePad-resource-id] texture object=%p id=%llx\n", (void *)ret, (unsigned long long)info->gpu_resource_id);
++#endif
+     info->mach_port = [handle createMachPort]; // implicitly add ref to underlying IOSurface
+     [handle release];
+     [desc release];
+   }
+ 
+   return STATUS_SUCCESS;
++  #endif
+ }
+ 
+ /* Private API to register a mach port with the bootstrap server */
