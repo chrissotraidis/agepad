@@ -13,7 +13,11 @@ extern "C" void DEOriginalConditionWait(std::condition_variable *,std::unique_lo
 static void DEPumpGraphicsWait(std::unique_lock<std::mutex> &lock) {
  lock.unlock();
  if (getenv("AGEPAD_GRAPHICS_WAIT_FLUSH")) ((void(*)(id,SEL))objc_msgSend)((id)objc_getClass("CATransaction"),sel_registerName("flush"));
- CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.005,true);
+ // Each pump adds up to this much latency to every main-thread GPU wait;
+ // 5 ms per frame measurably slowed the simulation clock. Default to 1 ms.
+ static double interval=-1;
+ if(interval<0){const char *v=getenv("AGEPAD_GRAPHICS_WAIT_PUMP_MS");interval=(v&&*v?atof(v):1.0)/1000.0;}
+ CFRunLoopRunInMode(kCFRunLoopDefaultMode,interval,true);
  lock.lock();
 }
 static void DEConditionWait(std::condition_variable *condition,std::unique_lock<std::mutex> *lock) {
