@@ -14,6 +14,31 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def implemented_symbols():
+    """Symbols that port/de defines through __asm__ names."""
+    names = set()
+    for source in (ROOT / 'port/de').iterdir():
+        if source.suffix in {'.m', '.c', '.h'}:
+            names.update(re.findall(r'__asm__\s*\(\s*"(_[A-Za-z0-9_$]+)"\s*\)', source.read_text()))
+    return names
+
+
+def strip_implemented_stubs(source: Path, destination: Path, names):
+    """Drop generated fail-fast stubs for symbols port/de now implements."""
+    text = source.read_text()
+    removed = []
+    pattern = re.compile(r'__attribute__\(\(noreturn\)\) void (DEFunction\d+)\(void\) __asm__\("(_[^"]+)"\);\n'
+                         r'void \1\(void\) \{ DEUnsupported\("\2"\); \}\n')
+    def replace(match):
+        if match.group(2) in names:
+            removed.append(match.group(2))
+            return ''
+        return match.group(0)
+    text = pattern.sub(replace, text)
+    destination.write_text(text)
+    return removed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path, help='Fresh isolated build directory')
@@ -28,13 +53,24 @@ def main():
         parser.error('Do not write candidates into reference data')
     output.mkdir(parents=True)
     builds = [('appkit', 'AppKit'), ('display', 'CoreGraphics'), ('metal', 'Metal')]
-    manifest = {'optimization': args.optimization, 'package': str(package), 'libraries': {}, 'source_sha256': {}}
+    manifest = {'optimization': args.optimization, 'package': str(package), 'libraries': {}, 'source_sha256': {}, 'stubs_removed': {}}
+    names = implemented_symbols()
     for command_name, library in builds:
         command = json.loads((package / (command_name + '-build-command.json')).read_text())
         command = [arg for arg in command if not re.fullmatch(r'-O(?:[0-3szg]|fast)', arg)]
         command += ['-O' + args.optimization]
         destination = output / ('DEBoundary_' + library + '.dylib')
         command[command.index('-o') + 1] = str(destination)
+        # The recorded boundary source lives in the package; compile a copy with
+        # stubs removed for symbols that port/de implements, keeping includes
+        # resolvable from the package directory.
+        source = next(Path(arg) for arg in command if arg.endswith('.m'))
+        stripped = output / source.name
+        removed = strip_implemented_stubs(source, stripped, names)
+        command[command.index(str(source))] = str(stripped)
+        if '-I' + str(source.parent) not in command and str(source.parent) not in command:
+            command[command.index('-I'):command.index('-I')] = ['-I', str(source.parent)]
+        manifest['stubs_removed'][library] = removed
         # CoreGraphics imports the new pointer-ownership API from this same build.
         if library == 'CoreGraphics':
             dependency = str(package / 'game-client/DEBoundary_AppKit.dylib')

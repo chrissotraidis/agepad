@@ -367,6 +367,8 @@ static void DEConnectGameKeyboard(void) {
         if([input buttonForKeyCode:227].isPressed || [input buttonForKeyCode:231].isPressed)flags|=1UL<<20;
         unsigned short macKey;NSString *characters,*plain;
         if(!DEMapHardwareKey(code,(flags&(1UL<<17))!=0,&macKey,&plain,&characters))return;
+        // Command-V is the only path that may read pasteboard contents.
+        if(pressed && (flags&(1UL<<20)) && [plain isEqualToString:@"v"])DEArmUserPaste();
         DEPostGameKeyWithModifiers(macKey,characters,plain,flags,pressed);
     };
     fprintf(stderr,"DE_HARDWARE_KEYBOARD_CONNECTED layout=US letters_digits_punctuation_navigation_function_keys=1\n");

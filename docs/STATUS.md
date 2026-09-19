@@ -2,6 +2,13 @@
 
 ## Current execution loop
 
+2026-09-18 flow pass: full fresh-launch flow passes (skirmish, production,
+construction, typed save, reload, background/resume). Fixed the per-launch paste
+prompt (`PasteboardCompat.m`) and the backgrounding crash (`CGGetOnlineDisplayList`
+in `DisplayLifecycleCompat.m`). Boundary libraries compile for iphoneos with 0
+errors (`scripts/build-de-device-runtime.py`). Xbox sign-in is inert; two-finger
+gestures need hardware. See [FLOW-PASS-20260918.md](FLOW-PASS-20260918.md).
+
 2026-09-18: touch orders repaired. Failed orders were right-button holds of
 318–1001 ms caused by the composition wait in `OrderedMouseDelivery.h`; the
 game treats those as click-drag scroll. Secondary hold is now capped at 160 ms.
