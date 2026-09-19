@@ -2,6 +2,10 @@
 
 ## Current execution loop
 
+2026-09-19: GPU-wait pump cut 5 ms -> 1 ms, sim speed 1.47x -> 1.62x (target
+1.7x). Primary-button hold capped at 250 ms; dialog taps no longer miss. See
+[SPEED-AND-DIALOGS-20260919.md](SPEED-AND-DIALOGS-20260919.md).
+
 2026-09-18 import/speed: `scripts/prepare-de-game.py` imports the Steam Mac
 install in one command (verified clean run, 41 s, all hashes checked). Simulation
 speed measured at 70–84% of DE Normal, tracking host CPU contention; a runaway

@@ -23,6 +23,13 @@ BOOL DEOrderedMousePointerIsHeld(void){return atomic_load(&DEOrderedPointerOwner
 #ifndef DE_SECONDARY_MAX_HOLD
 #define DE_SECONDARY_MAX_HOLD 0.16
 #endif
+// Primary taps miss too when the renderer is slow: modal dialogs drop the game
+// to ~5 compositions/s, so a two-frame wait held Yes/No buttons for 600-1000 ms
+// and they only hovered. Cap the primary hold as well; keep it a little longer
+// than the secondary cap since the original menu sampling needs the press seen.
+#ifndef DE_PRIMARY_MAX_HOLD
+#define DE_PRIMARY_MAX_HOLD 0.25
+#endif
 @interface DEOrderedMouseDelivery : NSObject
 @property(nonatomic,strong) NSMutableArray *pending;
 @property(nonatomic) BOOL waiting;
@@ -83,11 +90,12 @@ BOOL DEOrderedMousePointerIsHeld(void){return atomic_load(&DEOrderedPointerOwner
         // while pressed before delivering its release. Do not queue one frame
         // per movement, which would accumulate seconds of input lag.
         BOOL observePhase=release || (motion && !dragged);
-        BOOL secondaryHoldExpired=secondary && release && down>0 && now-down>=DE_SECONDARY_MAX_HOLD;
-        if(observePhase && !secondaryHoldExpired && down>0 && serial>0 && DEObservedPresentationSerial(layer)-serial<2 && now-phaseTime<1.0)
+        double maxHold=secondary?DE_SECONDARY_MAX_HOLD:DE_PRIMARY_MAX_HOLD;
+        BOOL holdExpired=release && down>0 && now-down>=maxHold;
+        if(observePhase && !holdExpired && down>0 && serial>0 && DEObservedPresentationSerial(layer)-serial<2 && now-phaseTime<1.0)
             remaining=MAX(remaining,MIN(0.016,1.0-(now-phaseTime)));
-        if(secondary && release && down>0 && !secondaryHoldExpired)
-            remaining=MIN(remaining,MAX(0,down+DE_SECONDARY_MAX_HOLD-now));
+        if(release && down>0 && !holdExpired)
+            remaining=MIN(remaining,MAX(0,down+maxHold-now));
         if(remaining>0) {
             self.waiting=YES;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(remaining*NSEC_PER_SEC)),dispatch_get_main_queue(),^{

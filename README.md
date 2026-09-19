@@ -4,6 +4,12 @@ Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game
 
 ## What works today
 
+September 19: simulation speed is now 1.62x on Normal (DE's target is 1.7x); the
+run-loop pump in our GPU-wait shim was costing the simulation up to 15% of
+each second and was cut from 5 ms to 1 ms. Dialog buttons (quit/restart
+confirmations, Play Again) no longer miss at low frame rates. Details in
+[SPEED-AND-DIALOGS-20260919.md](docs/SPEED-AND-DIALOGS-20260919.md).
+
 September 18 flow pass: a fresh launch now runs end to end — new skirmish on the
 first Start Game tap, villager production, house placement and completion,
 typed-name save, reload of that save on a new launch, and a background/foreground

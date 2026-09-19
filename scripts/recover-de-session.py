@@ -23,6 +23,8 @@ def main():
     parser.add_argument('--trace-input-consumer', action='store_true')
     parser.add_argument('--trace-pointer', action='store_true',
                         help='Log UIKit touch details and captured hardware button masks')
+    parser.add_argument('--graphics-wait-pump-ms', type=float,
+                        help='Run-loop pump interval for main-thread GPU waits (default 1 ms; the earlier build used 5)')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name):
         parser.error('Use a simple run name containing letters, digits, dash or underscore')
@@ -44,6 +46,8 @@ def main():
         EARLY_METAL_ADAPTER BACKING_WORKING_SET'''.split()
     for key in features:
         env['SIMCTL_CHILD_AGEPAD_' + key] = '1'
+    if args.graphics_wait_pump_ms is not None:
+        env['SIMCTL_CHILD_AGEPAD_GRAPHICS_WAIT_PUMP_MS'] = str(args.graphics_wait_pump_ms)
     if args.trace_pointer:
         env['SIMCTL_CHILD_AGEPAD_BUTTON_MASK_TRACE'] = '1'
         env['SIMCTL_CHILD_AGEPAD_TOUCH_DETAIL_TRACE'] = '1'
