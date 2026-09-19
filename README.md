@@ -4,6 +4,15 @@ Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game
 
 ## What works today
 
+September 18 flow pass: a fresh launch now runs end to end — new skirmish on the
+first Start Game tap, villager production, house placement and completion,
+typed-name save, reload of that save on a new launch, and a background/foreground
+cycle with input still accepted afterwards. Two fixes landed: the paste permission
+prompt at every launch is gone, and backgrounding no longer crashes the game. The
+three compatibility libraries also compile and link for a physical iPad with zero
+errors. Xbox Network sign-in and two-finger gestures remain open. Details in
+[FLOW-PASS-20260918.md](docs/FLOW-PASS-20260918.md).
+
 September 18: the failed touch movement orders are fixed. The delivery layer
 was holding the right button for hundreds of milliseconds while waiting for
 slow frames, which the game reads as click-drag scrolling instead of a command.
