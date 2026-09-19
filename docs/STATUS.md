@@ -2,6 +2,12 @@
 
 ## Current execution loop
 
+2026-09-18 import/speed: `scripts/prepare-de-game.py` imports the Steam Mac
+install in one command (verified clean run, 41 s, all hashes checked). Simulation
+speed measured at 70–84% of DE Normal, tracking host CPU contention; a runaway
+Simulator `mediaanalysisd` was the main offender. See
+[IMPORT-AND-SPEED-20260918.md](IMPORT-AND-SPEED-20260918.md).
+
 2026-09-18 flow pass: full fresh-launch flow passes (skirmish, production,
 construction, typed save, reload, background/resume). Fixed the per-launch paste
 prompt (`PasteboardCompat.m`) and the backgrounding crash (`CGGetOnlineDisplayList`
