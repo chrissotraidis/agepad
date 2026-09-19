@@ -64,6 +64,15 @@ This workflow runs the iPad build in Xcode Simulator on the Mac. It requires the
 existing private runtime package and your owned Mac game installation; cloning
 this repository alone does not produce a playable application.
 
+One-command version (verifies your Steam install, stages the game data, runs the
+preflight and launches):
+
+```sh
+python3 scripts/prepare-de-game.py --launch my-run-name --seconds 1800
+```
+
+Manual steps:
+
 1. Start desktop Steam and keep it running.
 2. In Xcode Simulator, boot only **AgePad G5 iPad**
    (`574671AD-6F61-4558-9528-BF946DDB760A`). Close other booted Simulators.
