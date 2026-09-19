@@ -4,6 +4,13 @@ Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game
 
 ## What works today
 
+September 18: the failed touch movement orders are fixed. The delivery layer
+was holding the right button for hundreds of milliseconds while waiting for
+slow frames, which the game reads as click-drag scrolling instead of a command.
+With the hold capped at 160 ms, 20 consecutive orders were accepted on a fresh
+launch without visiting Options, and drag box selection works. Details in
+[DE-REPAIR-20260918.md](docs/DE-REPAIR-20260918.md).
+
 September 15 recheck: fresh launch, named-save loading, visible units, selection,
 ongoing food gathering and the zoom shortcut passed. Two ground-order attempts
 did not move the selected villager. A 30-second observation averaged 9.87

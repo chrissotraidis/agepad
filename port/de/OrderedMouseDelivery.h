@@ -16,6 +16,13 @@ BOOL DEOrderedMousePointerIsHeld(void){return atomic_load(&DEOrderedPointerOwner
 #ifndef DE_MOUSE_MIN_PRESS_INTERVAL
 #define DE_MOUSE_MIN_PRESS_INTERVAL 0.1
 #endif
+// The original game treats a long secondary press as the start of click-drag
+// scrolling rather than a command. Every observed accepted order released within
+// 137 ms; every failed order was held 318 ms or longer while waiting for slow
+// compositions. Bound the secondary hold so a tap stays a tap at low frame rates.
+#ifndef DE_SECONDARY_MAX_HOLD
+#define DE_SECONDARY_MAX_HOLD 0.16
+#endif
 @interface DEOrderedMouseDelivery : NSObject
 @property(nonatomic,strong) NSMutableArray *pending;
 @property(nonatomic) BOOL waiting;
@@ -76,8 +83,11 @@ BOOL DEOrderedMousePointerIsHeld(void){return atomic_load(&DEOrderedPointerOwner
         // while pressed before delivering its release. Do not queue one frame
         // per movement, which would accumulate seconds of input lag.
         BOOL observePhase=release || (motion && !dragged);
-        if(observePhase && down>0 && serial>0 && DEObservedPresentationSerial(layer)-serial<2 && now-phaseTime<1.0)
+        BOOL secondaryHoldExpired=secondary && release && down>0 && now-down>=DE_SECONDARY_MAX_HOLD;
+        if(observePhase && !secondaryHoldExpired && down>0 && serial>0 && DEObservedPresentationSerial(layer)-serial<2 && now-phaseTime<1.0)
             remaining=MAX(remaining,MIN(0.016,1.0-(now-phaseTime)));
+        if(secondary && release && down>0 && !secondaryHoldExpired)
+            remaining=MIN(remaining,MAX(0,down+DE_SECONDARY_MAX_HOLD-now));
         if(remaining>0) {
             self.waiting=YES;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(remaining*NSEC_PER_SEC)),dispatch_get_main_queue(),^{

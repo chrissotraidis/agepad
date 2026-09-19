@@ -2,6 +2,13 @@
 
 ## Current execution loop
 
+2026-09-18: touch orders repaired. Failed orders were right-button holds of
+318–1001 ms caused by the composition wait in `OrderedMouseDelivery.h`; the
+game treats those as click-drag scroll. Secondary hold is now capped at 160 ms.
+20/20 orders released in time on a fresh launch, 18 visually confirmed, none
+rejected; box selection works. See [DE-REPAIR-20260918.md](DE-REPAIR-20260918.md).
+The September 14 Click-Drag Scrolling hypothesis is superseded.
+
 2026-09-15 promotion check: the September 14 resource-casing repair supersedes
 the invisible-unit findings below. See [DE-REPAIR-20260914.md](DE-REPAIR-20260914.md)
 for visible units, construction, gathering, production and saved-game evidence.
