@@ -109,12 +109,16 @@ SignalTrace.dylib, MainThreadGraphicsWait.dylib, ResourceFileTrace.dylib,
 OriginalInputTrace.dylib, AudioOutputCompat.dylib
 ```
 
-- **The private runtime package** (`generated/mac-de-simulator-375/`): the
-  compiled compatibility libraries, the `game-client/` dylibs, the generated
-  boundary sources, the recorded clang command lines and the prebuilt
-  `HostSteamPathRelay` (its `port/de` source is here, but no script builds that
-  binary). `scripts/build-de-simulator-runtime.py` re-links a candidate *from*
-  those recorded commands; it cannot create the package itself.
+- **The candidate assembly.** The libraries injected at launch and the host
+  relay do build from `port/de` (see below). What still has no tracked path is
+  how a candidate is put together: `scripts/build-de-boundary-probe.py`
+  generates the `DEBoundary_*.dylib` set from a live platform survey (the loader
+  probe writes one) plus a hand-audited public-constants file that no script in
+  the tree generates, and the `generated/mac-de-simulator-375/` layout, its
+  `game-client-appkit.json` record and the install step were assembled by hand
+  across sessions. `scripts/build-de-simulator-runtime.py` re-links the boundary
+  libraries *from* that package's recorded commands; it cannot create the
+  package itself.
 - **The installed Simulator app** (`local.agepad.de-loader-probe`) together with
   the ~19 GB game-data tree staged next to it.
 - **The designated Simulator.** `AgePad G5 iPad` is a device created locally on
@@ -138,6 +142,24 @@ self-contained iPad session.
 
 The dated documents in `docs/` cite evidence under `docs/artifacts/`, which is
 ignored, so those links do not resolve in a clone either.
+
+### Rebuilding the injected runtime
+
+The six libraries injected into the launch process and the host Steam path relay
+are now built from tracked sources in one step:
+
+```sh
+python3 scripts/build-de-injected-runtime.py generated/de-injected-runtime-YYYYMMDD
+```
+
+Every input is a file in `port/de`; the script writes a manifest with source and
+binary identities, checks each library's `LC_BUILD_VERSION` platform against
+where it runs (Simulator for the injected libraries, macOS for the relay) and
+refuses a non-fresh output directory. It builds only; installing, staging and
+launching still follow the steps above. The 2026-09-19 rebuild was compared
+against the binaries in use: identical exported and undefined symbol sets apart
+from ARC/optimizer codegen differences, and the rebuilt relay binds its socket
+and reports `DE_HOST_PATH_RELAY_READY` exactly as the shipped one does.
 
 ### Test on a physical iPad
 
