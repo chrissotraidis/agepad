@@ -14,8 +14,19 @@ six launch-injected libraries and the host Steam path relay from `port/de`; the
 two sources that had existed only inside ignored build directories
 (`SignalTrace.c`, `OriginalInputTrace.m`) are back in `port/de`. A rebuild was
 verified against the binaries in use (symbol sets equal apart from ARC/optimizer
-codegen; the relay binds and reports ready identically). Candidate assembly -
-boundary generation inputs, package layout and install - is still private.
+codegen; the relay binds and reports ready identically). Candidate assembly was
+still private at that point; the bootstrap entry below supersedes it.
+
+2026-09-19 bootstrap: `scripts/bootstrap-de-simulator.py` rebuilds a Simulator
+candidate from tracked sources plus the owned Steam install - audit, shader
+retarget, live import survey, boundary libraries, measured public constants,
+resources, Steam module translation, injected runtime, route probe, IPC helper,
+install and package manifest. A full run produced the same 17 boundary library
+names and installed and staged cleanly; the rebuilt candidate reaches the
+launcher screen when the Steam client chain is supplied. `game-client/` (the
+Steam client libraries the engine loads by name) is the one piece still not
+rebuilt; without it the launch exits after the menu model. See
+[DE-BOOTSTRAP-20260919.md](DE-BOOTSTRAP-20260919.md).
 
 2026-09-19: GPU-wait pump cut 5 ms -> 1 ms, sim speed 1.47x -> 1.62x (target
 1.7x). Primary-button hold capped at 250 ms; dialog taps no longer miss. See

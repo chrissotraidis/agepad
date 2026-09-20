@@ -20,13 +20,14 @@ p.add_argument('package',type=Path)
 p.add_argument('output',type=Path)
 p.add_argument('--probe',required=True,type=Path)
 p.add_argument('--seconds',type=float,default=15)
+p.add_argument('--device',default=os.environ.get('AGEPAD_SIMULATOR_UDID','574671AD-6F61-4558-9528-BF946DDB760A'))
 a=p.parse_args()
 def interrupted(signum, frame):
     raise KeyboardInterrupt(f'Runner interrupted by signal {signum}')
 signal.signal(signal.SIGTERM, interrupted)
 if not 1<=a.seconds<=3600: p.error('Observation must be between 1 and 3600 seconds')
 package=a.package.resolve();out=a.output.resolve();probe=a.probe.resolve()
-device='574671AD-6F61-4558-9528-BF946DDB760A';bundle='local.agepad.de-loader-probe'
+device=a.device;bundle='local.agepad.de-loader-probe'
 def cmd(*args):return ['xcrun','simctl',*map(str,args)]
 def discover():return json.loads(sp.check_output(cmd('spawn',device,probe),text=True))
 def alive(pid):return sp.run(['kill','-0',str(pid)],capture_output=True).returncode==0

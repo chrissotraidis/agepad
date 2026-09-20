@@ -64,11 +64,25 @@ See the [September 14 repair findings](docs/DE-REPAIR-20260914.md) for root caus
 
 ## Engineering reproduction
 
+### From a clean machine
+
+`python3 scripts/bootstrap-de-simulator.py generated/de-candidate-YYYYMMDD`
+rebuilds a Simulator candidate from this repository plus your own Steam install:
+it audits the original app, retargets the supplied Metal IR, runs the import
+survey, generates the boundary libraries and the measured public constants,
+builds the launch-injected libraries and the host relay, installs and records the
+package layout. `python3 scripts/prepare-de-game.py` then stages the game data.
+[DE-BOOTSTRAP-20260919.md](docs/DE-BOOTSTRAP-20260919.md) lists every stage, what
+was verified, and the one piece that does not rebuild yet (the Steam client chain
+in `package/game-client/`). Set `AGEPAD_SIMULATOR_UDID` if your Simulator device
+is not the one this Mac uses.
+
 ### Test on this MacBook
 
-This workflow runs the iPad build in Xcode Simulator on the Mac. It requires the
-existing private runtime package and your owned Mac game installation; cloning
-this repository alone does not produce a playable application.
+This workflow runs the iPad build in Xcode Simulator on the Mac, against a
+prepared runtime package and your owned Mac game installation. Build the package
+with the bootstrap above, or reuse an existing one by passing `--package` and
+`--probe` to the session runner.
 
 One-command version (verifies your Steam install, stages the game data, runs the
 preflight and launches):
@@ -96,12 +110,12 @@ For structured diagnostics use `python3 scripts/check-de-install.py --json`.
 This preflight checks launch prerequisites, not gameplay correctness. Logs and
 private runtime files stay under ignored `generated/` paths.
 
-### What a fresh clone cannot supply
+### What a fresh clone cannot supply by itself
 
 The tracked tree holds the compatibility sources (`port/`), the scripts, the
-tests and the documentation. Everything needed to actually launch is private or
-machine-specific, and none of it can be recreated from this repository alone. In
-a fresh clone the documented preflight already reports this:
+tests and the documentation. The bootstrap rebuilds the runtime and the boundary
+libraries from those sources, but three things still come only from you or this
+Mac, and a fresh clone's preflight reports the gap:
 
 ```
 FAIL private_runtime: Missing: game-client-appkit.json, SystemFrameworkCompat.dylib,
@@ -109,23 +123,21 @@ SignalTrace.dylib, MainThreadGraphicsWait.dylib, ResourceFileTrace.dylib,
 OriginalInputTrace.dylib, AudioOutputCompat.dylib
 ```
 
-- **The candidate assembly.** The libraries injected at launch and the host
-  relay do build from `port/de` (see below). What still has no tracked path is
-  how a candidate is put together: `scripts/build-de-boundary-probe.py`
-  generates the `DEBoundary_*.dylib` set from a live platform survey (the loader
-  probe writes one) plus a hand-audited public-constants file that no script in
-  the tree generates, and the `generated/mac-de-simulator-375/` layout, its
-  `game-client-appkit.json` record and the install step were assembled by hand
-  across sessions. `scripts/build-de-simulator-runtime.py` re-links the boundary
-  libraries *from* that package's recorded commands; it cannot create the
-  package itself.
-- **The installed Simulator app** (`local.agepad.de-loader-probe`) together with
-  the ~19 GB game-data tree staged next to it.
+- **The Steam client chain** (`package/game-client/`): `steamclient.dylib` and
+  the Steam support libraries the engine loads by name. They come from the Steam
+  client and an audited client dependency graph that no tracked script generates
+  yet, so the rebuilt candidate exits before presenting until they are supplied.
+  This is the one remaining reproduction gap; see
+  [DE-BOOTSTRAP-20260919.md](docs/DE-BOOTSTRAP-20260919.md).
+- **The ~19 GB game-data tree staged next to the installed app.** `simctl
+  install` replaces the whole bundle container, so `scripts/prepare-de-game.py`
+  has to re-stage it after every install.
 - **The designated Simulator.** `AgePad G5 iPad` is a device created locally on
-  this Mac (iPad Air 11-inch (M4), iOS 26.5) and its UDID is hardcoded in 23
-  tracked files. `simctl create` cannot reproduce a chosen UDID, so another
-  machine has to recreate the device and update those references; the scripts
-  also assume an iOS 26.5 runtime and the matching SDK.
+  this Mac (iPad Air 11-inch (M4), iOS 26.5). `simctl create` cannot reproduce a
+  chosen UDID, so another machine has to create the device and export
+  `AGEPAD_SIMULATOR_UDID`; the launch-path scripts read that variable, and the
+  remaining historical references were written for this Mac. The scripts also
+  assume an iOS 26.5 runtime and the matching SDK.
 - **Your Steam copy of the Mac edition** at exactly the pinned build, with
   desktop Steam running.
 

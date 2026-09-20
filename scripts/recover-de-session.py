@@ -11,13 +11,21 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / 'generated/mac-de-simulator-375'
+DEFAULT_PACKAGE = ROOT / 'generated/mac-de-simulator-375'
+DEFAULT_PROBE = ROOT / 'generated/mac-de-simulator-280/simulator-kernel'
+DEFAULT_DEVICE = '574671AD-6F61-4558-9528-BF946DDB760A'
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('name', help='Fresh evidence directory name')
     parser.add_argument('--seconds', type=int, default=3600)
+    parser.add_argument('--package', type=Path, default=DEFAULT_PACKAGE,
+                        help='Runtime package directory (default: the existing private one)')
+    parser.add_argument('--probe', type=Path, default=DEFAULT_PROBE,
+                        help='Simulator-side bootstrap probe binary')
+    parser.add_argument('--device', default=os.environ.get('AGEPAD_SIMULATOR_UDID', DEFAULT_DEVICE),
+                        help='Simulator UDID (default: the designated AgePad G5 iPad)')
     parser.add_argument('--trace-sld-frames', action='store_true',
                         help='Observe original SLD parse/frame access; create trace-frames.arm in the run directory to start frame logging')
     parser.add_argument('--trace-input-consumer', action='store_true')
@@ -26,6 +34,8 @@ def main():
     parser.add_argument('--graphics-wait-pump-ms', type=float,
                         help='Run-loop pump interval for main-thread GPU waits (default 1 ms; the earlier build used 5)')
     args = parser.parse_args()
+    package = args.package.expanduser().resolve()
+    probe = args.probe.expanduser().resolve()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name):
         parser.error('Use a simple run name containing letters, digits, dash or underscore')
     if not 1 <= args.seconds <= 3600:
@@ -61,19 +71,20 @@ def main():
         env['SIMCTL_CHILD_AGEPAD_ORIGINAL_CONSUMER_TRACE'] = '1'
         libraries.append('OriginalInputConsumerTrace')
     for name in libraries:
-        if not (PACKAGE / (name + '.dylib')).is_file():
+        if not (package / (name + '.dylib')).is_file():
             parser.error('Missing private runtime library: ' + name)
+    if not probe.is_file():
+        parser.error('Missing Simulator bootstrap probe: ' + str(probe))
     # ResourceFileTrace also supplies compatibility hooks; retain the library
     # while leaving its high-volume diagnostic logging disabled.
     env['SIMCTL_CHILD_DYLD_INSERT_LIBRARIES'] = ':'.join(
-        str(PACKAGE / (name + '.dylib')) for name in libraries)
-    env['SIMCTL_CHILD_AGEPAD_WEB_SNAPSHOT_DIR'] = str(PACKAGE)
+        str(package / (name + '.dylib')) for name in libraries)
+    env['SIMCTL_CHILD_AGEPAD_WEB_SNAPSHOT_DIR'] = str(package)
     os.chdir(ROOT)
     # Replace this wrapper so SIGTERM/Ctrl-C reaches the runner's cleanup.
     os.execve(sys.executable, [sys.executable, str(ROOT / 'scripts/run-de-game-relay.py'),
-        str(PACKAGE), str(PACKAGE / args.name), '--probe',
-        str(ROOT / 'generated/mac-de-simulator-280/simulator-kernel'),
-        '--seconds', str(args.seconds)], env)
+        str(package), str(package / args.name), '--probe', str(probe),
+        '--device', str(args.device), '--seconds', str(args.seconds)], env)
 
 
 if __name__ == '__main__':

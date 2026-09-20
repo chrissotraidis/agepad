@@ -18,6 +18,42 @@ import subprocess
 def run(*args):
     subprocess.run([str(x) for x in args],check=True)
 
+
+def included_sources(source_lines):
+    """Compat .m names referenced by the generated source, including transitively."""
+    root=Path(__file__).resolve().parent.parent
+    names=[]
+    pending=[re.search(r'#include "([^"]+\.m)"',line).group(1)
+             for line in source_lines if re.search(r'#include "([^"]+\.m)"',line)]
+    while pending:
+        one=pending.pop()
+        if one in names:
+            continue
+        path=root/'port/de'/one
+        if not path.is_file():
+            continue
+        names.append(one)
+        pending.extend(re.findall(r'#include "([^"]+\.m)"',path.read_text()))
+    return names
+
+
+def implemented_symbols(names):
+    """Symbols those sources define, by __asm__ name or by plain definition."""
+    root=Path(__file__).resolve().parent.parent
+    found=set()
+    for one in names:
+        path=root/'port/de'/one
+        if not path.is_file():
+            continue
+        text=path.read_text()
+        found.update(re.findall(r'__asm__\s*\(\s*"(_[A-Za-z0-9_$]+)"\s*\)',text))
+        # A compat source may also define an original API under its real C name,
+        # for example `void CGWarpMouseCursorPosition(CGPoint point) {`. Those
+        # mangle to the imported symbol and must not be stubbed a second time.
+        for match in re.finditer(r'^[A-Za-z_][A-Za-z0-9_ \t\*]*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\([^;()]*\)\s*\{',text,re.M):
+            found.add('_'+match.group(1))
+    return found
+
 p=argparse.ArgumentParser()
 p.add_argument('input',type=Path)
 p.add_argument('app',type=Path)
@@ -39,6 +75,10 @@ p.add_argument('--metal-device-observer',action='store_true',help='Opt-in real i
 p.add_argument('--menu-model',action='store_true',help='Menu object model only; no UIKit menu presentation')
 p.add_argument('--window-view-host',action='store_true',help='UIKit window/view hosting for original engine layers')
 p.add_argument('--application-events',action='store_true',help='Original application-created other-event representation')
+p.add_argument('--alert-compat',action='store_true',help='Original alert panel objects hosted by UIKit')
+p.add_argument('--pasteboard-compat',action='store_true',help='Original pasteboard names and change counts; no prompt bypass')
+p.add_argument('--tracking-area-compat',action='store_true',help='Tracking areas hosted by the UIKit view')
+p.add_argument('--min-spec-dialog',action='store_true',help='Opt-in minimum-specification dialog representation')
 a=p.parse_args()
 if a.main_executable and not a.application_bootstrap:
     p.error('--main-executable requires --application-bootstrap')
@@ -80,25 +120,41 @@ for item in survey:
         source.append('#include "SecurityTrace.m"')
     if a.application_bootstrap and name=='AppKit':
         source.append('#include "AppLifecycleCompat.m"')
-        if a.menu_model:
-            source.append('#include "MenuCompat.m"')
-        if a.window_view_host:
-            source.append('#include "WindowViewCompat.m"')
-        if a.application_events:
-            source.append('#include "EventCompat.m"')
-        if a.cgimage_wrapper:
-            source.append('#include "ImageCompat.m"')
-        if a.default_uikit_cursor:
-            source.append('#include "DefaultCursorCompat.m"')
-        if a.loader_trace:
-            source.append('#include "RuntimeLoaderTrace.m"')
-        if a.file_trace:
-            source.append('#include "RuntimeFileTrace.m"')
         if a.steam_module_compat:
             source.append('#include "SteamModuleCompat.m"')
         source.append('#include "ScreenCompat.m"')
         if a.main_executable:
+            # LoaderProbe.m also brings in Metal; the window/view host below
+            # needs those declarations, so it is emitted first, as in the
+            # working candidate.
             source.append('#define DE_EMBEDDED_DELEGATE 1\n#include "LoaderProbe.m"')
+        # Include order matters: WindowViewCompat.m uses helpers defined by the
+        # pasteboard compat and pulls in the drawable-presentation compat, so the
+        # optional sources are emitted in the alphabetical order the working
+        # candidate uses rather than in the order the flags are declared.
+        optional = []
+        if a.alert_compat:
+            optional.append('AlertCompat.m')
+        if a.default_uikit_cursor:
+            optional.append('DefaultCursorCompat.m')
+        if a.application_events:
+            optional.append('EventCompat.m')
+        if a.cgimage_wrapper:
+            optional.append('ImageCompat.m')
+        if a.menu_model:
+            optional.append('MenuCompat.m')
+        if a.pasteboard_compat:
+            optional.append('PasteboardCompat.m')
+        if a.tracking_area_compat:
+            optional.append('TrackingAreaCompat.m')
+        if a.window_view_host:
+            optional.append('WindowViewCompat.m')
+        if a.loader_trace:
+            optional.append('RuntimeLoaderTrace.m')
+        if a.file_trace:
+            optional.append('RuntimeFileTrace.m')
+        for one in optional:
+            source.append('#include "' + one + '"')
     if a.application_bootstrap and name=='CoreGraphics':
         source.append('#include "DisplayLifecycleCompat.m"')
         source.append('#include "DisplayCallbacksCompat.m"')
@@ -107,9 +163,18 @@ for item in survey:
             source.append('#include "PointerEventCompat.m"')
         if a.uikit_display_mode:
             source.append('#include "DisplayModeCompat.m"')
+        if a.min_spec_dialog:
+            source.append('#include "MinSpecDialogCompat.m"')
     classes=set()
     actions=[]
+    # A stub must never be emitted for a symbol that an included compat source
+    # already defines through an __asm__ name: the duplicate mangled name fails
+    # the link. This mirrors build-de-simulator-runtime.py's stub stripping.
+    implemented=implemented_symbols(included_sources(source))
     for i,symbol in enumerate(item['missing_symbols']):
+        if symbol in implemented:
+            actions.append({'symbol':symbol,'action':'implemented by an included port/de compat source'})
+            continue
         if a.application_bootstrap and a.application_events and name=='AppKit' and symbol in ('_OBJC_CLASS_$_NSEvent','_OBJC_METACLASS_$_NSEvent'):
             actions.append({'symbol':symbol,'action':'original-created other-event representation; no synthetic user input'})
             continue
@@ -118,6 +183,17 @@ for item in survey:
             continue
         if a.application_bootstrap and a.menu_model and name=='AppKit' and symbol in ('_OBJC_CLASS_$_NSMenu','_OBJC_METACLASS_$_NSMenu','_OBJC_CLASS_$_NSMenuItem','_OBJC_METACLASS_$_NSMenuItem'):
             actions.append({'symbol':symbol,'action':'retained menu model; presentation and action dispatch unimplemented'})
+            continue
+        # These classes are implemented by the opt-in compat sources, so the
+        # generic diagnostic class must not be emitted for them.
+        if a.alert_compat and name=='AppKit' and symbol in ('_OBJC_CLASS_$_NSAlert','_OBJC_METACLASS_$_NSAlert'):
+            actions.append({'symbol':symbol,'action':'original alert panel objects hosted by UIKit'})
+            continue
+        if a.pasteboard_compat and name=='AppKit' and symbol in ('_OBJC_CLASS_$_NSPasteboard','_OBJC_METACLASS_$_NSPasteboard'):
+            actions.append({'symbol':symbol,'action':'original pasteboard names and change counts; no prompt bypass'})
+            continue
+        if a.tracking_area_compat and name=='AppKit' and symbol in ('_OBJC_CLASS_$_NSTrackingArea','_OBJC_METACLASS_$_NSTrackingArea'):
+            actions.append({'symbol':symbol,'action':'tracking areas hosted by the UIKit view'})
             continue
         if a.metal_device_observer and name=='Metal' and symbol in ('_MTLCopyAllDevicesWithObserver','_MTLRemoveDeviceObserver'):
             actions.append({'symbol':symbol,'action':'actual MTLCopyAllDevices with polling observer'})
@@ -192,7 +268,9 @@ for item in survey:
     if a.application_bootstrap and name=='AppKit':
         command.extend(['-framework','UIKit'])
         if a.window_view_host:
-            command.extend(['-framework','QuartzCore'])
+            # WindowViewCompat.m hosts original layers and observes a GameController
+            # keyboard, so both frameworks must be on the link line.
+            command.extend(['-framework','QuartzCore','-framework','GameController'])
         if a.main_executable:
             command.extend(['-framework','Metal','-framework','CoreGraphics'])
     if a.application_bootstrap and name=='CoreGraphics':
