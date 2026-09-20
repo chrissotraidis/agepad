@@ -96,6 +96,49 @@ For structured diagnostics use `python3 scripts/check-de-install.py --json`.
 This preflight checks launch prerequisites, not gameplay correctness. Logs and
 private runtime files stay under ignored `generated/` paths.
 
+### What a fresh clone cannot supply
+
+The tracked tree holds the compatibility sources (`port/`), the scripts, the
+tests and the documentation. Everything needed to actually launch is private or
+machine-specific, and none of it can be recreated from this repository alone. In
+a fresh clone the documented preflight already reports this:
+
+```
+FAIL private_runtime: Missing: game-client-appkit.json, SystemFrameworkCompat.dylib,
+SignalTrace.dylib, MainThreadGraphicsWait.dylib, ResourceFileTrace.dylib,
+OriginalInputTrace.dylib, AudioOutputCompat.dylib
+```
+
+- **The private runtime package** (`generated/mac-de-simulator-375/`): the
+  compiled compatibility libraries, the `game-client/` dylibs, the generated
+  boundary sources, the recorded clang command lines and the prebuilt
+  `HostSteamPathRelay` (its `port/de` source is here, but no script builds that
+  binary). `scripts/build-de-simulator-runtime.py` re-links a candidate *from*
+  those recorded commands; it cannot create the package itself.
+- **The installed Simulator app** (`local.agepad.de-loader-probe`) together with
+  the ~19 GB game-data tree staged next to it.
+- **The designated Simulator.** `AgePad G5 iPad` is a device created locally on
+  this Mac (iPad Air 11-inch (M4), iOS 26.5) and its UDID is hardcoded in 23
+  tracked files. `simctl create` cannot reproduce a chosen UDID, so another
+  machine has to recreate the device and update those references; the scripts
+  also assume an iOS 26.5 runtime and the matching SDK.
+- **Your Steam copy of the Mac edition** at exactly the pinned build, with
+  desktop Steam running.
+
+Nothing here downloads the game or signs in to Steam: `scripts/prepare-de-game.py`
+reads the installation Steam already placed at
+`~/Library/Application Support/Steam/steamapps/common/AoE2DE` (or `--source`),
+checks version `478570.102902`, the executable and `libsteam_api` hashes and the
+`resources`, `widgetui`, `wwise` and `modes` directories, then stages a copy.
+Ownership, sign-in and the download are yours to arrange, and a Steam update
+fails the check rather than silently preparing a different build. Launching
+additionally needs desktop Steam running, because the Simulator session uses the
+host-assisted Steam discovery relay; that dependency is still unresolved for a
+self-contained iPad session.
+
+The dated documents in `docs/` cite evidence under `docs/artifacts/`, which is
+ignored, so those links do not resolve in a clone either.
+
 ### Test on a physical iPad
 
 **Not ready to install yet.** The September 15 inventory found no connected iPad
