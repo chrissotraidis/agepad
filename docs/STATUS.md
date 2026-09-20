@@ -2,6 +2,13 @@
 
 ## Current execution loop
 
+2026-09-19 local check: read-only tree pass plus one fresh end-to-end launch -
+main menu, PLAY, Single Player, Load Game and the selected autosave all accepted
+first tap, world rendered with HUD, TOWN/IDLE shortcuts drove the camera and
+selection. 14 Python tests and the source safety scan pass; three stale root
+duplicate PRD/goal-loop documents removed; one orphaned native Mac game process
+stopped. See [LOCAL-CHECK-20260919.md](LOCAL-CHECK-20260919.md).
+
 2026-09-19: GPU-wait pump cut 5 ms -> 1 ms, sim speed 1.47x -> 1.62x (target
 1.7x). Primary-button hold capped at 250 ms; dialog taps no longer miss. See
 [SPEED-AND-DIALOGS-20260919.md](SPEED-AND-DIALOGS-20260919.md).
