@@ -15,6 +15,18 @@ memory region) and the reader is invoked one symbol per run. Also fixed:
 `build-de-steam-client-boundary.py` used Python 3.9-only `Path` methods and
 emitted duplicate diagnostic classes.
 
+2026-09-21 client-chain bisection: the rebuilt chain now takes its boundary set
+from a Simulator-side `LibrarySymbolSurvey` of the client images' own imports
+(14 dependencies, 138 missing symbols) instead of the engine's survey. A
+bisection then isolated the remaining launch failure to the rebuilt retargeted
+images: with the previously built `steamclient/libaudio/libtier0_s/libvstdlib_s/
+crashhandler/Breakpad/breakpadUtilities` in place and the newly built boundary
+libraries, the candidate renders the launcher screen and stays up (screenshot
+mean luminance 39.4, matching the known-good screen). With the rebuilt images it
+exits ~3-5 s after `DE_MENU_MODEL_CREATED`. Next: make the image dependency
+mapping match the working chain - rewrite only dependencies the Simulator
+genuinely lacks, and check each image's `otool -L` list against the working copy.
+
 2026-09-19 local check: read-only tree pass plus one fresh end-to-end launch -
 main menu, PLAY, Single Player, Load Game and the selected autosave all accepted
 first tap, world rendered with HUD, TOWN/IDLE shortcuts drove the camera and

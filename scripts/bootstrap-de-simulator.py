@@ -33,6 +33,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -171,7 +172,8 @@ def main():
     record = {'game': str(game), 'device': device, 'stages': {}, 'boundary_flags': BOUNDARY_FLAGS}
 
     def done(stage, **extra):
-        record['stages'][stage] = dict(extra, finished=time.strftime('%Y-%m-%dT%H:%M:%S'))
+        record.setdefault('stages', {})[stage] = dict(
+            extra, finished=time.strftime('%Y-%m-%dT%H:%M:%S'))
         (output / 'bootstrap.json').write_text(json.dumps(record, indent=2) + '\n')
 
     if 'steam' in plan:
@@ -391,12 +393,49 @@ def main():
             return 1
         audit_path = art / 'steam-client-audit.json'
         run([sys.executable, ROOT / 'scripts/audit-de-steam-client.py', contents, audit_path], log=log)
+        # The client boundary set must be decided by what the Simulator actually
+        # lacks for these images, not by the engine's own survey. LibrarySymbolSurvey
+        # is the tracked tool for that: it runs inside the Simulator and reports the
+        # missing symbols per dependency.
+        sdk = subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-path'],
+                                      text=True).strip()
+        survey_tool = art / 'LibrarySymbolSurvey'
+        run(['xcrun', 'clang', '-target', 'arm64-apple-ios17.0-simulator', '-isysroot', sdk,
+             '-fobjc-arc', '-framework', 'Foundation',
+             ROOT / 'port/de/LibrarySymbolSurvey.m', '-o', survey_tool], log=log)
+        run(['codesign', '--force', '--sign', '-', survey_tool], log=log)
+        audit_data = json.loads(audit_path.read_text())
+        wanted = {}
+        for relative, record in audit_data.items():
+            symbols_by_dep = {}
+            found = subprocess.run(['xcrun', 'nm', '-arch', 'arm64', '-m', '-u',
+                                    str(contents / relative)], capture_output=True, text=True)
+            for match in re.finditer(r'external (\S+) \(from ([^)]+)\)', found.stdout):
+                symbols_by_dep.setdefault(match.group(2), set()).add(match.group(1))
+            for entry in record['dependencies']:
+                if entry['kind'] != 'system':
+                    continue
+                key = Path(entry['path']).name
+                symbols = sorted(symbols_by_dep.get(key, set()) - {'dyld_stub_binder'})
+                if symbols:
+                    wanted.setdefault(entry['path'], set()).update(symbols)
+        survey_input = art / 'steam-client-survey-input.json'
+        survey_input.write_text(json.dumps([{'path': path, 'symbols': sorted(symbols)}
+                                            for path, symbols in sorted(wanted.items())], indent=1) + '\n')
+        measured = subprocess.run(['xcrun', 'simctl', 'spawn', device, str(survey_tool),
+                                   str(survey_input)], capture_output=True, text=True, check=True)
+        client_survey = art / 'steam-client-survey.json'
+        client_survey.write_text(measured.stdout)
+        survey_missing = sum(len(entry['missing_symbols'])
+                             for entry in json.loads(measured.stdout))
+        print('   client dependencies surveyed: %d, missing symbols: %d'
+              % (len(wanted), survey_missing))
         destination = package / 'game-client'
         if destination.exists():
             shutil.rmtree(destination)
         run([sys.executable, ROOT / 'scripts/build-de-steam-client-boundary.py', contents,
              audit_path, art / 'public-constants.json', destination,
-             '--survey', art / 'platform-survey-array.json'], log=log)
+             '--survey', client_survey], log=log)
         if not (destination / 'steamclient.dylib').is_file():
             print('FAIL client-chain: no steamclient.dylib was produced; see ' + str(log))
             return 1
