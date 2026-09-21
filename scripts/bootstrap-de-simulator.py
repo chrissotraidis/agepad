@@ -16,6 +16,7 @@ Stages, in order:
   boundary-2   regenerate the boundary libraries with those constants
   resources    stage the original app's resources with the retargeted shader
   steam-module translate the supplied Steam module into the app bundle
+  client-chain build the Steam client chain the engine loads by name
   runtime      build the launch-injected libraries and the host relay
   probe        build the Simulator-side bootstrap probe
   ipc-helper   build the Steam IPC helper from your Steam client
@@ -47,6 +48,7 @@ SURVEY_BUNDLE = 'local.agepad.de-survey-probe'
 STEAM_DEFAULT = Path.home() / 'Library/Application Support/Steam/steamapps/common/AoE2DE'
 STEAM_IPCSERVER = Path.home() / ('Library/Application Support/Steam/Steam.AppBundle/Steam/'
                                  'Contents/MacOS/ipcserver')
+STEAM_CLIENT_DEFAULT = Path.home() / 'Library/Application Support/Steam/Steam.AppBundle/Steam/Contents'
 
 # The configuration the working candidate was built with. Each flag maps to a
 # `build-de-boundary-probe.py` option; keeping them here documents the candidate.
@@ -58,6 +60,23 @@ BOUNDARY_FLAGS = [
     '--uikit-display-mode', '--min-spec-dialog', '--metal-device-observer',
     '--unavailable-gestalt', '--keyboard-layout-unavailable',
 ]
+
+# Host frameworks whose public string constants the compat libraries re-export.
+CONSTANT_FRAMEWORKS = ['AppKit', 'Foundation', 'CoreFoundation', 'CoreServices', 'ApplicationServices',
+                       'Carbon', 'QuartzCore', 'Metal', 'MetalFX', 'AudioToolbox',
+                       'AVFoundation', 'Security', 'ScriptingBridge', 'IOBluetooth',
+                       'DiskArbitration', 'OpenGL', 'CoreGraphics']
+
+
+def framework_paths():
+    """Canonical host framework paths the reader is allowed to search.
+
+    Every candidate symbol is offered to each framework; the reader keeps only
+    symbols that resolve into a data segment, so a mis-classified function name
+    cannot be dereferenced as an object.
+    """
+    return ['/System/Library/Frameworks/%s.framework/%s' % (name, name)
+            for name in CONSTANT_FRAMEWORKS]
 
 
 def digest(path):
@@ -118,6 +137,8 @@ def main():
     parser.add_argument('output', type=Path, help='Fresh build directory')
     parser.add_argument('--game', type=Path, default=STEAM_DEFAULT,
                         help='Steam AoE2DE folder (default: the Steam library)')
+    parser.add_argument('--steam-client', type=Path, default=STEAM_CLIENT_DEFAULT,
+                        help='Steam client Contents folder (default: the Steam app bundle)')
     parser.add_argument('--device', default=os.environ.get('AGEPAD_SIMULATOR_UDID', DEFAULT_DEVICE))
     parser.add_argument('--survey', type=Path,
                         help='Reuse an existing survey JSON instead of running the loader probe')
@@ -135,8 +156,8 @@ def main():
     log = output / 'bootstrap.log'
     device = args.device
     stages = ['steam', 'audit', 'shader', 'loader-probe', 'survey', 'boundary-1',
-              'constants', 'boundary-2', 'resources', 'steam-module', 'runtime', 'probe',
-              'ipc-helper', 'install', 'manifest']
+              'constants', 'boundary-2', 'resources', 'steam-module', 'client-chain',
+              'runtime', 'probe', 'ipc-helper', 'install', 'manifest']
     plan = [s for s in stages if (not args.only or s in args.only) and s not in args.skip]
     print('Build directory: ' + str(output))
     print('Stages: ' + ', '.join(plan))
@@ -230,6 +251,8 @@ def main():
                   % ('result file present but empty' if seen else 'no result file', log))
             return 1
         survey.write_text(json.dumps(result, indent=2) + '\n')
+        (art / 'platform-survey-array.json').write_text(
+            json.dumps(result['platform_survey'], indent=1) + '\n')
         run(['xcrun', 'simctl', 'terminate', device, SURVEY_BUNDLE], log=log, check=False)
         loaded = sum(1 for item in result['platform_survey'] if item.get('loaded'))
         print('   survey entries: %d (%d already loaded on iOS)' % (len(result['platform_survey']), loaded))
@@ -260,14 +283,55 @@ def main():
         if not manifest.is_file():
             print('FAIL constants: ' + str(manifest) + ' is missing; run boundary-1 first')
             return 1
+        manifest_data = json.loads(manifest.read_text())
+        wanted = set()
+        for library in manifest_data.get('libraries', []):
+            for entry in library.get('symbols', []):
+                if str(entry.get('action', '')).startswith('NULL diagnostic data'):
+                    wanted.add(entry['symbol'])
+        # The Steam client chain imports AppKit/URL key constants too, and it is
+        # built from symbols the boundary manifest does not list, so add the data
+        # symbols those images leave undefined.
+        contents = args.steam_client.expanduser().resolve()
+        if contents.is_dir():
+            for relative in ('MacOS/steamclient.dylib', 'MacOS/libaudio.dylib',
+                             'MacOS/libtier0_s.dylib', 'MacOS/libvstdlib_s.dylib',
+                             'MacOS/crashhandler.dylib'):
+                image = contents / relative
+                if not image.is_file():
+                    continue
+                out = subprocess.run(['nm', '-u', str(image)], capture_output=True, text=True)
+                for line in out.stdout.splitlines():
+                    symbol = line.strip()
+                    if symbol.startswith(('_NS', '_k')):
+                        wanted.add(symbol)
+        # Read one symbol per run: a data symbol whose first word is not an object
+        # can still fault the reader, and that must cost one constant, not the batch.
+        library_paths = framework_paths()
         tool = art / 'HostConstants'
         run(['xcrun', 'clang', '-fobjc-arc', '-framework', 'Foundation',
              ROOT / 'port/de/HostConstants.m', '-o', tool], log=log)
-        produced = subprocess.run([tool, manifest], capture_output=True, text=True, check=True)
-        constants = json.loads(produced.stdout or '{}')
+        single = art / 'constants-single.json'
+        constants = {}
+        skipped = []
+        for symbol in sorted(wanted):
+            single.write_text(json.dumps({'libraries': [
+                {'path': path, 'symbols': [{'symbol': symbol,
+                                            'action': 'NULL diagnostic data'}]}
+                for path in library_paths]}) + '\n')
+            # A faulting read can leave partial, non-UTF8 bytes on stdout, so
+            # capture bytes and decode leniently rather than with text=True.
+            produced = subprocess.run([tool, single], capture_output=True)
+            if produced.returncode != 0:
+                skipped.append(symbol)
+                continue
+            try:
+                constants.update(json.loads(produced.stdout.decode('utf-8', 'replace') or '{}'))
+            except ValueError:
+                skipped.append(symbol)
         constants_path = art / 'public-constants.json'
         constants_path.write_text(json.dumps(constants, indent=2, sort_keys=True) + '\n')
-        print('   public constants read: %d' % len(constants))
+        print('   public constants read: %d (skipped %d unsafe)' % (len(constants), len(skipped)))
         if not constants:
             print('FAIL constants: no constants were read; the boundary build would emit NULL data')
             return 1
@@ -318,6 +382,30 @@ def main():
             'translated_sha256': digest(translated)}, indent=2) + '\n')
         done('steam-module', translated=str(translated),
              original_sha256=digest(original), translated_sha256=digest(translated))
+
+    if 'client-chain' in plan:
+        print('== client-chain: build the Steam client chain the engine loads by name')
+        contents = args.steam_client.expanduser().resolve()
+        if not (contents / 'MacOS/steamclient.dylib').is_file():
+            print('FAIL client-chain: ' + str(contents) + ' has no MacOS/steamclient.dylib')
+            return 1
+        audit_path = art / 'steam-client-audit.json'
+        run([sys.executable, ROOT / 'scripts/audit-de-steam-client.py', contents, audit_path], log=log)
+        destination = package / 'game-client'
+        if destination.exists():
+            shutil.rmtree(destination)
+        run([sys.executable, ROOT / 'scripts/build-de-steam-client-boundary.py', contents,
+             audit_path, art / 'public-constants.json', destination,
+             '--survey', art / 'platform-survey-array.json'], log=log)
+        if not (destination / 'steamclient.dylib').is_file():
+            print('FAIL client-chain: no steamclient.dylib was produced; see ' + str(log))
+            return 1
+        # Keep the app's own boundary libraries beside the client chain, as the
+        # working package does, so a bare-name lookup finds the same images.
+        for library in sorted(app.glob('DEBoundary_*.dylib')):
+            shutil.copy2(library, destination / library.name)
+        done('client-chain', path=str(destination),
+             files=sorted(p.name for p in destination.iterdir()))
 
     if 'runtime' in plan:
         print('== runtime: build the launch-injected libraries and the relay')

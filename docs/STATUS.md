@@ -2,6 +2,19 @@
 
 ## Current execution loop
 
+2026-09-21 bootstrap client chain: the Steam client chain now rebuilds from the
+supplied Steam client (`scripts/audit-de-steam-client.py` derives the dependency
+graph; `build-de-steam-client-boundary.py` translates it; the bootstrap has a
+`client-chain` stage). A from-scratch bootstrap built, installed and staged
+cleanly and produced the same boundary image set as the candidate in use. The
+from-scratch launch still exits a few seconds after `DE_MENU_MODEL_CREATED`,
+while the same rebuilt app launched against the previously built chain reaches
+the launcher screen, so one behaviour difference in the rebuilt chain remains
+open. `HostConstants.m` no longer dereferences text symbols (it checks the
+memory region) and the reader is invoked one symbol per run. Also fixed:
+`build-de-steam-client-boundary.py` used Python 3.9-only `Path` methods and
+emitted duplicate diagnostic classes.
+
 2026-09-19 local check: read-only tree pass plus one fresh end-to-end launch -
 main menu, PLAY, Single Player, Load Game and the selected autosave all accepted
 first tap, world rendered with HUD, TOWN/IDLE shortcuts drove the camera and
