@@ -14,7 +14,7 @@ import de_device
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACKAGE = de_device.package_dir()
-DEFAULT_PROBE = ROOT / 'generated/mac-de-simulator-280/simulator-kernel'
+LEGACY_PROBE = ROOT / 'generated/mac-de-simulator-280/simulator-kernel'
 DEFAULT_DEVICE = de_device.device_udid()
 
 
@@ -24,8 +24,9 @@ def main():
     parser.add_argument('--seconds', type=int, default=3600)
     parser.add_argument('--package', type=Path, default=DEFAULT_PACKAGE,
                         help='Runtime package directory (default: the existing private one)')
-    parser.add_argument('--probe', type=Path, default=DEFAULT_PROBE,
-                        help='Simulator-side bootstrap probe binary')
+    parser.add_argument('--probe', type=Path, default=None,
+                        help='Simulator-side bootstrap probe binary (default: the one built '
+                             'into the package, else the private probe on this Mac)')
     parser.add_argument('--device', default=os.environ.get('AGEPAD_SIMULATOR_UDID', DEFAULT_DEVICE),
                         help='Simulator UDID (default: the designated AgePad G5 iPad)')
     parser.add_argument('--trace-sld-frames', action='store_true',
@@ -37,7 +38,12 @@ def main():
                         help='Run-loop pump interval for main-thread GPU waits (default 1 ms; the earlier build used 5)')
     args = parser.parse_args()
     package = args.package.expanduser().resolve()
-    probe = args.probe.expanduser().resolve()
+    if args.probe:
+        probe = args.probe.expanduser().resolve()
+    elif (package / 'simulator-kernel').is_file():
+        probe = package / 'simulator-kernel'
+    else:
+        probe = LEGACY_PROBE
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name):
         parser.error('Use a simple run name containing letters, digits, dash or underscore')
     if not 1 <= args.seconds <= 3600:

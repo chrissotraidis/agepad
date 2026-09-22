@@ -67,6 +67,10 @@ def package_dir(explicit=None):
     legacy = ROOT / 'generated/mac-de-simulator-375'
     if legacy.is_dir():
         return legacy
-    built = sorted((ROOT / 'generated').glob('de-candidate-*/package'),
-                   key=lambda path: path.stat().st_mtime)
-    return built[-1] if built else legacy
+    # A built candidate puts its package in <build>/package and marks it with
+    # game-client-appkit.json, so discover that marker rather than a name.
+    built = {marker.parent for marker in (ROOT / 'generated').glob('*/package/game-client-appkit.json')}
+    built |= {marker.parent for marker in (ROOT / 'generated').glob('*/game-client-appkit.json')}
+    if built:
+        return sorted(built, key=lambda path: path.stat().st_mtime)[-1]
+    return legacy

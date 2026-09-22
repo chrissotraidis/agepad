@@ -2,6 +2,16 @@
 
 ## Current execution loop
 
+2026-09-21 fresh-clone acceptance: a `git clone` with no `generated/` directory
+bootstrapped the whole candidate from tracked sources plus the owned Steam install,
+installed it, staged data, passed its own preflight and launched -
+`end_reason: observation-expired`, `alive_after_observation: true`, 130.1 s, with
+the launcher rendered. Two resolution bugs surfaced only in the clone and are
+fixed: the package discovery glob required a literal `de-candidate-*` name, and
+`recover-de-session.py` still defaulted its probe to this Mac's private path.
+Device and package now resolve through `scripts/de_device.py` (+ `AGEPAD_SIMULATOR_UDID`,
+`--package`, and `scripts/create-de-simulator.py`).
+
 2026-09-21 client chain reproduced and accepted: the client boundary set now comes
 from a Simulator-side survey of the client images themselves (38 missing exports,
 was 138), because macOS-style `...framework/Versions/A/...` paths do not resolve

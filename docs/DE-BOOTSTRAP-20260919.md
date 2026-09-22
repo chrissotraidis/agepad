@@ -145,3 +145,18 @@ set is identical.
 Still outside this reproduction: signing credentials for a device build, the
 host-assisted Steam session (which the IPA goal has to replace or disclose), and
 the publication decision in RIGHTS-STATUS.md.
+
+
+## Verified from a clean clone, 2026-09-21
+
+A `git clone` with no `generated/` directory ran the full bootstrap, staged the
+game data, passed its own preflight and launched:
+`end_reason: observation-expired`, `alive_after_observation: true`, 130.1 s with
+the launcher rendered. Two resolution defects only appeared there and are fixed:
+package discovery matched on a name instead of the `game-client-appkit.json`
+marker, and the session runner defaulted its probe to this Mac's private path.
+
+On a new machine: `python3 scripts/create-de-simulator.py`, export the
+`AGEPAD_SIMULATOR_UDID` line it prints, then bootstrap. `scripts/de_device.py`
+resolves both the device and the package (`--package` overrides; the private
+package wins if present).

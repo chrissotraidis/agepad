@@ -72,10 +72,12 @@ it audits the original app, retargets the supplied Metal IR, runs the import
 survey, generates the boundary libraries and the measured public constants,
 builds the launch-injected libraries and the host relay, installs and records the
 package layout. `python3 scripts/prepare-de-game.py` then stages the game data.
-[DE-BOOTSTRAP-20260919.md](docs/DE-BOOTSTRAP-20260919.md) lists every stage, what
-was verified, and the one piece that does not rebuild yet (the Steam client chain
-in `package/game-client/`). Set `AGEPAD_SIMULATOR_UDID` if your Simulator device
-is not the one this Mac uses.
+[DE-BOOTSTRAP-20260919.md](docs/DE-BOOTSTRAP-20260919.md) lists every stage and
+what was verified. On a new machine run `python3 scripts/create-de-simulator.py`
+once and export the `AGEPAD_SIMULATOR_UDID` line it prints; the launch-path
+scripts read that variable instead of a literal. Runtime packages resolve the same
+way: `generated/mac-de-simulator-375` wins if it exists (this Mac), otherwise the
+most recently built candidate is used, and `--package` overrides either.
 
 ### Test on this MacBook
 
@@ -127,7 +129,8 @@ OriginalInputTrace.dylib, AudioOutputCompat.dylib
   from source; installing on an iPad still needs your own signing setup.
 - **The ~19 GB game-data tree staged next to the installed app.** `simctl
   install` replaces the whole bundle container, so `scripts/prepare-de-game.py`
-  has to re-stage it after every install.
+  has to re-stage it after every install. That is the only step that needs your
+  game: everything else is rebuilt from this repository.
 - **The designated Simulator.** `AgePad G5 iPad` is a device created locally on
   this Mac (iPad Air 11-inch (M4), iOS 26.5). `simctl create` cannot reproduce a
   chosen UDID, so another machine has to create the device and export
