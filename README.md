@@ -123,12 +123,8 @@ SignalTrace.dylib, MainThreadGraphicsWait.dylib, ResourceFileTrace.dylib,
 OriginalInputTrace.dylib, AudioOutputCompat.dylib
 ```
 
-- **The Steam client chain** (`package/game-client/`): `steamclient.dylib` and
-  the Steam support libraries the engine loads by name. They come from the Steam
-  client and an audited client dependency graph that no tracked script generates
-  yet, so the rebuilt candidate exits before presenting until they are supplied.
-  This is the one remaining reproduction gap; see
-  [DE-BOOTSTRAP-20260919.md](docs/DE-BOOTSTRAP-20260919.md).
+- **A signing identity for a device build.** The Simulator candidate rebuilds
+  from source; installing on an iPad still needs your own signing setup.
 - **The ~19 GB game-data tree staged next to the installed app.** `simctl
   install` replaces the whole bundle container, so `scripts/prepare-de-game.py`
   has to re-stage it after every install.

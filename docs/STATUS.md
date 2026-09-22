@@ -2,6 +2,17 @@
 
 ## Current execution loop
 
+2026-09-21 client chain reproduced and accepted: the client boundary set now comes
+from a Simulator-side survey of the client images themselves (38 missing exports,
+was 138), because macOS-style `...framework/Versions/A/...` paths do not resolve
+inside the Simulator and made present frameworks look missing. All seven
+translated images now have `otool -L` lists identical to the working chain. A
+complete bootstrap of a fresh directory then installed, staged and launched:
+`end_reason: observation-expired`, `alive_after_observation: true`, 150.07 s,
+launcher screen rendered. Docs: DE-BOOTSTRAP-20260919.md. Still outside the
+reproduction: device signing, the host-assisted Steam session, and the
+publication decision.
+
 2026-09-21 bootstrap client chain: the Steam client chain now rebuilds from the
 supplied Steam client (`scripts/audit-de-steam-client.py` derives the dependency
 graph; `build-de-steam-client-boundary.py` translates it; the bootstrap has a

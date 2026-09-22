@@ -75,7 +75,7 @@ python3 scripts/prepare-de-game.py
 Evidence: `generated/de-bootstrap-d/` (bootstrap log, survey, constants,
 boundary artifacts, `bootstrap.json`) and `generated/de-bootstrap-d/package/`.
 
-## What is still not reproduced: the Steam client chain
+## The Steam client chain (reproduced 2026-09-21)
 
 The engine reaches menus by `dlopen`ing bare names such as `steamclient.dylib`,
 `libaudio.dylib`, `libtier0_s.dylib` and `libvstdlib_s.dylib`, which it finds
@@ -103,3 +103,45 @@ mistaken for a launchable one.
 This rebuilds a private engineering candidate from files you own. It does not
 change [RIGHTS-STATUS.md](RIGHTS-STATUS.md): publication is not approved, and
 distributing this pipeline or its outputs still needs a rights decision.
+
+
+## Reproduced: the Steam client chain (2026-09-21)
+
+The `package/game-client/` directory - the Steam images the engine loads by bare
+name through `DYLD_LIBRARY_PATH` - is now rebuilt too: `scripts/audit-de-steam-client.py`
+derives the dependency graph from the Steam client you already have,
+`port/de/LibrarySymbolSurvey.m` is built for the Simulator and run there to learn
+what those images genuinely lack, and `build-de-steam-client-boundary.py`
+translates them. Two defects had to be fixed first:
+
+- Load commands carry macOS framework paths (`...framework/Versions/A/...`) which
+do not resolve inside the Simulator. Every symbol therefore looked missing and
+frameworks that exist on iOS (Foundation, Security, CFNetwork) received bogus
+abort boundaries. Surveying the iOS form dropped the reported gap from 138 to 38
+missing exports - the same number the project's earlier notes recorded - and
+produced exactly the boundary set the working chain has.
+- Client boundaries must not declare a class the Simulator already has
+(`NSUserDefaults`, `NSWindow`), and `DE_DIAGNOSTIC_CLASS` emits a class and its
+metaclass together, so metaclass symbols are never emitted separately.
+
+## Acceptance, 2026-09-21
+
+A complete bootstrap of a fresh directory - every artifact rebuilt from tracked
+sources plus the owned Steam install - followed by data staging and a launch:
+
+```
+"end_reason": "observation-expired",
+"alive_after_observation": true,
+"observation_ended_after_seconds": 150.07
+```
+
+The candidate rendered the launcher screen
+(`generated/de-candidate-20260921/package/accept-1/acceptance-landscape.png`) and
+survived the whole observation window; the runner then stopped the game and
+released the helper and keep-awake assertion. `otool -L` equality against the
+previously working chain holds for all seven translated images, and the boundary
+set is identical.
+
+Still outside this reproduction: signing credentials for a device build, the
+host-assisted Steam session (which the IPA goal has to replace or disclose), and
+the publication decision in RIGHTS-STATUS.md.

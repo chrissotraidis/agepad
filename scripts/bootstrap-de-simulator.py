@@ -419,9 +419,14 @@ def main():
                 symbols = sorted(symbols_by_dep.get(key, set()) - {'dyld_stub_binder'})
                 if symbols:
                     wanted.setdefault(entry['path'], set()).update(symbols)
+        # Load commands carry macOS framework paths (`…framework/Versions/A/…`),
+        # which do not resolve inside the Simulator: every symbol then looks
+        # missing and frameworks that exist on iOS get bogus boundary libraries.
+        # Survey the iOS form; the builder matches results by name.
         survey_input = art / 'steam-client-survey-input.json'
-        survey_input.write_text(json.dumps([{'path': path, 'symbols': sorted(symbols)}
-                                            for path, symbols in sorted(wanted.items())], indent=1) + '\n')
+        survey_input.write_text(json.dumps([
+            {'path': re.sub(r'(\.framework)/Versions/[^/]+/', r'\1/', path),
+             'symbols': sorted(symbols)} for path, symbols in sorted(wanted.items())], indent=1) + '\n')
         measured = subprocess.run(['xcrun', 'simctl', 'spawn', device, str(survey_tool),
                                    str(survey_input)], capture_output=True, text=True, check=True)
         client_survey = art / 'steam-client-survey.json'
