@@ -10,10 +10,12 @@ from pathlib import Path
 import re
 import sys
 
+import de_device
+
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PACKAGE = ROOT / 'generated/mac-de-simulator-375'
+DEFAULT_PACKAGE = de_device.package_dir()
 DEFAULT_PROBE = ROOT / 'generated/mac-de-simulator-280/simulator-kernel'
-DEFAULT_DEVICE = '574671AD-6F61-4558-9528-BF946DDB760A'
+DEFAULT_DEVICE = de_device.device_udid()
 
 
 def main():

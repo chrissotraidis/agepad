@@ -10,11 +10,13 @@ import json
 from pathlib import Path
 import subprocess
 
+import de_device
+
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('source', type=Path)
 p.add_argument('manifest', type=Path)
 a = p.parse_args()
-device = '574671AD-6F61-4558-9528-BF946DDB760A'
+device = de_device.device_udid()
 boot = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'booted', '-j']))
 assert [d['udid'] for ds in boot['devices'].values() for d in ds] == [device]
 app = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', device,

@@ -7,9 +7,11 @@ ad hoc. Simulator only; device bundles need an asset catalog and real signing.
 """
 import plistlib
 import subprocess
+
+import de_device
 from pathlib import Path
 
-DEVICE = '574671AD-6F61-4558-9528-BF946DDB760A'
+DEVICE = de_device.device_udid()
 BUNDLE = 'local.agepad.de-loader-probe'
 app = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', DEVICE, BUNDLE, 'app'], text=True).strip())
 source = app / 'GameIcons/icon_512x512.png'

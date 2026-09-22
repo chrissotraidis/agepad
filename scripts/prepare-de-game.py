@@ -18,8 +18,10 @@ import plistlib
 import subprocess
 import sys
 
+import de_device
+
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE = '574671AD-6F61-4558-9528-BF946DDB760A'
+DEVICE = de_device.device_udid()
 BUNDLE = 'local.agepad.de-loader-probe'
 STEAM_DEFAULT = Path.home() / 'Library/Application Support/Steam/steamapps/common/AoE2DE'
 SUPPORTED = {

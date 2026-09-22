@@ -6,7 +6,9 @@ from pathlib import Path
 import plistlib
 import subprocess
 
-DEVICE='574671AD-6F61-4558-9528-BF946DDB760A'
+import de_device
+
+DEVICE=de_device.device_udid()
 BUNDLE='local.agepad.de-loader-probe'
 p=argparse.ArgumentParser()
 p.add_argument('app',type=Path)

@@ -15,12 +15,14 @@ import subprocess as sp
 import tempfile
 import time
 
+import de_device
+
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('package',type=Path)
 p.add_argument('output',type=Path)
 p.add_argument('--probe',required=True,type=Path)
 p.add_argument('--seconds',type=float,default=15)
-p.add_argument('--device',default=os.environ.get('AGEPAD_SIMULATOR_UDID','574671AD-6F61-4558-9528-BF946DDB760A'))
+p.add_argument('--device',default=de_device.device_udid())
 a=p.parse_args()
 def interrupted(signum, frame):
     raise KeyboardInterrupt(f'Runner interrupted by signal {signum}')

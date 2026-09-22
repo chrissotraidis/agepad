@@ -5,8 +5,11 @@ import json
 from pathlib import Path
 import subprocess
 
+import de_device
+
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE = '574671AD-6F61-4558-9528-BF946DDB760A'
+DEVICE = de_device.device_udid()
+REQUESTED_PACKAGE = [None]
 
 
 def command(args):
@@ -30,14 +33,14 @@ def inspect():
         devices = []
     add('sole_designated_simulator', len(devices) == 1 and devices[0]['udid'] == DEVICE,
         ', '.join(d['name'] for d in devices) or 'No booted Simulator detected')
-    package = ROOT / 'generated/mac-de-simulator-375'
+    package = de_device.package_dir(REQUESTED_PACKAGE[0])
     required = ['game-client-appkit.json', 'SystemFrameworkCompat.dylib',
                 'SignalTrace.dylib', 'MainThreadGraphicsWait.dylib',
                 'ResourceFileTrace.dylib', 'OriginalInputTrace.dylib',
                 'AudioOutputCompat.dylib']
     missing = [name for name in required if not (package / name).is_file()]
-    add('private_runtime', not missing, 'Missing: ' + ', '.join(missing) if missing else
-        'Runtime files present; launcher still verifies installed boundary identity')
+    add('runtime_package', not missing, ('Missing from %s: %s' % (package, ', '.join(missing)))
+        if missing else 'Runtime files present in ' + str(package))
     code, output = command(['xcrun', 'simctl', 'get_app_container', DEVICE,
                             'local.agepad.de-loader-probe', 'app'])
     add('installed_simulator_app', code == 0, 'Installed' if code == 0 else output)
@@ -58,7 +61,14 @@ def inspect():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--json', action='store_true', help='Print structured local diagnostic output')
+    parser.add_argument('--package', type=Path, default=None,
+                        help='Runtime package to validate (default: the private package if '
+                             'present, else the most recently built candidate)')
+    parser.add_argument('--device', default=None, help='Simulator UDID (default: AGEPAD_SIMULATOR_UDID)')
     args = parser.parse_args()
+    REQUESTED_PACKAGE[0] = args.package
+    global DEVICE
+    DEVICE = de_device.device_udid(args.device)
     result = inspect()
     if args.json:
         print(json.dumps(result, indent=2))

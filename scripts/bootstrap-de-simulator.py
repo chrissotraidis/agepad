@@ -39,8 +39,10 @@ import subprocess
 import sys
 import time
 
+import de_device
+
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DEVICE = '574671AD-6F61-4558-9528-BF946DDB760A'
+DEFAULT_DEVICE = de_device.device_udid()
 BUNDLE = 'local.agepad.de-loader-probe'
 # The survey probe installs under its own identity so that bootstrapping never
 # replaces the container of an already installed candidate (simctl install

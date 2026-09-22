@@ -10,9 +10,11 @@ import os
 from pathlib import Path
 import statistics
 import subprocess
+
+import de_device
 import time
 
-DEVICE = '574671AD-6F61-4558-9528-BF946DDB760A'
+DEVICE = de_device.device_udid()
 
 
 def inventory():
