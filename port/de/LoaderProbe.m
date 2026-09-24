@@ -87,6 +87,53 @@
     text.hidden = YES;
     [vc.view addSubview:text];
     [self.window makeKeyAndVisible];
+    // The signed hardware probe deliberately has no Steam transport or game
+    // data. Keep that prerequisite visible instead of entering original
+    // startup, where the uninitialized Steam interface currently null-reads.
+    if ([NSFileManager.defaultManager fileExistsAtPath:
+            [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"DeviceSetupGate"]]) {
+        UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:vc.view.bounds];
+        scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        scroll.backgroundColor = [UIColor colorWithRed:.10 green:.14 blue:.17 alpha:1];
+        [vc.view addSubview:scroll];
+        UIStackView *stack = [UIStackView new];
+        stack.axis = UILayoutConstraintAxisVertical;
+        stack.spacing = 16;
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [scroll addSubview:stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [stack.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor constant:40],
+            [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-40],
+            [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor constant:32],
+            [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-32],
+            [stack.widthAnchor constraintLessThanOrEqualToConstant:900],
+            [scroll.contentLayoutGuide.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
+        ]];
+        void (^addLine)(NSString *, CGFloat, UIFontWeight, UIColor *) =
+            ^(NSString *message, CGFloat size, UIFontWeight weight, UIColor *color) {
+                UILabel *label = [UILabel new];
+                label.text = message;
+                label.font = [UIFont systemFontOfSize:size weight:weight];
+                label.textColor = color;
+                label.numberOfLines = 0;
+                [stack addArrangedSubview:label];
+            };
+        UIColor *muted = [UIColor colorWithRed:.75 green:.81 blue:.84 alpha:1];
+        addLine(@"AgePad · iPad setup", 34, UIFontWeightBold, UIColor.whiteColor);
+        addLine(@"Age of Empires II: Definitive Edition", 20, UIFontWeightSemibold, muted);
+        addLine(@"This is a hardware test build. The game cannot start on this iPad yet.", 23, UIFontWeightSemibold, UIColor.whiteColor);
+        NSString *data = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+            stringByAppendingPathComponent:@"AgeOfEmpires2Data"];
+        BOOL hasData = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:data error:NULL] count] > 0;
+        addLine(hasData ? @"Game data: folder present, contents not validated" : @"Game data: not imported",
+                19, UIFontWeightMedium, UIColor.whiteColor);
+        addLine(@"Steam connection: unavailable in this iPad build", 19, UIFontWeightMedium, UIColor.whiteColor);
+        addLine(@"To play the current test build, use the AgePad Simulator on this Mac while Steam is running. iPad gameplay needs a supported Steam connection and a verified game-data import before Play can be enabled.",
+                18, UIFontWeightRegular, muted);
+        fprintf(stderr, "DE_DEVICE_SETUP_GATE data_folder_present=%d steam_connection=unavailable original_launch=skipped\n", hasData);
+        fflush(stderr);
+        return YES;
+    }
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
     result[@"simulator"] = @(TARGET_OS_SIMULATOR);
     result[@"os"] = NSProcessInfo.processInfo.operatingSystemVersionString;

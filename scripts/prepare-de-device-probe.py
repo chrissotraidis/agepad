@@ -92,6 +92,9 @@ info_path.write_bytes(plistlib.dumps(info))
 # Keep the probe visibly distinct from a playable AgePad installation.
 for localized in output.rglob('InfoPlist.strings'):
     localized.unlink()
+# This package has no on-device Steam connection or imported game data. The
+# device boundary shows a setup screen before invoking original startup.
+(output / 'DeviceSetupGate').write_text('hardware diagnostic; Steam connection unavailable\n')
 shutil.copy2(profile, output / 'embedded.mobileprovision')
 entitlements = {'application-identifier': team + '.' + args.bundle_id,
                 'com.apple.developer.team-identifier': team, 'get-task-allow': True}

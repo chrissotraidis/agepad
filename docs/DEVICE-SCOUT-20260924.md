@@ -54,6 +54,19 @@ The corrected candidate began executing the original game, handed off to UIKit a
 
 The device crash reports were copied with `idevicecrashreport --keep --filter DEOriginalGame`, preserving the originals on the iPad. The first two reports documented the `NSColor` dynamic-loader failure; the later two documented the null read. This is why a successful `devicectl process launch` response cannot be treated as game startup proof.
 
+### Device setup gate and first-run UX check
+
+The null read occurs immediately after a virtual call returns a null object in the original game at image offset `0x505fc`. The call is in the game's Steam-related startup region; its argument resolves to `SteamUtils` callback context in the executable's indirect symbols. This narrows the investigation but does not prove a single root cause. The Simulator continues from the same running-application query into `libsteam_api.dylib` loading and live Steam initialization. The device bundle has neither the corresponding Mac Steam service path nor imported game data. A null guard in the retail executable would not provide those prerequisites.
+
+`scripts/prepare-de-device-probe.py` now places a `DeviceSetupGate` marker in this diagnostic bundle. The UIKit host checks for it before invoking the original launch callback, then shows actual setup state. This gate is device-probe specific; it does not change the playable Simulator candidate. A fresh signed 64-image package was installed **in place** over the existing probe on the same iPad. Its console printed `DE_DEVICE_SETUP_GATE data_folder_present=0 steam_connection=unavailable original_launch=skipped`; the game process remained alive and a 2732×2048 CoreDevice screenshot showed the setup page. No game data was transferred, and the scout remained installed. The evidence is under ignored `generated/de-device-candidate-20260924b/`; the accepted screen is also [in the repo](images/device-setup-20260924.png).
+
+UX audit of the actual hardware first screen:
+
+1. **Open AgePad DE Probe — stable, but blocked.** The page names the exact DE edition and says the game cannot start. It reports the absent data folder and unavailable Steam connection, so the user no longer sees an unexplained return to Home. The page offers no import or connect action because neither path is implemented. Its large empty lower area and plain dark styling do not match the original DE launcher reference; this is a diagnostic screen, not an accepted product onboarding design.
+2. **Next action — limited.** It directs testing to the existing Mac-assisted Simulator. There is currently no actionable on-iPad path to Play. A future setup flow must verify the precise source edition and files, show space/progress during import, test a legitimate Steam connection, and enable Play only after those checks pass.
+
+The visible text has clear size and contrast in the screenshot. VoiceOver order, Dynamic Type scaling, rotation, and reachability by touch were not tested on this page. The screenshot proves this one state, not an end-to-end importer or game control flow.
+
 The alternative native classic/HD route is also not ready to install from this checkout: its pinned `ref/` and `worktrees/` sources and device output are absent here, and the local Steam library contains AoE2DE rather than the Windows HD/2013 input that route requires. The PRD keeps that route distinct from this Mac DE prototype.
 
 ## Product and UX findings
@@ -64,4 +77,4 @@ The alternative native classic/HD route is also not ready to install from this c
 
 ## Next technical gate
 
-Resolve the original-engine device crash with device logs and exact dependency state, then launch past startup without `SIMCTL_CHILD_*` paths. Design a supported Mac-to-iPad game-data import and Steam-service path before transferring ~19 GB or enabling Play. If the Mac Steam service cannot be made available legitimately and reliably to the device, the setup must state that before importing the data.
+Resolve the original-engine device Steam startup with a legitimate device connection and exact dependency state, then launch past the gate without `SIMCTL_CHILD_*` paths. Design a supported Mac-to-iPad game-data import before transferring ~19 GB or enabling Play. The current setup page states that the Steam path is unavailable before asking for data import. The PRD's classic/HD native-core route remains a separate path if the retail DE service cannot run on iPad; it needs matching classic/HD inputs that are not present in this checkout.
