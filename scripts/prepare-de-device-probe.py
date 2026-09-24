@@ -20,6 +20,7 @@ parser.add_argument('--boundary', type=Path, required=True, help='Output of buil
 parser.add_argument('--output', type=Path, required=True, help='Fresh .app path')
 parser.add_argument('--profile', type=Path, required=True)
 parser.add_argument('--identity', required=True)
+parser.add_argument('--ipc-load-probe', type=Path, help='Output of build-de-device-ipc-probe.py')
 parser.add_argument('--bundle-id', default='local.agepad.device-de-probe')
 args = parser.parse_args()
 root = args.candidate_root.resolve(strict=True)
@@ -83,6 +84,22 @@ for file in sorted(client_source.glob('*.dylib')):
     if file.name.startswith('original-'):
         continue
     stage(file, frameworks / file.name)
+if args.ipc_load_probe:
+    for image, dependency in (
+        (frameworks / 'steamclient.dylib', '/usr/lib/libSystem.B.dylib'),
+        (output / 'Vendor_libsteam_api.dylib.dylib', '@loader_path/DEBoundary_libSystem_B.dylib'),
+    ):
+        temp = image.with_name(image.name + '.device-ipc-temp')
+        result = adapter.prepare(image, temp, platform='ios-device', dependency_map={
+            dependency: '@loader_path/IPCSystemCompat.dylib' if image.parent == frameworks
+                        else '@executable_path/Frameworks/IPCSystemCompat.dylib'})
+        if result['instructions_changed'] or not all(item['equal'] for item in result['sections']):
+            raise ValueError('Original Steam section changed in IPC probe: ' + str(image))
+        temp.replace(image)
+        for item in staged:
+            if item['path'] == str(image.relative_to(output)):
+                item['action'] += '+local-ipc-dependency'
+                break
 info_path = output / 'Info.plist'
 info = plistlib.loads(info_path.read_bytes())
 info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad DE Probe',
@@ -99,6 +116,16 @@ sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'],
 child = output / 'DeviceChildProbe'
 subprocess.run(['xcrun', 'clang', '-target', 'arm64-apple-ios15.0', '-isysroot', sdk,
                 str(ROOT / 'port/de/DeviceChildProbe.c'), '-o', str(child)], check=True)
+ipc_images = []
+if args.ipc_load_probe:
+    ipc_root = args.ipc_load_probe.resolve(strict=True)
+    for name in ('IPCSystemCompat.dylib', 'IPCHelperDevice.dylib'):
+        source_image = ipc_root / name
+        if platform(source_image) != 'IOS':
+            parser.error('IPC load probe is not an IOS image: ' + str(source_image))
+        destination = frameworks / name
+        shutil.copy2(source_image, destination)
+        ipc_images.append(destination)
 shutil.copy2(profile, output / 'embedded.mobileprovision')
 entitlements = {'application-identifier': team + '.' + args.bundle_id,
                 'com.apple.developer.team-identifier': team, 'get-task-allow': True}
@@ -111,12 +138,15 @@ for item in staged:
     subprocess.run(['codesign', '--force', '--sign', args.identity, str(file)],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 subprocess.run(['codesign', '--force', '--sign', args.identity, str(child)], check=True)
+for image in ipc_images:
+    subprocess.run(['codesign', '--force', '--sign', args.identity, str(image)], check=True)
 subprocess.run(['codesign', '--force', '--sign', args.identity, '--entitlements',
                 str(entitlements_path), str(output)], check=True)
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(output)], check=True)
 report = {'scope': 'device launch probe only; no game data, Steam session or gameplay proof',
           'bundle_id': args.bundle_id, 'images': staged,
           'main_sha256': hashlib.sha256((output / info['CFBundleExecutable']).read_bytes()).hexdigest(),
-          'child_probe_sha256': hashlib.sha256(child.read_bytes()).hexdigest()}
+          'child_probe_sha256': hashlib.sha256(child.read_bytes()).hexdigest(),
+          'ipc_load_probe': [image.name for image in ipc_images]}
 (output.parent / 'device-probe-manifest.json').write_text(json.dumps(report, indent=2) + '\n')
 print(f'Signed {len(staged)} IOS images in {output}')

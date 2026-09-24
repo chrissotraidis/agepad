@@ -4,7 +4,7 @@ Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game
 
 **24 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro; real tap and pinch changed its readouts. A separate signed DE device probe reached original-game startup but crashed before any menu. Its updated device-only setup screen now stays open and identifies missing game data and Steam connectivity. The playable Steam DE candidate remains Simulator-only and Mac-assisted.
 
-The [physical route check](docs/DEVICE-ROUTE-20260924.md) then found that iPadOS denied both launching the Simulator's separate Steam helper and checking in its Mach service. This blocks that helper design on the current device; the next playable-device route needs a native game core with compatible owned data or authorized iOS-capable DE integration.
+The [physical route check](docs/DEVICE-ROUTE-20260924.md) found that iPadOS denied both launching the Simulator's separate Steam helper and checking in its Mach service. An in-app copy of the original helper now starts, but `SteamAPI_Init()` still fails before creating a pipe. The active product remains **Definitive Edition only**; physical gameplay needs a legitimate Steam connection for the existing engine or a DE-capable native engine.
 
 ## What works today
 
@@ -37,7 +37,7 @@ compositions/second with only the designated Simulator booted. Touch movement
 and performance are therefore still release blockers, despite earlier successful
 runs. No physical-device acceptance is claimed.
 
-The September 14 Simulator repair restores missing villagers and animals by preserving source resource filename casing and resolving case-insensitive reads within the imported game-data tree. The latest candidate has demonstrated selection, a completed house, ground movement, sheep gathering, villager production and a named save/reload. Repeated movement and scout exploration also passed after a fresh launch. A 30-second run averaged 26.3 observed compositions per second, with stalls that still require investigation. Physical iPad execution remains unverified.
+The September 14 Simulator repair restores missing villagers and animals by preserving source resource filename casing and resolving case-insensitive reads within the imported game-data tree. The latest candidate has demonstrated selection, a completed house, ground movement, sheep gathering, villager production and a named save/reload. Repeated movement and scout exploration also passed after a fresh launch. A 30-second run averaged 26.3 observed compositions per second, with stalls that still require investigation. Physical iPad gameplay remains unverified.
 
 ## What happens if I download an IPA?
 

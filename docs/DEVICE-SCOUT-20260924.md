@@ -67,16 +67,16 @@ UX audit of the actual hardware first screen:
 
 The visible text has clear size and contrast in the screenshot. VoiceOver order, Dynamic Type scaling, rotation, and reachability by touch were not tested on this page. The screenshot proves this one state, not an end-to-end importer or game control flow.
 
-The alternative native classic/HD route is also not ready to install from this checkout: its pinned `ref/` and `worktrees/` sources and device output are absent here, and the local Steam library contains AoE2DE rather than the Windows HD/2013 input that route requires. The PRD keeps that route distinct from this Mac DE prototype.
+The active target is AoE II **Definitive Edition** from the installed Steam copy. The older PRD's classic/HD route does not meet Chris's current requirement.
 
 ## Product and UX findings
 
 1. A first-run screen must identify the exact edition and the source computer, then show what AgePad can import. The current game candidate has no on-device importer; Steam being installed on the Mac is insufficient for a self-contained iPad session.
 2. The install path is feasible on this iPad. The boundary libraries link for `IOS`, and the original engine reaches UIKit in a signed device probe. The next playable candidate needs the null crash resolved, persistent game storage in the app container, and a tested Steam strategy. Only then should the UI offer **Play**.
-3. The hardware scout uses plain diagnostic UI and clearly labels itself. It must not be presented as the game. Future game controls should use the classic/HD visual reference and pass real finger tap, two-finger order/pan, pinch, hold, save/relaunch, audio and sustained performance checks.
+3. The hardware scout uses plain diagnostic UI and clearly labels itself. It must not be presented as the game. Future game controls should use the DE visual reference and pass real finger tap, two-finger order/pan, pinch, hold, save/relaunch, audio and sustained performance checks.
 
 ## Next technical gate
 
-Resolve the original-engine device Steam startup with a legitimate device connection and exact dependency state, then launch past the gate without `SIMCTL_CHILD_*` paths. Design a supported Mac-to-iPad game-data import before transferring ~19 GB or enabling Play. The current setup page states that the Steam path is unavailable before asking for data import. The PRD's classic/HD native-core route remains a separate path if the retail DE service cannot run on iPad; it needs matching classic/HD inputs that are not present in this checkout.
+Resolve the original DE engine's device Steam startup with a legitimate connection and exact dependency state, then launch past the gate without `SIMCTL_CHILD_*` paths. Design a supported Mac-to-iPad DE game-data import before transferring ~19 GB or enabling Play. The current setup page states that the Steam path is unavailable before asking for data import.
 
-The follow-up [physical execution route check](DEVICE-ROUTE-20260924.md) tested the Simulator Steam helper's process and Mach-service assumptions directly on hardware. Both failed under the current iPad app sandbox, so the native-core route is now the active path to investigate for physical gameplay.
+The follow-up [physical execution route check](DEVICE-ROUTE-20260924.md) tested the Simulator Steam helper's process and Mach-service assumptions directly on hardware. Both failed under the current iPad app sandbox. Chris clarified that the active product must use **Definitive Edition**, so the next investigation remains DE-specific.

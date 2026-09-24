@@ -1,5 +1,8 @@
 #import <UIKit/UIKit.h>
 #include <spawn.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <mach/mach.h>
 #import <Metal/Metal.h>
@@ -119,6 +122,95 @@
         if (MACH_PORT_VALID(service)) mach_port_deallocate(mach_task_self(), service);
         fprintf(stderr, "DE_DEVICE_STEAM_BOOTSTRAP lookup=%d check_in=%d\n",
                 lookupStatus, checkInStatus);
+        mach_port_t localPort = MACH_PORT_NULL;
+        kern_return_t allocateStatus = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &localPort);
+        kern_return_t rightStatus = allocateStatus == KERN_SUCCESS ?
+            mach_port_insert_right(mach_task_self(), localPort, localPort, MACH_MSG_TYPE_MAKE_SEND) : KERN_FAILURE;
+        mach_msg_header_t echo = {0};
+        echo.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_COPY_SEND, 0);
+        echo.msgh_size = sizeof(echo);
+        echo.msgh_remote_port = localPort;
+        echo.msgh_id = 0x414745;
+        mach_msg_return_t sendStatus = rightStatus == KERN_SUCCESS ?
+            mach_msg(&echo, MACH_SEND_MSG, sizeof(echo), 0, MACH_PORT_NULL, 1000, MACH_PORT_NULL) : KERN_FAILURE;
+        struct { mach_msg_header_t header; unsigned char trailer[64]; } received = {0};
+        mach_msg_return_t receiveStatus = sendStatus == MACH_MSG_SUCCESS ?
+            mach_msg(&received.header, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, sizeof(received), localPort, 1000, MACH_PORT_NULL) : KERN_FAILURE;
+        fprintf(stderr, "DE_DEVICE_LOCAL_MACH allocate=%d right=%d send=%d receive=%d id_match=%d\n",
+                allocateStatus, rightStatus, sendStatus, receiveStatus,
+                receiveStatus == MACH_MSG_SUCCESS && received.header.msgh_id == echo.msgh_id);
+        if (MACH_PORT_VALID(localPort)) mach_port_destroy(mach_task_self(), localPort);
+        NSString *helperImage = [NSBundle.mainBundle.bundlePath
+            stringByAppendingPathComponent:@"Frameworks/IPCHelperDevice.dylib"];
+        if ([NSFileManager.defaultManager fileExistsAtPath:helperImage]) {
+            setenv("AGEPAD_DEVICE_LOCAL_IPC_PROBE", "1", 1);
+            dlerror();
+            void *loaded = dlopen(helperImage.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+            const char *loadError = dlerror();
+            fprintf(stderr, "DE_DEVICE_IPC_HELPER_LOAD loaded=%d error=%s\n",
+                    loaded != NULL, loadError ?: "none");
+            if (loaded) {
+                NSString *shimImage = [NSBundle.mainBundle.bundlePath
+                    stringByAppendingPathComponent:@"Frameworks/IPCSystemCompat.dylib"];
+                void *shim = dlopen(shimImage.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+                void (*markThread)(void) = shim ? dlsym(shim, "DEIPCMarkHelperThread") : NULL;
+                int (*ready)(void) = shim ? dlsym(shim, "DELocalServiceReady") : NULL;
+                const struct mach_header *header = NULL;
+                for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+                    if (strcmp(_dyld_get_image_name(i), helperImage.fileSystemRepresentation) == 0) {
+                        header = _dyld_get_image_header(i);
+                        break;
+                    }
+                }
+                if (header && markThread && ready) {
+                    // LC_MAIN entryoff from the owned helper, verified before
+                    // metadata adaptation. It runs on a separate app thread.
+                    int (*helperMain)(int, char **) = (void *)((uintptr_t)header + 6888);
+                    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                        markThread();
+                        char *arguments[] = {(char *)"ipcserver", NULL};
+                        int code = helperMain(1, arguments);
+                        fprintf(stderr, "DE_DEVICE_IPC_HELPER_RETURN code=%d\n", code);
+                        fflush(stderr);
+                    });
+                    for (int i = 0; i < 100 && !ready(); i++) usleep(10000);
+                    fprintf(stderr, "DE_DEVICE_IPC_HELPER_READY ready=%d\n", ready());
+                } else {
+                    fprintf(stderr, "DE_DEVICE_IPC_HELPER_ENTRY_AVAILABLE header=%d mark=%d ready=%d\n",
+                            header != NULL, markThread != NULL, ready != NULL);
+                }
+            }
+        }
+        NSString *steamClient = [NSBundle.mainBundle.bundlePath
+            stringByAppendingPathComponent:@"Frameworks/steamclient.dylib"];
+        dlerror();
+        void *clientLoaded = dlopen(steamClient.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+        const char *clientError = dlerror();
+        fprintf(stderr, "DE_DEVICE_STEAM_CLIENT_LOAD loaded=%d error=%s\n",
+                clientLoaded != NULL, clientError ?: "none");
+        if (clientLoaded) {
+            void *(*createInterface)(const char *, int *) = dlsym(clientLoaded, "CreateInterface");
+            int interfaceStatus = -1;
+            void *steamInterface = createInterface ? createInterface("SteamClient020", &interfaceStatus) : NULL;
+            fprintf(stderr, "DE_DEVICE_STEAM_FACTORY present=%d interface=%d status=%d\n",
+                    createInterface != NULL, steamInterface != NULL, interfaceStatus);
+        }
+        NSString *steamAPI = [NSBundle.mainBundle.bundlePath
+            stringByAppendingPathComponent:@"Frameworks/SteamModuleSimulator.dylib"];
+        dlerror();
+        void *apiLoaded = dlopen(steamAPI.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+        const char *apiError = dlerror();
+        fprintf(stderr, "DE_DEVICE_STEAM_API_LOAD loaded=%d error=%s\n",
+                apiLoaded != NULL, apiError ?: "none");
+        if (apiLoaded) {
+            bool (*initializeSteam)(void) = dlsym(apiLoaded, "SteamAPI_Init");
+            fprintf(stderr, "DE_DEVICE_STEAM_API_INIT_BEGIN present=%d\n", initializeSteam != NULL);
+            fflush(stderr);
+            if (initializeSteam) {
+                bool initialized = initializeSteam();
+                fprintf(stderr, "DE_DEVICE_STEAM_API_INIT_RESULT success=%d\n", initialized);
+            }
+        }
         fflush(stderr);
         UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:vc.view.bounds];
         scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
