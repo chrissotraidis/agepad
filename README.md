@@ -2,7 +2,7 @@
 
 Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game and an iPad compatibility layer. This is a development project, not yet a downloadable, standalone playable IPA.
 
-**24 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro. It proves device deployment and screen rendering only. The playable Steam DE candidate remains Simulator-only and Mac-assisted; no game was installed on the physical iPad.
+**24 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro; real tap and pinch changed its readouts. A separate signed DE device probe began executing the original game but crashed before any menu. The playable Steam DE candidate remains Simulator-only and Mac-assisted.
 
 ## What works today
 
@@ -45,7 +45,7 @@ The intended setup is:
 
 1. On your Mac, install your owned **Mac edition** of AoE II DE through desktop Steam. Windows and Mac executables are not interchangeable for this route.
 2. Run an AgePad preparation/import tool against that installation. It must verify the version and required files, preserve the source, and prepare your private game copy. An end-user importer is still to be built; current staging scripts are engineering tools.
-3. Install a device-built, signed AgePad IPA on your iPad. Device packaging and launch still require validation.
+3. Install a device-built, signed AgePad IPA on your iPad. A hardware scout and an original-engine startup probe now install, but no playable device IPA has passed launch.
 4. Transfer the prepared game data to AgePad's persistent storage. The app should show import progress, available space, edition/version and any missing files. This app flow is not implemented yet.
 5. Resolve Steam services before enabling Play. Current Simulator launches depend on a Mac-assisted discovery relay and a live helper. Copying files, or merely having Steam on the Mac, does not establish a self-contained iPad Steam session. This dependency must be solved or explicitly included in the supported setup.
 6. Play locally on iPad. Touch controls, complete rendering, save/load, lifecycle and sustained speed must pass before this is a release feature.

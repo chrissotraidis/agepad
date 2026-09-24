@@ -2,9 +2,9 @@
 """Check the generated DE boundary sources against the iPad device SDK.
 
 Legacy packages recorded link commands; fresh bootstrap packages contain the
-generated sources instead. For a fresh package this checks every source with
-the device compiler. It does not link a game, sign, install, or prove hardware
-execution. Output goes to a fresh directory.
+generated sources instead. For a fresh package this checks every source and
+links the generated boundary libraries with the device SDK. It does not link
+a game, sign, install, or prove hardware execution. Output goes to a fresh directory.
 """
 import argparse
 import hashlib
@@ -47,6 +47,65 @@ def check_fresh_sources(package, output, sdk):
     return bool(failed)
 
 
+def link_fresh_boundaries(package, output, sdk):
+    art = package.parent / 'artifacts/candidate.app-art'
+    manifest = json.loads((art / 'boundary-manifest.json').read_text())
+    results = {}
+    for item in manifest['libraries']:
+        name = Path(item['replacement']).name
+        source = art / (name.removeprefix('DEBoundary_').removesuffix('.dylib') + '.m')
+        if not source.is_file():
+            raise SystemExit('Missing generated boundary source: ' + str(source))
+        destination = output / name
+        command = ['xcrun', 'clang', '-target', 'arm64-apple-ios15.0', '-isysroot', sdk,
+                   '-fobjc-arc', '-dynamiclib', '-I', str(ROOT / 'port/de'), str(source),
+                   '-framework', 'Foundation', '-Wl,-install_name,' + item['replacement'],
+                   '-o', str(destination)]
+        if name == 'DEBoundary_AppKit.dylib':
+            command += ['-framework', 'UIKit', '-framework', 'QuartzCore', '-framework',
+                        'GameController', '-framework', 'Metal', '-framework', 'CoreGraphics']
+            # The generated NSColor diagnostic class has a different ObjC name
+            # because UIKit already owns NSColor internally on some runtimes.
+            # Preserve the two aliases emitted by build-de-boundary-probe.py.
+            for kind in ('CLASS', 'METACLASS'):
+                command.append('-Wl,-alias,_OBJC_' + kind + '_$_DEDiagnosticNSColor,_OBJC_' + kind + '_$_NSColor')
+        if name == 'DEBoundary_CoreGraphics.dylib':
+            command += ['-framework', 'UIKit', '-framework', 'GameController',
+                        str(output / 'DEBoundary_AppKit.dylib')]
+        if name == 'DEBoundary_CoreVideo.dylib':
+            command += ['-framework', 'UIKit', '-framework', 'QuartzCore']
+        if name == 'DEBoundary_Metal.dylib':
+            command += ['-framework', 'Metal', '-framework', 'UIKit']
+        if item['reexports_original']:
+            original = item['path']
+            framework = re.search(r'/([^/]+)\.framework/', original)
+            if framework:
+                command.append('-Wl,-reexport_framework,' + framework.group(1))
+            else:
+                command.append('-Wl,-reexport_library,' + str(Path(sdk) / original.lstrip('/')).removesuffix('.dylib') + '.tbd')
+        if name == 'DEBoundary_AudioUnit.dylib':
+            command.append('-Wl,-reexport_framework,AudioToolbox')
+        run = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        (output / (name + '.log')).write_text(run.stdout + run.stderr)
+        platform = None
+        if run.returncode == 0:
+            build = subprocess.check_output(['xcrun', 'vtool', '-show-build', str(destination)], text=True)
+            match = re.search(r'platform\s+(\w+)', build)
+            platform = match.group(1) if match else None
+        results[name] = {'exit': run.returncode, 'platform': platform,
+                         'sha256': hashlib.sha256(destination.read_bytes()).hexdigest() if destination.is_file() else None,
+                         'errors': [line.strip() for line in run.stderr.splitlines()
+                                    if re.search(r':\d+:\d+: error:|^ld: error:|^Undefined symbols', line)][:20]}
+    report = {'scope': 'device SDK boundary links only; no game binary, signing, Steam session, or gameplay',
+              'sdk': sdk, 'libraries': results}
+    (output / 'device-link-result.json').write_text(json.dumps(report, indent=2) + '\n')
+    failed = [key for key, value in results.items() if value['exit'] or value['platform'] != 'IOS']
+    print(f'Device SDK boundary link: {len(results)} libraries, {len(failed)} failures')
+    for key in failed:
+        print(key, results[key]['errors'][:3])
+    return bool(failed)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
@@ -61,6 +120,8 @@ def main():
     sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
     if missing:
         if check_fresh_sources(args.package.resolve(), output, sdk):
+            raise SystemExit(1)
+        if link_fresh_boundaries(args.package.resolve(), output, sdk):
             raise SystemExit(1)
         return
     results = {}

@@ -45,13 +45,15 @@ def prepare(source, destination, audio_umbrella=False, platform='ios-simulator',
             changes.append({'remove_load_command':hex(cmd)})
             offset += size
             continue
-        if cmd == 0x32 and platform == 'ios-simulator':
-            struct.pack_into('<III',data,8,7,15<<16,(26<<16)|(5<<8))
-            changes.append({'platform':'iOS-simulator','minos':'15.0'})
+        if cmd == 0x32 and platform in ('ios-simulator', 'ios-device'):
+            target_platform = 7 if platform == 'ios-simulator' else 2
+            struct.pack_into('<III',data,8,target_platform,15<<16,(26<<16)|(5<<8))
+            changes.append({'platform':'iOS-simulator' if target_platform == 7 else 'iOS-device',
+                            'minos':'15.0'})
         if cmd in (0xc,0x80000018,0x8000001f,0x80000023,0xd):
             nameoff = struct.unpack_from('<I',data,8)[0]
             old = data[nameoff:].split(b'\0')[0].decode()
-            new = re.sub(r'(\.framework)/Versions/[^/]+/',r'\1/',old) if platform == 'ios-simulator' else old
+            new = re.sub(r'(\.framework)/Versions/[^/]+/',r'\1/',old) if platform in ('ios-simulator', 'ios-device') else old
             new = (dependency_map or {}).get(old,(dependency_map or {}).get(new,new))
             if audio_umbrella and new == '/System/Library/Frameworks/AudioUnit.framework/AudioUnit':
                 new = '@loader_path/AudioUnitCompat.dylib'
@@ -97,7 +99,7 @@ if __name__ == '__main__':
     p.add_argument('output',type=Path)
     p.add_argument('manifest',type=Path)
     p.add_argument('--audio-umbrella',action='store_true')
-    p.add_argument('--platform',choices=['macos','ios-simulator'],default='ios-simulator')
+    p.add_argument('--platform',choices=['macos','ios-simulator','ios-device'],default='ios-simulator')
     a=p.parse_args()
     source,output=a.source.resolve(),a.output.resolve()
     if source==output or 'ref' in output.parts:

@@ -31,7 +31,7 @@ The source maps one-finger tap to select, two-finger tap to order, two-finger dr
 
 ## Physical iPad gate
 
-Chris's iPad Pro (12.9-inch, 6th generation) was paired and connected on iPadOS 26.7, and development signing identities were available. The current product is a Simulator-specific app with a Mac-assisted Steam discovery relay and data staged in a Simulator bundle container. At the time of this first-run audit, the device compile probe stopped because it expected retired package build-command files. The [later physical scout](DEVICE-SCOUT-20260924.md) installed and launched a separate native diagnostic app on this iPad and checked all 27 generated boundary sources against the device SDK. There is still no device game runtime, on-device import/storage flow, or standalone Steam-service path. Physical touch, saves, lifecycle and game performance remain untested.
+Chris's iPad Pro (12.9-inch, 6th generation) was paired and connected on iPadOS 26.7, and development signing identities were available. The current playable product is a Simulator-specific app with a Mac-assisted Steam discovery relay and data staged in a Simulator bundle container. At the time of this first-run audit, the device compile probe stopped because it expected retired package build-command files. The [later physical scout](DEVICE-SCOUT-20260924.md) installed and launched a separate native diagnostic app, verified one real tap and pinch, linked all 18 engine boundary libraries for `IOS`, and began original-game execution in a second device probe. That probe crashed before its menu. There is no on-device import/storage flow or standalone Steam-service path. Game touch, saves, lifecycle and performance remain untested.
 
 ## Reproduce this candidate
 

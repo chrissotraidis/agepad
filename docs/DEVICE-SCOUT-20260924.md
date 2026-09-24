@@ -4,7 +4,9 @@
 
 Chris's wired iPad Pro 12.9-inch (6th generation), iPadOS 26.7 (23H24), was paired, in Developer Mode, and reachable through CoreDevice. A new `local.agepad.device-scout` app was built for the **iOS device** platform, signed with the local Apple Development identity and a provisioning profile covering the device, installed with `devicectl`, and launched. `devicectl` captured a 2732×2048 screenshot showing the native scout UI. The app process remained present when checked. No existing AgePad bundle was installed, so no AgePad saves or data were replaced.
 
-This is **hardware deployment and rendering proof**, not Age of Empires gameplay. The installed scout contains no game executable, assets, Steam service, importer, or save system. Its tap and pinch controls are visible; physical finger input was not observed in this run. Private screenshot and exact executable digest are in ignored `generated/device-scout-20260924b/`.
+This is **hardware deployment and rendering proof**, not Age of Empires gameplay. The installed scout contains no game executable, assets, Steam service, importer, or save system. Chris tapped **Test tap** and pinched the physical screen; the live QuickTime preview showed `Taps: 1` and `Pinch scale: 0.81`. A second CoreDevice screenshot captured those values. This verifies touch delivery in the native scout, not game commands or pinch zoom inside Age of Empires. Private screenshots and exact executable digest are in ignored `generated/device-scout-20260924b/`.
+
+Xcode 27 Device Hub's **View Screen** refused this iPad because that viewer requires iPadOS 27 and CoreDevice still reports 26.7, even after reconnecting. QuickTime Player's wired **Movie Recording → Screen → Chris's iPad Pro** route succeeded: its live preview showed this app and the physical touch results. Recording was not started. Device Hub's restriction therefore does not prevent local visual inspection through QuickTime.
 
 ## Reproduce the scout on this Mac
 
@@ -24,18 +26,42 @@ Choose a fresh output directory each run. The scout uses a separate bundle ID, l
 
 ## Why the Steam DE game cannot be copied to this iPad yet
 
-The playable candidate in `generated/de-candidate-20260924-responder/` is an **iOS Simulator** adaptation of the owned Mac ARM64 Steam build. `vtool -show-build` identifies `DEOriginalGame`, `Engine.dylib`, `DELoaderProbe`, `DEBoundary_AppKit.dylib`, and the adapted Steam API image as `IOSSIMULATOR`. Device iPadOS requires `IOS` code signatures and platform-compatible images. Merely resigning the Simulator app does not change that. Its launch also depends on `simctl` environment injection, a Mac-hosted Steam path relay and IPC helper, and game data staged beside the Simulator app. The current device builder produced no device game app or IPA.
+The playable candidate in `generated/de-candidate-20260924-responder/` is an **iOS Simulator** adaptation of the owned Mac ARM64 Steam build. `vtool -show-build` identifies `DEOriginalGame`, `Engine.dylib`, `DELoaderProbe`, `DEBoundary_AppKit.dylib`, and the adapted Steam API image as `IOSSIMULATOR`. Device iPadOS requires `IOS` code signatures and platform-compatible images. Merely resigning the Simulator app does not change that. Its Simulator launch also depends on `simctl` environment injection, a Mac-hosted Steam path relay and IPC helper, and game data staged beside the Simulator app.
 
-The legacy device boundary script expected three recorded link commands absent from the fresh bootstrap. It now checks all 27 generated boundary sources against the device SDK from the fresh package; this run found **0 syntax failures** (`generated/de-device-probe-20260924b/device-compile-result.json`). This narrows source portability but does not link the libraries, adapt and sign the original engine/client chain for hardware, or establish Steam execution on-device.
+The legacy device boundary script expected three recorded link commands absent from the fresh bootstrap. It now checks all 27 generated boundary sources against the device SDK and links the 18 generated engine boundary libraries as `IOS` images from the fresh package. This run found **0 source or link failures** (`generated/de-device-probe-20260924d/`). The first on-device DE launch then exposed a missing `NSColor` Objective-C class alias. The device linker now emits the same alias as the Simulator builder, and the next launch passed that point.
+
+### Original-engine device launch probe
+
+`scripts/prepare-de-device-probe.py` creates a separate, private `local.agepad.device-de-probe` bundle from the Simulator package. It retargets and signs 64 Mach-O images for `IOS`, uses the device-linked boundary libraries, and embeds a matching development provisioning profile. The output is a **launch diagnostic**, not an end-user app; it contains no imported ~19 GB game-data tree and no on-device Steam service. A generated candidate was installed on the iPad without replacing the scout or any other app.
+
+Only the 18 engine boundary libraries are rebuilt from generated source; the original engine and remaining client images are metadata-retargeted ARM64 binaries in this experiment. This does not establish their iPadOS compatibility. The probe removes the original localized display-name override, and CoreDevice now lists it as **AgePad DE Probe**, distinct from **AgePad Scout**.
+
+To repeat that bounded probe from a fresh Simulator candidate (using the same three local signing variables above), choose fresh output names:
+
+```sh
+python3 scripts/build-de-device-runtime.py generated/device-boundaries-local \
+  --package generated/de-candidate-20260924-responder/package
+python3 scripts/prepare-de-device-probe.py \
+  --candidate-root generated/de-candidate-20260924-responder \
+  --boundary generated/device-boundaries-local \
+  --output generated/device-probe-local/AgePadDeviceProbe.app \
+  --profile "$AGEPAD_PROFILE" --identity "$AGEPAD_SIGNING_IDENTITY"
+xcrun devicectl device install app --device "$AGEPAD_DEVICE_UDID" generated/device-probe-local/AgePadDeviceProbe.app
+xcrun devicectl device process launch --console --device "$AGEPAD_DEVICE_UDID" local.agepad.device-de-probe
+```
+
+The corrected candidate began executing the original game, handed off to UIKit and printed its platform survey with `simulator: 0` and iPadOS 26.7. It then exited with `EXC_BAD_ACCESS / SIGSEGV` on the main thread. The preserved device crash report records a null-address read in `DEOriginalGame` at image offset `0x505fc`, reached from a delayed main-thread callback. The device console ended after `DE_RUNNING_APPLICATION_QUERY local.agepad.device-de-probe`. No DE menu, map or gameplay appeared; QuickTime returned to the iPad Home screen. The missing game data and Steam path remain unresolved; the crash report alone does not establish which prerequisite caused the null read. Private console and crash evidence are under ignored `generated/de-device-candidate-20260924/`.
+
+The device crash reports were copied with `idevicecrashreport --keep --filter DEOriginalGame`, preserving the originals on the iPad. The first two reports documented the `NSColor` dynamic-loader failure; the later two documented the null read. This is why a successful `devicectl process launch` response cannot be treated as game startup proof.
 
 The alternative native classic/HD route is also not ready to install from this checkout: its pinned `ref/` and `worktrees/` sources and device output are absent here, and the local Steam library contains AoE2DE rather than the Windows HD/2013 input that route requires. The PRD keeps that route distinct from this Mac DE prototype.
 
 ## Product and UX findings
 
 1. A first-run screen must identify the exact edition and the source computer, then show what AgePad can import. The current game candidate has no on-device importer; Steam being installed on the Mac is insufficient for a self-contained iPad session.
-2. The install path is feasible on this iPad. The next playable candidate needs an `IOS` binary and signed dependency chain, persistent game storage in the app container, and a tested Steam strategy. Only then should the UI offer **Play**.
+2. The install path is feasible on this iPad. The boundary libraries link for `IOS`, and the original engine reaches UIKit in a signed device probe. The next playable candidate needs the null crash resolved, persistent game storage in the app container, and a tested Steam strategy. Only then should the UI offer **Play**.
 3. The hardware scout uses plain diagnostic UI and clearly labels itself. It must not be presented as the game. Future game controls should use the classic/HD visual reference and pass real finger tap, two-finger order/pan, pinch, hold, save/relaunch, audio and sustained performance checks.
 
 ## Next technical gate
 
-Build the actual DE engine and every required image for `iphoneos`, then audit their Mach-O platform and dependencies, sign a separate device candidate, install in place, and launch it without `SIMCTL_CHILD_*` paths. A device-signed shell alone is not that gate. If the Mac Steam service cannot be made available legitimately and reliably to the device, the setup must state that before importing ~19 GB of game data.
+Resolve the original-engine device crash with device logs and exact dependency state, then launch past startup without `SIMCTL_CHILD_*` paths. Design a supported Mac-to-iPad game-data import and Steam-service path before transferring ~19 GB or enabling Play. If the Mac Steam service cannot be made available legitimately and reliably to the device, the setup must state that before importing the data.
