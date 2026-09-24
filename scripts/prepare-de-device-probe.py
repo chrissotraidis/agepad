@@ -21,6 +21,8 @@ parser.add_argument('--output', type=Path, required=True, help='Fresh .app path'
 parser.add_argument('--profile', type=Path, required=True)
 parser.add_argument('--identity', required=True)
 parser.add_argument('--ipc-load-probe', type=Path, help='Output of build-de-device-ipc-probe.py')
+parser.add_argument('--original-steam-module', type=Path,
+                    help='Owned unmodified Mac libsteam_api.dylib; staged as inert data for exact module validation')
 parser.add_argument('--bundle-id', default='local.agepad.device-de-probe')
 args = parser.parse_args()
 root = args.candidate_root.resolve(strict=True)
@@ -102,6 +104,13 @@ if args.ipc_load_probe:
             if item['path'] == str(image.relative_to(output)):
                 item['action'] += '+local-ipc-dependency'
                 break
+if args.original_steam_module:
+    config_path = output / 'SteamModuleCompat.json'
+    config = json.loads(config_path.read_text())
+    original = args.original_steam_module.resolve(strict=True)
+    if hashlib.sha256(original.read_bytes()).hexdigest() != config['original_sha256']:
+        parser.error('Owned original Steam module does not match the pinned build')
+    shutil.copy2(original, output / 'OriginalSteamModule.data')
 info_path = output / 'Info.plist'
 info = plistlib.loads(info_path.read_bytes())
 info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad DE Probe',
@@ -142,6 +151,10 @@ for item in staged:
 subprocess.run(['codesign', '--force', '--sign', args.identity, str(child)], check=True)
 for image in ipc_images:
     subprocess.run(['codesign', '--force', '--sign', args.identity, str(image)], check=True)
+if args.original_steam_module:
+    config['device_translated_sha256'] = hashlib.sha256(
+        (frameworks / 'SteamModuleSimulator.dylib').read_bytes()).hexdigest()
+    config_path.write_text(json.dumps(config, indent=2) + '\n')
 subprocess.run(['codesign', '--force', '--sign', args.identity, '--entitlements',
                 str(entitlements_path), str(output)], check=True)
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(output)], check=True)

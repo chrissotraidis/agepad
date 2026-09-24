@@ -5,6 +5,7 @@
 #include <unistd.h>
 static uintptr_t DEContextImageBase;
 static struct sigaction DEPriorSegv, DEPriorBus;
+static BOOL DEDeviceLinkerTrace;
 static BOOL DEReadWord(uintptr_t address, uintptr_t *value) {
     vm_size_t copied=0;
     return vm_read_overwrite(mach_task_self(),address,sizeof(*value),
@@ -20,12 +21,27 @@ static void DEFaultWriteHex(const char *label, size_t length, uintptr_t value) {
 }
 static void DEContextFatal(int signalNumber, siginfo_t *info, void *context) {
     uintptr_t override=0,fallback=0,table=0,target=0,argument=0,handle=0;
-    DEReadWord(DEContextImageBase+0x5989718,&override);
-    DEReadWord(DEContextImageBase+0x5082fe8,&fallback);
+    if (DEDeviceLinkerTrace) {
+        // Pinned September 24 DE build only; enabled solely by the device trace switch.
+        uintptr_t dynamic=0,feral=0,epic=0;
+        DEReadWord(DEContextImageBase+0x52a6d50,&dynamic);
+        DEReadWord(DEContextImageBase+0x52a6d58,&feral);
+        DEReadWord(DEContextImageBase+0x52a6d60,&epic);
+#define DE_DEVICE_FAULT_VALUE(label,value) DEFaultWriteHex(label,sizeof(label)-1,value)
+        DE_DEVICE_FAULT_VALUE("DE_FATAL dynamic=",dynamic);
+        DE_DEVICE_FAULT_VALUE("DE_FATAL feral=",feral);
+        DE_DEVICE_FAULT_VALUE("DE_FATAL epic=",epic);
+#undef DE_DEVICE_FAULT_VALUE
+        DEReadWord(DEContextImageBase+0x5bc3a98,&override);
+        DEReadWord(DEContextImageBase+0x52a7268,&fallback);
+    } else {
+        DEReadWord(DEContextImageBase+0x5989718,&override);
+        DEReadWord(DEContextImageBase+0x5082fe8,&fallback);
+    }
     uintptr_t object=override?override:fallback;
     if (override) DEReadWord(override+8,&handle);
     if (object && DEReadWord(object,&table)) DEReadWord(table+0x1a8,&target);
-    DEReadWord(DEContextImageBase+0x4b08728,&argument);
+    if (!DEDeviceLinkerTrace) DEReadWord(DEContextImageBase+0x4b08728,&argument);
     // Only fixed-buffer writes and read-only VM RPCs in this diagnostic handler.
     // No allocation, Objective-C, dladdr, or altered guest return values.
 #define DE_FAULT_VALUE(label,value) DEFaultWriteHex(label,sizeof(label)-1,value)
@@ -43,10 +59,11 @@ static void DEContextFatal(int signalNumber, siginfo_t *info, void *context) {
     sigaction(signalNumber,signalNumber==SIGSEGV?&DEPriorSegv:&DEPriorBus,NULL);
 }
 static void DEInstallContextFatalTrace(void) {
-    if (!getenv("AGEPAD_MAC_FATAL_CONTEXT_TRACE")) return;
+    if (!getenv("AGEPAD_MAC_FATAL_CONTEXT_TRACE") && !getenv("AGEPAD_DEVICE_LINKER_TRACE")) return;
     static BOOL installed;
     if (installed) return;
     installed=YES;
+    DEDeviceLinkerTrace=getenv("AGEPAD_DEVICE_LINKER_TRACE")!=NULL;
     DEContextImageBase=(uintptr_t)_dyld_get_image_header(0);
     struct sigaction action={0};
     sigemptyset(&action.sa_mask);
@@ -57,6 +74,21 @@ static void DEInstallContextFatalTrace(void) {
 }
 static void DETraceContextDispatch(void) {
     DEInstallContextFatalTrace();
+    if (getenv("AGEPAD_DEVICE_LINKER_TRACE")) {
+        uintptr_t base=(uintptr_t)_dyld_get_image_header(0);
+        uintptr_t dynamic=0,feral=0,epic=0,selected=0,fallback=0,object=0,table=0,target=0;
+        DEReadWord(base+0x52a6d50,&dynamic);
+        DEReadWord(base+0x52a6d58,&feral);
+        DEReadWord(base+0x52a6d60,&epic);
+        DEReadWord(base+0x5bc3a98,&selected);
+        DEReadWord(base+0x52a7268,&fallback);
+        object=selected?selected:fallback;
+        if (object && DEReadWord(object,&table)) DEReadWord(table+0x1a8,&target);
+        fprintf(stderr,"DE_DEVICE_LINKER_QUERY dynamic=%p feral=%p epic=%p selected=%p fallback=%p table=%p method=%p method_offset=0x%llx\n",
+            (void *)dynamic,(void *)feral,(void *)epic,(void *)selected,(void *)fallback,
+            (void *)table,(void *)target,(unsigned long long)(target?target-base:0));
+        fflush(stderr);
+    }
     if (!getenv("AGEPAD_MAC_CONTEXT_TRACE")) return;
     uintptr_t base=(uintptr_t)_dyld_get_image_header(0);
     uintptr_t override=0,fallback=0,object=0,table=0,target=0,argument=0;
