@@ -2,9 +2,9 @@
 
 Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game and an iPad compatibility layer. This is a development project, not yet a downloadable, standalone playable IPA.
 
-**24 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro; real tap and pinch changed its readouts. A separate signed DE device probe reached original-game startup but crashed before any menu. Its updated device-only setup screen now stays open and identifies missing game data and Steam connectivity. The playable Steam DE candidate remains Simulator-only and Mac-assisted.
+**25 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro; real tap and pinch changed its readouts. The signed DE device probe initializes the genuine Steam SDK through a temporary paired-Mac relay and invokes the original game on hardware. The full Steam DE data tree has been copied to the iPad and checked by path, type and size. The game still crashes in its SteamUtils startup path before a menu or playable frame. The device setup screen remains a diagnostic, not a playable build.
 
-The [physical route check](docs/DEVICE-ROUTE-20260924.md) found that iPadOS denied both launching the Simulator's separate Steam helper and checking in its Mach service. An in-app copy of the original helper now starts, but `SteamAPI_Init()` still fails before creating a pipe. The active product remains **Definitive Edition only**; physical gameplay needs a legitimate Steam connection for the existing engine or a DE-capable native engine.
+The [physical route check](docs/DEVICE-ROUTE-20260924.md) found that iPadOS denied the Simulator's separate Steam helper and global Mach service. An in-app helper plus a paired Mac tunnel now lets the original Steam client create a pipe, observe the genuine logged-on account, and return success from `SteamAPI_Init()` on the physical iPad. The original game launch callback also runs, but its Steam adapter has no selected backend at the crash. The full data import is present; device gameplay is unverified. The active product remains **Definitive Edition only**.
 
 ## What works today
 
@@ -48,7 +48,7 @@ The intended setup is:
 1. On your Mac, install your owned **Mac edition** of AoE II DE through desktop Steam. Windows and Mac executables are not interchangeable for this route.
 2. Run an AgePad preparation/import tool against that installation. It must verify the version and required files, preserve the source, and prepare your private game copy. An end-user importer is still to be built; current staging scripts are engineering tools.
 3. Install a device-built, signed AgePad IPA on your iPad. A hardware scout and an original-engine startup probe now install, but no playable device IPA has passed launch.
-4. Transfer the prepared game data to AgePad's persistent storage. The app should show import progress, available space, edition/version and any missing files. This app flow is not implemented yet.
+4. Transfer the prepared game data to AgePad's persistent storage. This Mac's full private transfer passed an inventory check, but it used engineering tools. The app should show import progress, available space, edition/version and any missing files. This app flow is not implemented yet.
 5. Resolve Steam services before enabling Play. Current Simulator launches depend on a Mac-assisted discovery relay and a live helper. Copying files, or merely having Steam on the Mac, does not establish a self-contained iPad Steam session. This dependency must be solved or explicitly included in the supported setup.
 6. Play locally on iPad. Touch controls, complete rendering, save/load, lifecycle and sustained speed must pass before this is a release feature.
 
@@ -179,11 +179,12 @@ and reports `DE_HOST_PATH_RELAY_READY` exactly as the shipped one does.
 
 ### Test on a physical iPad
 
-**Not ready to install yet.** A paired iPad and development signing identities were
-visible on this Mac on September 24. Device runtime packaging, the Steam service
-arrangement, asset import, and real multi-touch acceptance remain open. A Simulator
-build cannot be installed on the physical iPad, and there is no verified IPA to download.
-An independent native Mac AgePad installer is also not provided by this workflow.
+An in-place signed diagnostic build is installed on Chris's physical iPad. Its
+full private game-data tree passed the path/type/size inventory check. The real
+DE executable still crashes before the menu, so this is not a playable IPA or
+an end-user installation flow. Steam currently needs the paired Mac test relay;
+real multi-touch gameplay acceptance remains open. A Simulator build cannot be
+installed on the physical iPad, and there is no verified IPA to download.
 
 Use [DE reproduction notes](docs/DE-REPRODUCE.md), [installation and service requirements](docs/DE-INSTALL-AND-ONLINE-PLAN.md), and [Mac lock diagnosis](docs/MAC-LOCK-DIAGNOSIS.md). Keep only the existing AgePad G5 iPad Simulator booted. Generated packages, logs and game data are private development artifacts.
 

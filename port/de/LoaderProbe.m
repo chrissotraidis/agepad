@@ -8,6 +8,7 @@
 #import <Metal/Metal.h>
 #import <TargetConditionals.h>
 #include <dlfcn.h>
+#include <errno.h>
 #import <objc/runtime.h>
 #include <mach-o/dyld.h>
 
@@ -93,9 +94,8 @@
     text.hidden = YES;
     [vc.view addSubview:text];
     [self.window makeKeyAndVisible];
-    // The signed hardware probe deliberately has no Steam transport or game
-    // data. Keep that prerequisite visible instead of entering original
-    // startup, where the uninitialized Steam interface currently null-reads.
+    // Normal launch keeps the current device readiness visible. The paired-Mac
+    // Steam test and original game startup require explicit diagnostic flags.
     if ([NSFileManager.defaultManager fileExistsAtPath:
             [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"DeviceSetupGate"]]) {
         NSString *child = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"DeviceChildProbe"];
@@ -194,40 +194,108 @@
             void *steamInterface = createInterface ? createInterface("SteamClient020", &interfaceStatus) : NULL;
             fprintf(stderr, "DE_DEVICE_STEAM_FACTORY present=%d interface=%d status=%d\n",
                     createInterface != NULL, steamInterface != NULL, interfaceStatus);
+            if (steamInterface) {
+                // Use the same published interface slots as the Simulator
+                // client probe; release a real pipe if one is returned.
+                void **methods = *(void ***)steamInterface;
+                int32_t (*createPipe)(void *) = (int32_t (*)(void *))methods[0];
+                bool (*releasePipe)(void *, int32_t) = (bool (*)(void *, int32_t))methods[1];
+                int32_t (*globalUser)(void *, int32_t) = (int32_t (*)(void *, int32_t))methods[2];
+                void (*releaseUser)(void *, int32_t, int32_t) =
+                    (void (*)(void *, int32_t, int32_t))methods[4];
+                Dl_info pipeImage = {0};
+                int located = dladdr(methods[0], &pipeImage);
+                const char *imageName = located && pipeImage.dli_fname ? pipeImage.dli_fname : "unknown";
+                const char *lastSlash = strrchr(imageName, '/');
+                fprintf(stderr, "DE_DEVICE_STEAM_PIPE_BEGIN image=%s offset=0x%lx\n",
+                        lastSlash ? lastSlash + 1 : imageName,
+                        located ? (unsigned long)((uintptr_t)methods[0] - (uintptr_t)pipeImage.dli_fbase) : 0);
+                fflush(stderr);
+                errno = 0;
+                int32_t pipe = createPipe(steamInterface);
+                fprintf(stderr, "DE_DEVICE_STEAM_PIPE_RESULT nonzero=%d errno=%d\n", pipe != 0, errno);
+                if (pipe) {
+                    int32_t user = globalUser(steamInterface, pipe);
+                    fprintf(stderr, "DE_DEVICE_STEAM_GLOBAL_USER nonzero=%d\n", user != 0);
+                    if (user) {
+                        void *(*getUser)(void *, int32_t, int32_t, const char *) =
+                            (void *(*)(void *, int32_t, int32_t, const char *))methods[5];
+                        void *userInterface = getUser(steamInterface, user, pipe, "SteamUser021");
+                        fprintf(stderr, "DE_DEVICE_STEAM_USER_INTERFACE present=%d\n",
+                                userInterface != NULL);
+                        if (userInterface) {
+                            void **userMethods = *(void ***)userInterface;
+                            bool (*loggedOn)(void *) = (bool (*)(void *))userMethods[1];
+                            fprintf(stderr, "DE_DEVICE_STEAM_LOGGED_ON logged_on=%d\n",
+                                    loggedOn(userInterface));
+                        }
+                        releaseUser(steamInterface, pipe, user);
+                    }
+                    fprintf(stderr, "DE_DEVICE_STEAM_PIPE_RELEASED released=%d\n",
+                            releasePipe(steamInterface, pipe));
+                }
+            }
         }
         NSString *steamAPI = [NSBundle.mainBundle.bundlePath
-            stringByAppendingPathComponent:@"Frameworks/SteamModuleSimulator.dylib"];
+            stringByAppendingPathComponent:@"Vendor_libsteam_api.dylib.dylib"];
         dlerror();
         void *apiLoaded = dlopen(steamAPI.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
         const char *apiError = dlerror();
         fprintf(stderr, "DE_DEVICE_STEAM_API_LOAD loaded=%d error=%s\n",
                 apiLoaded != NULL, apiError ?: "none");
+        bool steamInitialized = false;
         if (apiLoaded) {
             bool (*initializeSteam)(void) = dlsym(apiLoaded, "SteamAPI_Init");
             fprintf(stderr, "DE_DEVICE_STEAM_API_INIT_BEGIN present=%d\n", initializeSteam != NULL);
             fflush(stderr);
             if (initializeSteam) {
                 bool initialized = initializeSteam();
+                steamInitialized = initialized;
                 fprintf(stderr, "DE_DEVICE_STEAM_API_INIT_RESULT success=%d\n", initialized);
+                void *(*getUtils)(void) = dlsym(apiLoaded, "SteamAPI_SteamUtils_v010");
+                fprintf(stderr, "DE_DEVICE_STEAM_UTILS export=%d interface=%d\n",
+                        getUtils != NULL, getUtils && getUtils() != NULL);
             }
         }
         fflush(stderr);
+        NSString *data = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+            stringByAppendingPathComponent:@"AgeOfEmpires2Data"];
+        BOOL hasData = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:data error:NULL] count] > 0;
+        // This opt-in is a launch diagnostic. A partial import may be enough
+        // to reveal the next original-engine dependency, but is not gameplay.
+        if (getenv("AGEPAD_DEVICE_RUN_ORIGINAL") && steamInitialized && hasData) {
+            setenv("AGEPAD_CASE_INSENSITIVE_RESOURCE_ROOT", data.fileSystemRepresentation, 1);
+            setenv("AGEPAD_DEVICE_DATA_ROOT", data.fileSystemRepresentation, 1);
+            NSString *appkitPath = [NSBundle.mainBundle.bundlePath
+                stringByAppendingPathComponent:@"DEBoundary_AppKit.dylib"];
+            void *appkit = dlopen(appkitPath.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+            void (*launch)(void) = appkit ? dlsym(appkit, "DEInvokeOriginalLaunchAfterUIKitReady") : NULL;
+            fprintf(stderr, "DE_DEVICE_GAME_LAUNCH_READY steam=%d data_present=%d launch=%d\n",
+                    steamInitialized, hasData, launch != NULL);
+            fflush(stderr);
+            if (launch) {
+                dispatch_async(dispatch_get_main_queue(), ^{ launch(); });
+                return YES;
+            }
+        }
         UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:vc.view.bounds];
         scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         scroll.backgroundColor = [UIColor colorWithRed:.10 green:.14 blue:.17 alpha:1];
         [vc.view addSubview:scroll];
         UIStackView *stack = [UIStackView new];
         stack.axis = UILayoutConstraintAxisVertical;
-        stack.spacing = 16;
+        stack.spacing = 18;
         stack.translatesAutoresizingMaskIntoConstraints = NO;
         [scroll addSubview:stack];
         [NSLayoutConstraint activateConstraints:@[
-            [stack.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor constant:40],
-            [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-40],
-            [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor constant:32],
-            [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-32],
-            [stack.widthAnchor constraintLessThanOrEqualToConstant:900],
-            [scroll.contentLayoutGuide.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
+            [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor constant:40],
+            [stack.trailingAnchor constraintLessThanOrEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-40],
+            [stack.centerXAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.centerXAnchor],
+            [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor constant:56],
+            [stack.bottomAnchor constraintLessThanOrEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-56],
+            [stack.widthAnchor constraintLessThanOrEqualToConstant:850],
+            [scroll.contentLayoutGuide.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor],
+            [scroll.contentLayoutGuide.heightAnchor constraintGreaterThanOrEqualToAnchor:scroll.frameLayoutGuide.heightAnchor]
         ]];
         void (^addLine)(NSString *, CGFloat, UIFontWeight, UIColor *) =
             ^(NSString *message, CGFloat size, UIFontWeight weight, UIColor *color) {
@@ -239,18 +307,30 @@
                 [stack addArrangedSubview:label];
             };
         UIColor *muted = [UIColor colorWithRed:.75 green:.81 blue:.84 alpha:1];
-        addLine(@"AgePad · iPad setup", 34, UIFontWeightBold, UIColor.whiteColor);
-        addLine(@"Age of Empires II: Definitive Edition", 20, UIFontWeightSemibold, muted);
-        addLine(@"This is a hardware test build. The game cannot start on this iPad yet.", 23, UIFontWeightSemibold, UIColor.whiteColor);
-        NSString *data = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
-            stringByAppendingPathComponent:@"AgeOfEmpires2Data"];
-        BOOL hasData = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:data error:NULL] count] > 0;
-        addLine(hasData ? @"Game data: folder present, contents not validated" : @"Game data: not imported",
+        UIColor *gold = [UIColor colorWithRed:.88 green:.71 blue:.40 alpha:1];
+        BOOL inventoryChecked = [NSFileManager.defaultManager fileExistsAtPath:
+            [data stringByAppendingPathComponent:@".agepad-import-inventory-checked"]];
+        NSDictionary *disk = [NSFileManager.defaultManager attributesOfFileSystemForPath:NSHomeDirectory() error:NULL];
+        unsigned long long freeBytes = [disk[NSFileSystemFreeSize] unsignedLongLongValue];
+        NSString *freeSpace = [NSByteCountFormatter stringFromByteCount:(long long)freeBytes countStyle:NSByteCountFormatterCountStyleFile];
+        addLine(@"AGEPAD", 20, UIFontWeightBold, gold);
+        addLine(@"Age of Empires II: Definitive Edition", 34, UIFontWeightBold, UIColor.whiteColor);
+        addLine(@"iPad setup is still in testing. Play is not available in this build.",
+                23, UIFontWeightSemibold, UIColor.whiteColor);
+        addLine(inventoryChecked ? @"Game files · Imported inventory checked" :
+                hasData ? @"Game files · Import incomplete or unchecked" : @"Game files · Not imported",
                 19, UIFontWeightMedium, UIColor.whiteColor);
-        addLine(@"Steam connection: unavailable in this iPad build", 19, UIFontWeightMedium, UIColor.whiteColor);
-        addLine(@"To play the current test build, use the AgePad Simulator on this Mac while Steam is running. iPad gameplay needs a supported Steam connection and a verified game-data import before Play can be enabled.",
+        addLine([NSString stringWithFormat:@"Available iPad storage · %@",freeSpace],
+                19, UIFontWeightMedium, UIColor.whiteColor);
+        addLine(steamInitialized ? @"Steam · Connected through the paired Mac for this test" :
+                @"Steam · No active connection. Pairing with the Mac works only in the engineering test.",
+                19, UIFontWeightMedium, UIColor.whiteColor);
+        addLine(inventoryChecked ?
+                @"Next: keep your Steam Mac copy installed and signed in. AgePad still needs a dependable Steam connection and a successful original-game startup before a match can begin on this iPad." :
+                @"Next: keep your Steam Mac copy installed and signed in. AgePad still needs a guided data import and a successful original-game startup before a match can begin on this iPad.",
                 18, UIFontWeightRegular, muted);
-        fprintf(stderr, "DE_DEVICE_SETUP_GATE data_folder_present=%d steam_connection=unavailable original_launch=skipped\n", hasData);
+        fprintf(stderr, "DE_DEVICE_SETUP_GATE data_folder_present=%d inventory_checked=%d steam_connection=%d original_launch=skipped\n",
+                hasData, inventoryChecked, steamInitialized);
         fflush(stderr);
         return YES;
     }

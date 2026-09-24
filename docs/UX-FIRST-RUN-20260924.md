@@ -1,5 +1,7 @@
 # First-run iPad Simulator audit — 24 September 2026
 
+> **25 September scope and hardware follow-up:** The active target is the installed Steam Definitive Edition on the physical iPad; classic/HD is historical planning context. The full private DE data tree is now on the iPad and passed a path/type/size inventory with four sampled SHA-256 readbacks. A signed diagnostic build is installed in place. Its normal launch displays a landscape setup screen with the imported state and the Mac-assisted Steam dependency; the original game still crashes before its menu. See [physical route check](DEVICE-ROUTE-20260924.md). The Simulator gameplay below is earlier evidence, not physical gameplay.
+
 ## Scope and result
 
 This was a hands-on pass through the **Mac Steam Definitive Edition prototype** on the AgePad G5 iPad Simulator (iPad Air 11-inch M4, iOS 26.5). The original [PRD](AgePad-PRD.md) calls for a classic/HD native iPad product first and treats DE as a later branch. This prototype is useful evidence for the DE route, but does not complete or replace the PRD's classic/HD baseline.

@@ -87,12 +87,14 @@ for file in sorted(client_source.glob('*.dylib')):
 if args.ipc_load_probe:
     for image, dependency in (
         (frameworks / 'steamclient.dylib', '/usr/lib/libSystem.B.dylib'),
+        (frameworks / 'SteamModuleSimulator.dylib', '/usr/lib/libSystem.B.dylib'),
         (output / 'Vendor_libsteam_api.dylib.dylib', '@loader_path/DEBoundary_libSystem_B.dylib'),
     ):
         temp = image.with_name(image.name + '.device-ipc-temp')
         result = adapter.prepare(image, temp, platform='ios-device', dependency_map={
             dependency: '@loader_path/IPCSystemCompat.dylib' if image.parent == frameworks
-                        else '@executable_path/Frameworks/IPCSystemCompat.dylib'})
+                        else '@executable_path/Frameworks/IPCSystemCompat.dylib'},
+            preserve_executable=image.name == 'DEOriginalGame')
         if result['instructions_changed'] or not all(item['equal'] for item in result['sections']):
             raise ValueError('Original Steam section changed in IPC probe: ' + str(image))
         temp.replace(image)
@@ -109,9 +111,9 @@ info_path.write_bytes(plistlib.dumps(info))
 # Keep the probe visibly distinct from a playable AgePad installation.
 for localized in output.rglob('InfoPlist.strings'):
     localized.unlink()
-# This package has no on-device Steam connection or imported game data. The
-# device boundary shows a setup screen before invoking original startup.
-(output / 'DeviceSetupGate').write_text('hardware diagnostic; Steam connection unavailable\n')
+# Normal launch shows the setup screen. Steam relay and original startup are
+# opt-in diagnostics; imported data lives only in the app's Documents folder.
+(output / 'DeviceSetupGate').write_text('hardware diagnostic; setup shown without opt-in relay\n')
 sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
 child = output / 'DeviceChildProbe'
 subprocess.run(['xcrun', 'clang', '-target', 'arm64-apple-ios15.0', '-isysroot', sdk,
@@ -143,7 +145,7 @@ for image in ipc_images:
 subprocess.run(['codesign', '--force', '--sign', args.identity, '--entitlements',
                 str(entitlements_path), str(output)], check=True)
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(output)], check=True)
-report = {'scope': 'device launch probe only; no game data, Steam session or gameplay proof',
+report = {'scope': 'device launch probe; signing alone proves no Steam session, data import or gameplay',
           'bundle_id': args.bundle_id, 'images': staged,
           'main_sha256': hashlib.sha256((output / info['CFBundleExecutable']).read_bytes()).hexdigest(),
           'child_probe_sha256': hashlib.sha256(child.read_bytes()).hexdigest(),
