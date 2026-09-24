@@ -31,7 +31,7 @@ The source maps one-finger tap to select, two-finger tap to order, two-finger dr
 
 ## Physical iPad gate
 
-Chris's iPad Pro (12.9-inch, 6th generation) was paired and connected on iPadOS 26.7, and development signing identities were available. The current product is a Simulator-specific app with a Mac-assisted Steam discovery relay and data staged in a Simulator bundle container. The existing device compile probe was attempted against the new package and stopped before compiling because it expects the retired package's `appkit-build-command.json`, which the fresh bootstrap does not emit. There is no verified device-architecture runtime, signed IPA, on-device import/storage flow, or standalone Steam-service path. Nothing was installed on the physical iPad. Next device work begins by making the device-SDK builder consume the fresh package, then exact binary/signing audit, preservation-safe install and on-device testing of touch, saves, lifecycle and performance.
+Chris's iPad Pro (12.9-inch, 6th generation) was paired and connected on iPadOS 26.7, and development signing identities were available. The current product is a Simulator-specific app with a Mac-assisted Steam discovery relay and data staged in a Simulator bundle container. At the time of this first-run audit, the device compile probe stopped because it expected retired package build-command files. The [later physical scout](DEVICE-SCOUT-20260924.md) installed and launched a separate native diagnostic app on this iPad and checked all 27 generated boundary sources against the device SDK. There is still no device game runtime, on-device import/storage flow, or standalone Steam-service path. Physical touch, saves, lifecycle and game performance remain untested.
 
 ## Reproduce this candidate
 

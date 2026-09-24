@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Compile the Simulator boundary libraries for iphoneos to expose device gaps.
+"""Check the generated DE boundary sources against the iPad device SDK.
 
-Reuses the package's recorded link commands with the device SDK/target. This is
-a compile/link feasibility probe: it does not sign for a device, install, or
-prove the runtime behaves on hardware. Output goes to a fresh directory.
+Legacy packages recorded link commands; fresh bootstrap packages contain the
+generated sources instead. For a fresh package this checks every source with
+the device compiler. It does not link a game, sign, install, or prove hardware
+execution. Output goes to a fresh directory.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -19,6 +21,32 @@ _sim = import_module('build-de-simulator-runtime')
 import de_device
 
 
+def check_fresh_sources(package, output, sdk):
+    roots = [package.parent / 'artifacts/candidate.app-art', package / 'game-client']
+    sources = [source for root in roots for source in sorted(root.glob('*.m'))]
+    if not sources or not (roots[0] / 'AppKit.m').is_file():
+        raise SystemExit('Fresh package has no generated engine boundary sources')
+    results = {}
+    for source in sources:
+        command = ['xcrun', 'clang', '-target', 'arm64-apple-ios15.0', '-isysroot', sdk,
+                   '-fobjc-arc', '-fsyntax-only', '-I', str(ROOT / 'port/de'), str(source)]
+        run = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        key = source.parent.name + '/' + source.name
+        (output / (source.parent.name + '-' + source.stem + '.log')).write_text(run.stdout + run.stderr)
+        results[key] = {'exit': run.returncode,
+                        'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
+                        'errors': [line.strip() for line in run.stderr.splitlines()
+                                   if re.search(r':\d+:\d+: error:', line)][:20]}
+    report = {'scope': 'device-SDK syntax only; no link, signing, game install, Steam session, or gameplay',
+              'sdk': sdk, 'sources': results}
+    (output / 'device-compile-result.json').write_text(json.dumps(report, indent=2) + '\n')
+    failed = [key for key, value in results.items() if value['exit']]
+    print(f'Device SDK source check: {len(sources)} generated sources, {len(failed)} failures')
+    for key in failed:
+        print(key, results[key]['errors'][:3])
+    return bool(failed)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
@@ -29,12 +57,12 @@ def main():
         parser.error('Use a fresh output directory')
     missing = [name + '-build-command.json' for name in ('appkit', 'display', 'metal')
                if not (args.package / (name + '-build-command.json')).is_file()]
-    if missing:
-        parser.error('This package cannot be used for the device compile probe: missing ' +
-                     ', '.join(missing) + '. The fresh Simulator bootstrap must first record '
-                     'its boundary build commands for the device SDK; no device app or IPA was produced.')
     output.mkdir(parents=True)
     sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+    if missing:
+        if check_fresh_sources(args.package.resolve(), output, sdk):
+            raise SystemExit(1)
+        return
     results = {}
     for name, library in [('appkit', 'AppKit'), ('display', 'CoreGraphics'), ('metal', 'Metal')]:
         command = json.loads((args.package / (name + '-build-command.json')).read_text())

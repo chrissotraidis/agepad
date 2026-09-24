@@ -2,6 +2,8 @@
 
 Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game and an iPad compatibility layer. This is a development project, not yet a downloadable, standalone playable IPA.
 
+**24 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro. It proves device deployment and screen rendering only. The playable Steam DE candidate remains Simulator-only and Mac-assisted; no game was installed on the physical iPad.
+
 ## What works today
 
 September 19: simulation speed is now 1.62x on Normal (DE's target is 1.7x); the

@@ -2,6 +2,8 @@
 
 ## Current execution loop
 
+2026-09-24 physical iPad scout: a signed `IOS` platform native diagnostic app installed and launched on the connected iPad Pro 12.9-inch (6th generation), iPadOS 26.7. A 2732×2048 device screenshot shows its first screen; no existing AgePad installation or data was replaced. The fresh DE package's 27 generated boundary sources pass a device-SDK syntax check, but no device game binary, on-device Steam path, importer, or physical gameplay exists yet. See [DEVICE-SCOUT-20260924.md](DEVICE-SCOUT-20260924.md).
+
 2026-09-21 fresh-clone acceptance: a `git clone` with no `generated/` directory
 bootstrapped the whole candidate from tracked sources plus the owned Steam install,
 installed it, staged data, passed its own preflight and launched -
