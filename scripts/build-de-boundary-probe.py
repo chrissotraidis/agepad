@@ -93,6 +93,18 @@ art.mkdir(parents=True,exist_ok=True)
 incomplete=app/'BoundaryBuildIncomplete'
 incomplete.write_text('Boundary build has not completed. Do not execute this candidate.\n')
 survey=json.loads(a.survey.read_text())['platform_survey']
+# CoreVideo itself loads on iOS, but the Mac display-link API is absent. The
+# loader probe only checks framework loading, so include these imports in the
+# boundary even when the framework reports as loaded.
+for item in survey:
+    if item['path'].endswith('/CoreVideo.framework/CoreVideo'):
+        item['missing_symbols']=sorted(set(item['missing_symbols']) | {
+            '_CVDisplayLinkCreateWithActiveCGDisplays', '_CVDisplayLinkRelease',
+            '_CVDisplayLinkSetCurrentCGDisplay', '_CVDisplayLinkSetOutputCallback',
+            '_CVDisplayLinkStart', '_CVDisplayLinkStop'})
+    if item['path'].endswith('/Security.framework/Security'):
+        item['missing_symbols']=sorted(set(item['missing_symbols']) | {
+            '_SecTrustCopyAnchorCertificates'})
 constants=json.loads(a.constants.read_text()) if a.constants else {}
 sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
 spec=importlib.util.spec_from_file_location('adapter',root/'scripts/prepare-de-load-image.py')
@@ -165,6 +177,8 @@ for item in survey:
             source.append('#include "DisplayModeCompat.m"')
         if a.min_spec_dialog:
             source.append('#include "MinSpecDialogCompat.m"')
+    if a.application_bootstrap and name=='CoreVideo':
+        source.append('#include "DisplayLinkCompat.m"')
     classes=set()
     actions=[]
     # A stub must never be emitted for a symbol that an included compat source
@@ -277,6 +291,8 @@ for item in survey:
         command.extend(['-framework','UIKit',str(app/'DEBoundary_AppKit.dylib')])
         if a.pointer_snapshot:
             command.extend(['-framework','GameController'])
+    if a.application_bootstrap and name=='CoreVideo':
+        command.extend(['-framework','UIKit','-framework','QuartzCore'])
     if item['loaded']:
         if '.framework/' in path:
             framework=re.search(r'/([^/]+)\.framework/',path).group(1)

@@ -46,9 +46,11 @@ record = {'app': str(app), 'source': str(source), 'complete': False,
           'verified': {}}
 a.manifest.write_text(json.dumps(record, indent=2) + '\n')
 for src, name in [(frameworks, 'Frameworks'), (data, 'AgeOfEmpires2Data')]:
+    print('Copying ' + name + '…', flush=True)
     subprocess.run(['cp', '-cR', str(src), str(parent / name)], check=True)
 assert digest(parent / 'Frameworks/libsteam_api.dylib') == config['original_sha256']
 for name in ['resources', 'widgetui']:
+    print('Verifying ' + name + ' filenames and contents…', flush=True)
     original = data / name
     root = parent / 'AgeOfEmpires2Data' / name
     entries = list(original.rglob('*'))

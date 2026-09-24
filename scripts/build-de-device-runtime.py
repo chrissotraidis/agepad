@@ -16,16 +16,23 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from importlib import import_module
 _sim = import_module('build-de-simulator-runtime')
+import de_device
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
-    parser.add_argument('--package', type=Path, default=ROOT / 'generated/mac-de-simulator-375')
+    parser.add_argument('--package', type=Path, default=de_device.package_dir())
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists():
         parser.error('Use a fresh output directory')
+    missing = [name + '-build-command.json' for name in ('appkit', 'display', 'metal')
+               if not (args.package / (name + '-build-command.json')).is_file()]
+    if missing:
+        parser.error('This package cannot be used for the device compile probe: missing ' +
+                     ', '.join(missing) + '. The fresh Simulator bootstrap must first record '
+                     'its boundary build commands for the device SDK; no device app or IPA was produced.')
     output.mkdir(parents=True)
     sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
     results = {}

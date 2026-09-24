@@ -96,8 +96,9 @@ python3 scripts/prepare-de-game.py --launch my-run-name --seconds 1800
 Manual steps:
 
 1. Start desktop Steam and keep it running.
-2. In Xcode Simulator, boot only **AgePad G5 iPad**
-   (`574671AD-6F61-4558-9528-BF946DDB760A`). Close other booted Simulators.
+2. In Xcode Simulator, boot only **AgePad G5 iPad**. On this Mac its current
+   UDID is `3B66F77C-EDAC-419F-9B75-8694A525B19D`; export it as
+   `AGEPAD_SIMULATOR_UDID`. Shut down any other booted Simulator first.
 3. From the repository, run `python3 scripts/check-de-install.py`.
    Resolve each failed check before launching.
 4. Run `python3 scripts/recover-de-session.py my-test-unique-name --seconds 1800`.
@@ -143,7 +144,7 @@ OriginalInputTrace.dylib, AudioOutputCompat.dylib
 Nothing here downloads the game or signs in to Steam: `scripts/prepare-de-game.py`
 reads the installation Steam already placed at
 `~/Library/Application Support/Steam/steamapps/common/AoE2DE` (or `--source`),
-checks version `478570.102902`, the executable and `libsteam_api` hashes and the
+checks version `488492.107976` (Steam's September 24 update), the executable and `libsteam_api` hashes and the
 `resources`, `widgetui`, `wwise` and `modes` directories, then stages a copy.
 Ownership, sign-in and the download are yours to arrange, and a Steam update
 fails the check rather than silently preparing a different build. Launching
@@ -174,11 +175,12 @@ and reports `DE_HOST_PATH_RELAY_READY` exactly as the shipped one does.
 
 ### Test on a physical iPad
 
-**Not ready to install yet.** The September 15 inventory found no connected iPad
-and no valid code-signing identity. Connect and trust the iPad in Xcode and set up
-your development signing identity for device work. Those steps alone are not
-sufficient: device runtime packaging, the Steam service arrangement, asset import,
-and real multi-touch acceptance remain open. There is no verified IPA to download.
+**Not ready to install yet.** A paired iPad and development signing identities were
+visible on this Mac on September 24. Device runtime packaging, the Steam service
+arrangement, asset import, and real multi-touch acceptance remain open. A Simulator
+build cannot be installed on the physical iPad, and there is no verified IPA to download.
 An independent native Mac AgePad installer is also not provided by this workflow.
 
 Use [DE reproduction notes](docs/DE-REPRODUCE.md), [installation and service requirements](docs/DE-INSTALL-AND-ONLINE-PLAN.md), and [Mac lock diagnosis](docs/MAC-LOCK-DIAGNOSIS.md). Keep only the existing AgePad G5 iPad Simulator booted. Generated packages, logs and game data are private development artifacts.
+
+The [September 24 first-run audit](docs/UX-FIRST-RUN-20260924.md) records the actual setup, screens, playable Simulator slice, remaining UX work and physical-device gate.

@@ -460,7 +460,13 @@ void DEUpdateVisibleGameWindows(void) {
     }
 }
 - (BOOL)respondsToSelector:(SEL)selector {
-    if(selector==sel_registerName("cancelOperation:"))return DEHasMouseHandler(object_getClass(self),selector);
+    // The original game's text-input responder probes editing commands before
+    // dispatch. Answer those probes without triggering NSView's fail-closed
+    // dynamic resolver for a command the view does not implement.
+    for(NSString *name in @[@"cancelOperation:",@"deleteBackward:",@"insertNewline:",@"insertTab:",
+                            @"moveLeft:",@"moveRight:",@"moveDown:",@"moveUp:"]) {
+        if(selector==NSSelectorFromString(name))return DEHasMouseHandler(object_getClass(self),selector);
+    }
     return [super respondsToSelector:selector];
 }
 - (BOOL)becomeFirstResponder { return [self.deHost becomeFirstResponder]; }

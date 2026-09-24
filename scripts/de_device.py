@@ -12,7 +12,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DEFAULT_UDID = '574671AD-6F61-4558-9528-BF946DDB760A'
+DEFAULT_UDID = '3B66F77C-EDAC-419F-9B75-8694A525B19D'
 DEFAULT_NAME = 'AgePad G5 iPad'
 DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M4'
 RUNTIME = 'com.apple.CoreSimulator.SimRuntime.iOS-26-5'

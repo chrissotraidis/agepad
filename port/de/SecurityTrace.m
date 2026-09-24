@@ -1,10 +1,20 @@
 // Diagnostic pass-throughs: preserve the real validation result and all outputs.
 // No code-signing requirement, ownership check, or authentication result changes.
 #import <Foundation/Foundation.h>
+#import <Security/SecBase.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <execinfo.h>
 #include "UnsupportedBoundary.h"
+// macOS exposes the system anchor list; iOS does not. Do not invent trusted
+// anchors or report success until an equivalent device API is established.
+OSStatus DESecTrustCopyAnchorCertificates(CFArrayRef *anchors)
+    __asm__("_SecTrustCopyAnchorCertificates");
+OSStatus DESecTrustCopyAnchorCertificates(CFArrayRef *anchors) {
+    if (anchors) *anchors=NULL;
+    fprintf(stderr,"DE_SECURITY_ANCHOR_LIST unavailable on iOS\n");
+    return errSecUnimplemented;
+}
 static void *DERealSecurity(const char *name) {
     int saved=errno;
     static void *library;

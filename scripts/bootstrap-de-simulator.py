@@ -487,6 +487,15 @@ def main():
         if not app.is_dir():
             print('FAIL install: ' + str(app) + ' is missing')
             return 1
+        if 'steam' in plan:
+            # Steam can update the source while the multi-stage build is running.
+            # Never install a candidate assembled across two game versions.
+            prepare = load_module('prepare_de_game_final', 'scripts/prepare-de-game.py')
+            if not prepare.verify_source(game):
+                print('FAIL install: Steam changed the game during this build. '
+                      'Finish the update, then bootstrap into a fresh directory.')
+                return 1
+        run([sys.executable, ROOT / 'scripts/apply-de-app-icon.py', '--app', app], log=log)
         run(['xcrun', 'simctl', 'install', device, app], log=log)
         container = app_container(device, BUNDLE)
         done('install', app=str(container) if container else None)

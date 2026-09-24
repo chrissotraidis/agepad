@@ -34,6 +34,12 @@
 + (BOOL)resolveInstanceMethod:(SEL)sel { fprintf(stderr,"DE_UNSUPPORTED_SELECTOR -[NSMenuItem %s]\n",sel_getName(sel));DEUnsupported("NSMenuItem"); }
 @end
 @implementation NSMenu
+// iPad has no desktop menu bar. The original game toggles its visibility when
+// entering full screen; keep the menu model and leave the UIKit chrome alone.
++ (void)setMenuBarVisible:(BOOL)visible {
+    fprintf(stderr,"DE_MENU_BAR_VISIBLE requested=%d unavailable_on_ipad\n",visible);
+}
++ (BOOL)isMenuBarVisible { return NO; }
 - (instancetype)initWithTitle:(NSString *)title {
     if ((self=[super init])) {_title=[title copy];_deItems=[NSMutableArray array];_autoenablesItems=YES;fprintf(stderr,"DE_MENU_MODEL_CREATED\n");}
     return self;
