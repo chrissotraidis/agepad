@@ -1,4 +1,7 @@
 #import <UIKit/UIKit.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <mach/mach.h>
 #import <Metal/Metal.h>
 #import <TargetConditionals.h>
 #include <dlfcn.h>
@@ -92,6 +95,31 @@
     // startup, where the uninitialized Steam interface currently null-reads.
     if ([NSFileManager.defaultManager fileExistsAtPath:
             [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"DeviceSetupGate"]]) {
+        NSString *child = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"DeviceChildProbe"];
+        pid_t childPID = 0;
+        char *childArgv[] = {(char *)child.fileSystemRepresentation, NULL};
+        int spawnError = posix_spawn(&childPID, child.fileSystemRepresentation, NULL, NULL, childArgv, NULL);
+        int childStatus = 0;
+        int waited = spawnError ? -1 : waitpid(childPID, &childStatus, 0);
+        fprintf(stderr, "DE_DEVICE_CHILD_PROCESS spawn=%d pid=%d wait=%d status=%d\n",
+                spawnError, childPID, waited, childStatus);
+        mach_port_t *bootstrap = dlsym(RTLD_DEFAULT, "bootstrap_port");
+        kern_return_t (*lookup)(mach_port_t, const char *, mach_port_t *) =
+            dlsym(RTLD_DEFAULT, "bootstrap_look_up");
+        kern_return_t (*checkIn)(mach_port_t, const char *, mach_port_t *) =
+            dlsym(RTLD_DEFAULT, "bootstrap_check_in");
+        mach_port_t service = MACH_PORT_NULL;
+        kern_return_t lookupStatus = bootstrap && lookup ?
+            lookup(*bootstrap, "com.valvesoftware.steam.ipctool", &service) : KERN_NOT_SUPPORTED;
+        if (MACH_PORT_VALID(service)) mach_port_deallocate(mach_task_self(), service);
+        service = MACH_PORT_NULL;
+        // A pre-existing service belongs to another process; never claim it.
+        kern_return_t checkInStatus = lookupStatus != KERN_SUCCESS && bootstrap && checkIn ?
+            checkIn(*bootstrap, "com.valvesoftware.steam.ipctool", &service) : KERN_NOT_SUPPORTED;
+        if (MACH_PORT_VALID(service)) mach_port_deallocate(mach_task_self(), service);
+        fprintf(stderr, "DE_DEVICE_STEAM_BOOTSTRAP lookup=%d check_in=%d\n",
+                lookupStatus, checkInStatus);
+        fflush(stderr);
         UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:vc.view.bounds];
         scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         scroll.backgroundColor = [UIColor colorWithRed:.10 green:.14 blue:.17 alpha:1];

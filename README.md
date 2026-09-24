@@ -4,6 +4,8 @@ Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game
 
 **24 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro; real tap and pinch changed its readouts. A separate signed DE device probe reached original-game startup but crashed before any menu. Its updated device-only setup screen now stays open and identifies missing game data and Steam connectivity. The playable Steam DE candidate remains Simulator-only and Mac-assisted.
 
+The [physical route check](docs/DEVICE-ROUTE-20260924.md) then found that iPadOS denied both launching the Simulator's separate Steam helper and checking in its Mach service. This blocks that helper design on the current device; the next playable-device route needs a native game core with compatible owned data or authorized iOS-capable DE integration.
+
 ## What works today
 
 September 19: simulation speed is now 1.62x on Normal (DE's target is 1.7x); the

@@ -95,6 +95,10 @@ for localized in output.rglob('InfoPlist.strings'):
 # This package has no on-device Steam connection or imported game data. The
 # device boundary shows a setup screen before invoking original startup.
 (output / 'DeviceSetupGate').write_text('hardware diagnostic; Steam connection unavailable\n')
+sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+child = output / 'DeviceChildProbe'
+subprocess.run(['xcrun', 'clang', '-target', 'arm64-apple-ios15.0', '-isysroot', sdk,
+                str(ROOT / 'port/de/DeviceChildProbe.c'), '-o', str(child)], check=True)
 shutil.copy2(profile, output / 'embedded.mobileprovision')
 entitlements = {'application-identifier': team + '.' + args.bundle_id,
                 'com.apple.developer.team-identifier': team, 'get-task-allow': True}
@@ -106,11 +110,13 @@ for item in staged:
         continue
     subprocess.run(['codesign', '--force', '--sign', args.identity, str(file)],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.run(['codesign', '--force', '--sign', args.identity, str(child)], check=True)
 subprocess.run(['codesign', '--force', '--sign', args.identity, '--entitlements',
                 str(entitlements_path), str(output)], check=True)
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(output)], check=True)
 report = {'scope': 'device launch probe only; no game data, Steam session or gameplay proof',
           'bundle_id': args.bundle_id, 'images': staged,
-          'main_sha256': hashlib.sha256((output / info['CFBundleExecutable']).read_bytes()).hexdigest()}
+          'main_sha256': hashlib.sha256((output / info['CFBundleExecutable']).read_bytes()).hexdigest(),
+          'child_probe_sha256': hashlib.sha256(child.read_bytes()).hexdigest()}
 (output.parent / 'device-probe-manifest.json').write_text(json.dumps(report, indent=2) + '\n')
 print(f'Signed {len(staged)} IOS images in {output}')

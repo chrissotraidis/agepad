@@ -78,3 +78,5 @@ The alternative native classic/HD route is also not ready to install from this c
 ## Next technical gate
 
 Resolve the original-engine device Steam startup with a legitimate device connection and exact dependency state, then launch past the gate without `SIMCTL_CHILD_*` paths. Design a supported Mac-to-iPad game-data import before transferring ~19 GB or enabling Play. The current setup page states that the Steam path is unavailable before asking for data import. The PRD's classic/HD native-core route remains a separate path if the retail DE service cannot run on iPad; it needs matching classic/HD inputs that are not present in this checkout.
+
+The follow-up [physical execution route check](DEVICE-ROUTE-20260924.md) tested the Simulator Steam helper's process and Mach-service assumptions directly on hardware. Both failed under the current iPad app sandbox, so the native-core route is now the active path to investigate for physical gameplay.
