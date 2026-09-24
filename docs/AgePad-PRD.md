@@ -1,5 +1,12 @@
 # AgePad PRD: classic AoE II first, native iPad first
 
+> **Current scope override — 24 September 2026:** Chris requires the installed
+> Steam **Age of Empires II: Definitive Edition** as the product target. The
+> classic/HD-first route and any classic/HD success criteria below are historical
+> planning context, not an authorized substitute for DE gameplay. Keep the
+> native iPad, truthful acceptance, preservation and no-public-release rules
+> unless a later decision changes them. See [current device route](DEVICE-ROUTE-20260924.md).
+
 **Spec ID:** `agepad-v2-2026-09-06`.
 
 **Revision: v2 — 6 September 2026.** Supersedes the previous AgePad PRD, goal loop, and input recommendations for execution planning. Status: **ready for private, gated implementation; no game build or device result validated by this revision**.
