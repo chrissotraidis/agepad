@@ -8,7 +8,8 @@
 int main(int argc,char **argv) {
     if(argc!=3)return 64;
     char *end=NULL;long limit=strtol(argv[2],&end,10);
-    if(!end || *end || limit<1 || limit>32)return 64;
+    // limit 0 = serve until stopped (AgePad helper); otherwise a bounded test run.
+    if(!end || *end || limit<0 || limit>32)return 64;
     struct sockaddr_un address={0};address.sun_family=AF_UNIX;
     if(strlen(argv[1])>=sizeof(address.sun_path))return 64;
     strcpy(address.sun_path,argv[1]);umask(077);
@@ -17,7 +18,7 @@ int main(int argc,char **argv) {
     if(bind(listener,(struct sockaddr *)&address,sizeof(address)) || listen(listener,2)){close(listener);return 66;}
     puts("DE_HOST_PATH_RELAY_READY");fflush(stdout);
     time_t deadline=time(NULL)+60;
-    for(long i=0;i<limit && time(NULL)<deadline;) {
+    for(long i=0;limit==0 || (i<limit && time(NULL)<deadline);) {
         struct pollfd pfd={listener,POLLIN,0};
         if(poll(&pfd,1,1000)<=0)continue;
         int peer=accept(listener,NULL,NULL);if(peer<0)continue;

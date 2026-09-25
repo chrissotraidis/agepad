@@ -13,6 +13,10 @@
 #include <stdlib.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <netdb.h>
+#include <poll.h>
+#include <fcntl.h>
+#include <netinet/tcp.h>
 typedef struct { int32_t status; unsigned char payload[520]; } DEPathResponse;
 static int DEPathTransfer(int fd,void *bytes,size_t count,int sending) {
     size_t offset=0;
@@ -26,6 +30,10 @@ static int DEPathTransfer(int fd,void *bytes,size_t count,int sending) {
 }
 static void DEPathSocketOptions(int fd) {
     int yes=1;setsockopt(fd,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
+    // Steam IPC is thousands of tiny request/reply messages; with Nagle plus
+    // delayed ACKs each one waited up to ~200 ms on Wi-Fi (startup crawled at
+    // ~2 KB/s). Send immediately.
+    setsockopt(fd,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));
     struct timeval timeout={2,0};
     setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
     setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
@@ -54,6 +62,63 @@ static int DEPairedTunnelAddress(const char *text,struct in6_addr *address) {
     freeifaddrs(interfaces);
     return found;
 }
+// Connect to the Mac Steam relay. `hosts` is "paired-tunnel" (USB/CoreDevice
+// link), an IP literal, a host name, or a comma-separated list tried in order
+// (e.g. home Wi-Fi address, then a Tailscale address). When a pairing key is
+// configured (AGEPAD_RELAY_TOKEN), every connection starts with
+// "AGEPAD1 <mode> <key>\n" so the Mac helper serves only this paired iPad.
+// Modes: S = Steam client stream, P = Steam path query, I = helper info.
+// Returns a connected blocking socket, or -1 with errno set.
+static int DERelayConnectOne(const struct sockaddr *address,socklen_t length,int timeoutMs) {
+    int fd=socket(address->sa_family,SOCK_STREAM,0);
+    if (fd<0) return -1;
+    int yes=1;setsockopt(fd,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
+    int flags=fcntl(fd,F_GETFL);fcntl(fd,F_SETFL,flags|O_NONBLOCK);
+    int result=connect(fd,address,length);
+    if (result<0 && errno==EINPROGRESS) {
+        struct pollfd pending={.fd=fd,.events=POLLOUT};
+        int failure=0;socklen_t size=sizeof(failure);
+        int waited=poll(&pending,1,timeoutMs);
+        if (waited>0 && getsockopt(fd,SOL_SOCKET,SO_ERROR,&failure,&size)==0 && !failure) result=0;
+        else { errno=waited==0?ETIMEDOUT:(failure?failure:errno);result=-1; }
+    }
+    if (result) { int saved=errno;close(fd);errno=saved;return -1; }
+    fcntl(fd,F_SETFL,flags&~O_NONBLOCK);
+    return fd;
+}
+static int DERelayConnect(const char *hosts,int port,char mode) {
+    if (!hosts || port<1024 || port>65535) { errno=EINVAL;return -1; }
+    const char *token=getenv("AGEPAD_RELAY_TOKEN");
+    char list[512];snprintf(list,sizeof list,"%s",hosts);
+    int fd=-1,lastErrno=EHOSTUNREACH;
+    for (char *cursor=list,*host;fd<0 && (host=strsep(&cursor,","));) {
+        while (*host==' ') host++;
+        if (!*host) continue;
+        struct in6_addr tunnel;
+        if (!strcmp(host,"paired-tunnel")) {
+            if (DEPairedTunnelAddress(host,&tunnel)) continue;
+            struct sockaddr_in6 address={.sin6_len=sizeof(address),.sin6_family=AF_INET6,.sin6_port=htons((uint16_t)port),.sin6_addr=tunnel};
+            fd=DERelayConnectOne((struct sockaddr *)&address,sizeof(address),2000);
+            if (fd<0) lastErrno=errno;
+            continue;
+        }
+        char service[8];snprintf(service,sizeof service,"%d",port);
+        struct addrinfo hints={.ai_family=AF_UNSPEC,.ai_socktype=SOCK_STREAM},*results=NULL;
+        if (getaddrinfo(host,service,&hints,&results)) continue;
+        for (struct addrinfo *it=results;it && fd<0;it=it->ai_next) {
+            fd=DERelayConnectOne(it->ai_addr,it->ai_addrlen,1500);
+            if (fd<0) lastErrno=errno;
+        }
+        freeaddrinfo(results);
+    }
+    if (fd<0) { errno=lastErrno;return -1; }
+    if (token && *token) {
+        char header[160];
+        int length=snprintf(header,sizeof header,"AGEPAD1 %c %s\n",mode,token);
+        if (length<=0 || length>=(int)sizeof header || DEPathTransfer(fd,header,(size_t)length,1)) { close(fd);errno=EPROTO;return -1; }
+    }
+    return fd;
+}
 static int DEGetRelayedPath(const char *path,DEPathResponse *response) {
     struct sockaddr_un address={0};address.sun_family=AF_UNIX;
     int trace=getenv("AGEPAD_IPC_TRACE")!=NULL;
@@ -79,14 +144,11 @@ static int DEGetRelayedPath(const char *path,DEPathResponse *response) {
     close(fd);return result;
 }
 static int DEGetRelayedPathTCP(const char *host,int port,DEPathResponse *response) {
-    struct sockaddr_in6 address={.sin6_family=AF_INET6,.sin6_port=htons((uint16_t)port)};
-    if(port<1024 || port>65535 || DEPairedTunnelAddress(host,&address.sin6_addr)) return -1;
-    int fd=socket(AF_INET6,SOCK_STREAM,0);
+    int fd=DERelayConnect(host,port,'P');
     if(fd<0)return -1;
     DEPathSocketOptions(fd);
-    int result=connect(fd,(struct sockaddr *)&address,sizeof(address));
     char request[8]={'A','G','E','P','A','T','H','1'};
-    if(!result)result=DEPathTransfer(fd,request,sizeof(request),1);
+    int result=DEPathTransfer(fd,request,sizeof(request),1);
     if(!result)result=DEPathTransfer(fd,response,sizeof(*response),0);
     close(fd);
     return result;

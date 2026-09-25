@@ -1,5 +1,6 @@
 // Enumerate actual iOS Metal devices. Observe changes by polling the real API;
 // UIKit has no advance eGPU-removal request notification to forward.
+#include "DeviceLaunchConfig.h"
 #import <Metal/Metal.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>

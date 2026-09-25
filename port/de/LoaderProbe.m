@@ -1,3 +1,4 @@
+#include "DeviceLaunchConfig.h"
 #import <UIKit/UIKit.h>
 #include <spawn.h>
 #include <stdbool.h>
@@ -97,6 +98,46 @@ static void DEDumpAllThreads(void) {
     vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
 }
 static void *DEMainWatchdogLoop(void *unused);
+// Tap-to-play preflight: ask the paired Mac helper whether Steam is open there,
+// so the setup screen can say so instead of starting a game that would quit.
+// Returns 1 Steam open, 0 helper reached but Steam closed, -1 helper unreachable.
+#include <netdb.h>
+#include <poll.h>
+static int DEPairedMacSteamState(void) {
+    const char *hosts=getenv("AGEPAD_STEAM_TUNNEL_HOST"),*port=getenv("AGEPAD_STEAM_TUNNEL_PORT"),*token=getenv("AGEPAD_RELAY_TOKEN");
+    if (!hosts || !port || !token) return -1;
+    if (!strcmp(hosts,"paired-tunnel")) return 1; // USB link: the Mac launcher already checked Steam
+    char list[512];snprintf(list,sizeof list,"%s",hosts);
+    for (char *cursor=list,*host;(host=strsep(&cursor,","));) {
+        struct addrinfo hints={.ai_family=AF_UNSPEC,.ai_socktype=SOCK_STREAM},*results=NULL;
+        if (!*host || getaddrinfo(host,port,&hints,&results)) continue;
+        for (struct addrinfo *it=results;it;it=it->ai_next) {
+            int fd=socket(it->ai_family,SOCK_STREAM,0);if (fd<0) continue;
+            int flags=fcntl(fd,F_GETFL);fcntl(fd,F_SETFL,flags|O_NONBLOCK);
+            int ok=connect(fd,it->ai_addr,it->ai_addrlen)==0;
+            if (!ok && errno==EINPROGRESS) {
+                struct pollfd p={.fd=fd,.events=POLLOUT};int failure=0;socklen_t size=sizeof failure;
+                ok=poll(&p,1,1500)>0 && getsockopt(fd,SOL_SOCKET,SO_ERROR,&failure,&size)==0 && !failure;
+            }
+            if (ok) {
+                fcntl(fd,F_SETFL,flags);
+                struct timeval timeout={3,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof timeout);
+                char header[160],reply[64]={0};
+                int length=snprintf(header,sizeof header,"AGEPAD1 I %s\n",token);
+                ssize_t n=write(fd,header,(size_t)length)==length?read(fd,reply,sizeof reply-1):-1;
+                close(fd);freeaddrinfo(results);
+                int steam=n>0 && strstr(reply,"STEAM 1")!=NULL;
+                fprintf(stderr,"DE_PAIRED_MAC host=%s reply=%s steam=%d\n",host,n>0?reply:"none",steam);
+                return steam;
+            }
+            close(fd);
+        }
+        freeaddrinfo(results);
+    }
+    fprintf(stderr,"DE_PAIRED_MAC unreachable hosts=%s\n",hosts);
+    return -1;
+}
+static int DEPairedMacState=1; // shown on the setup screen when not 1
 // Opt-in frame-rate measurement (AGEPAD_DEVICE_FRAME_RATE): every
 // -[CAMetalLayer nextDrawable] is one frame the engine starts rendering for
 // display. The watchdog reports the count per 2 s tick as frames per second.
@@ -664,6 +705,8 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                 clientLoaded != NULL, clientError ?: "none");
         if (skipPreflight) {
             sessionLoggedOn = true;
+            const char *pairingKey=getenv("AGEPAD_RELAY_TOKEN");
+            if (pairingKey && *pairingKey) { DEPairedMacState=DEPairedMacSteamState();sessionLoggedOn=DEPairedMacState==1; }
             fprintf(stderr, "DE_DEVICE_STEAM_PREFLIGHT skipped=1 game_performs_init=1\n");
         }
         if (clientLoaded && !skipPreflight) {
@@ -810,17 +853,23 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         NSString *freeSpace = [NSByteCountFormatter stringFromByteCount:(long long)freeBytes countStyle:NSByteCountFormatterCountStyleFile];
         addLine(@"AGEPAD", 20, UIFontWeightBold, gold);
         addLine(@"Age of Empires II: Definitive Edition", 34, UIFontWeightBold, UIColor.whiteColor);
-        addLine(@"Start the game from your Mac. Opening AgePad from the Home Screen shows this setup check only.",
+        BOOL paired = getenv("AGEPAD_STEAM_TUNNEL_HOST") != NULL;
+        addLine(!paired ? @"Not paired with a Mac yet. Pair once over USB, then just tap AgePad to play." :
+                !hasData ? @"Paired with your Mac, but the game files are missing." :
+                DEPairedMacState==0 ? @"Steam isn't open on your Mac. Open Steam there, then reopen AgePad." :
+                @"Couldn't reach your Mac. Make sure it's awake and on the same Wi-Fi (or Tailscale), then reopen AgePad.",
                 23, UIFontWeightSemibold, UIColor.whiteColor);
         addLine(inventoryChecked ? @"Game files · Imported inventory checked" :
                 hasData ? @"Game files · Import incomplete or unchecked" : @"Game files · Not imported",
                 19, UIFontWeightMedium, UIColor.whiteColor);
         addLine([NSString stringWithFormat:@"Available iPad storage · %@",freeSpace],
                 19, UIFontWeightMedium, UIColor.whiteColor);
-        addLine(@"Steam · Uses the Steam app on your Mac. Your login never leaves the Mac; the game reaches it over the USB/Wi-Fi link while the Mac launches AgePad.",
+        addLine(paired ? [NSString stringWithFormat:@"Steam · Uses your Mac (%s). Check that the Mac is awake, Steam is open and signed in, and the iPad is on the same Wi-Fi (or Tailscale). Then close and reopen AgePad.", getenv("AGEPAD_STEAM_TUNNEL_HOST")] :
+                @"Steam · AgePad uses the Steam app on your Mac to confirm you own the game. Your login stays on the Mac.",
                 19, UIFontWeightMedium, UIColor.whiteColor);
         addLine(inventoryChecked ?
-                @"To play: keep the iPad connected to your Mac, open Steam on the Mac and stay signed in, then run  scripts/agepad-ipad.sh play  in the AgePad folder. The game opens here in about two minutes." :
+                (paired ? @"The AgePad helper runs on the Mac (scripts/agepad-ipad.sh install-helper starts it automatically at login)." :
+                 @"To pair: connect the iPad by USB and run  scripts/agepad-ipad.sh pair  on the Mac. After that, tap AgePad whenever the Mac is on with Steam open.") :
                 @"Game files are missing. On your Mac run  scripts/agepad-ipad.sh check  in the AgePad folder; it explains how to copy your Steam copy of the game to this iPad.",
                 18, UIFontWeightRegular, muted);
         addLine(@"Controls · tap: select · Pencil tap after selecting: move/order · hold: plain click · two-finger tap: right-click · three-finger drag: scroll map · pinch: zoom",

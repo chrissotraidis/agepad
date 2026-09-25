@@ -86,9 +86,32 @@ void *launch_msg(const void *request) {
 // process; an iPad PID never is. The Steam images (only they link this shim)
 // report the Mac relay's PID, which lives exactly as long as this relayed
 // session. The game executable and iOS keep the real iPad PID.
+static pthread_once_t DEHelperPIDOnce=PTHREAD_ONCE_INIT;
+static pid_t DEHelperPID;
+static void DEFetchHelperPID(void) {
+    const char *port=getenv("AGEPAD_STEAM_TUNNEL_PORT");
+    for (int attempt=0;attempt<3 && DEHelperPID<=1;attempt++) {
+        int fd=port?DERelayConnect(getenv("AGEPAD_STEAM_TUNNEL_HOST"),atoi(port),'I'):-1;
+        char reply[64]={0};
+        if (fd>=0) {
+            DEPathSocketOptions(fd);
+            ssize_t n=read(fd,reply,sizeof(reply)-1);
+            if (n>4 && !strncmp(reply,"PID ",4)) DEHelperPID=(pid_t)atoi(reply+4);
+            close(fd);
+        }
+    }
+    fprintf(stderr,"DE_IPC_HELPER_PID fetched=%d\n",(int)DEHelperPID);fflush(stderr);
+}
 static pid_t DEHostSessionPID(void) {
     const char *text=getenv("AGEPAD_HOST_SESSION_PID");
-    if (!text || !getenv("AGEPAD_STEAM_TUNNEL_HOST")) return 0;
+    if (!getenv("AGEPAD_STEAM_TUNNEL_HOST")) return 0;
+    if (!text) {
+        // Tap-to-play: ask the Mac helper for its (long-lived) process ID once.
+        // Every Steam call must report the same ID, so concurrent callers wait
+        // for this single answer instead of falling back to the iPad's own PID.
+        pthread_once(&DEHelperPIDOnce,DEFetchHelperPID);
+        return DEHelperPID>1?DEHelperPID:0;
+    }
     char *end=NULL;
     long value=strtol(text,&end,10);
     return end && !*end && value>1 && value<INT32_MAX ? (pid_t)value : 0;
@@ -192,6 +215,42 @@ void *dlopen(const char *path,int mode) {
     }
     return real(path,mode);
 }
+// Sockets redirected to the Mac helper must still look like the local Steam
+// connection the Steam client opened (127.0.0.1:<Steam port>). Over the USB
+// link the real peer is an IPv6 tunnel address; over Wi-Fi it is the Mac's
+// LAN address, and the Steam client stalled waiting on that connection.
+static int DERelayedPeer(int fd) {
+    const char *helperText=getenv("AGEPAD_STEAM_TUNNEL_PORT");
+    if (!helperText || !getenv("AGEPAD_STEAM_TUNNEL_HOST")) return 0;
+    int (*real)(int,struct sockaddr *,socklen_t *)=dlsym(RTLD_NEXT,"getpeername");
+    struct sockaddr_storage peer;socklen_t size=sizeof(peer);
+    if (!real || real(fd,(struct sockaddr *)&peer,&size)) return 0;
+    int port=peer.ss_family==AF_INET?ntohs(((struct sockaddr_in *)&peer)->sin_port):
+             peer.ss_family==AF_INET6?ntohs(((struct sockaddr_in6 *)&peer)->sin6_port):0;
+    return port && port==atoi(helperText);
+}
+static int DEWriteLoopback(struct sockaddr *address,socklen_t *length,int port) {
+    if (!address || !length) { errno=EFAULT;return -1; }
+    struct sockaddr_in loopback={.sin_len=sizeof(loopback),.sin_family=AF_INET,.sin_port=htons((uint16_t)port),.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+    socklen_t copy=*length<sizeof(loopback)?*length:sizeof(loopback);
+    memcpy(address,&loopback,copy);*length=sizeof(loopback);
+    return 0;
+}
+int getpeername(int fd,struct sockaddr *address,socklen_t *length) {
+    int (*real)(int,struct sockaddr *,socklen_t *)=dlsym(RTLD_NEXT,"getpeername");
+    const char *steamPort=getenv("AGEPAD_STEAM_LOOPBACK_PORT");
+    if (steamPort && DERelayedPeer(fd)) return DEWriteLoopback(address,length,atoi(steamPort));
+    return real?real(fd,address,length):(errno=ENOSYS,-1);
+}
+int getsockname(int fd,struct sockaddr *address,socklen_t *length) {
+    int (*real)(int,struct sockaddr *,socklen_t *)=dlsym(RTLD_NEXT,"getsockname");
+    if (!real) { errno=ENOSYS;return -1; }
+    if (!DERelayedPeer(fd)) return real(fd,address,length);
+    struct sockaddr_storage local;socklen_t size=sizeof(local);
+    if (real(fd,(struct sockaddr *)&local,&size)) return -1;
+    int port=local.ss_family==AF_INET?ntohs(((struct sockaddr_in *)&local)->sin_port):ntohs(((struct sockaddr_in6 *)&local)->sin6_port);
+    return DEWriteLoopback(address,length,port);
+}
 int connect(int fd,const struct sockaddr *address,socklen_t length) {
     int (*real)(int,const struct sockaddr *,socklen_t)=dlsym(RTLD_NEXT,"connect");
     int result=-1;
@@ -204,36 +263,21 @@ int connect(int fd,const struct sockaddr *address,socklen_t length) {
         const struct sockaddr_in *original=(const struct sockaddr_in *)address;
         char *fromEnd=NULL,*toEnd=NULL;
         long from=strtol(fromText,&fromEnd,10),to=strtol(toText,&toEnd,10);
-        struct sockaddr_in6 destination={.sin6_family=AF_INET6};
         if (*fromText && *toText && *fromEnd==0 && *toEnd==0 &&
             from>=1024 && from<=65535 && to>=1024 && to<=65535 &&
             original->sin_addr.s_addr==htonl(INADDR_LOOPBACK) &&
-            ntohs(original->sin_port)==from &&
-            DEPairedTunnelAddress(host,&destination.sin6_addr)==0) {
-            destination.sin6_port=htons((uint16_t)to);
-            int tunnel=socket(AF_INET6,SOCK_STREAM,0);
+            ntohs(original->sin_port)==from) {
+            // Steam's local client port → the Mac helper (USB link, Wi-Fi or Tailscale).
+            int flags=fcntl(fd,F_GETFL);
+            int tunnel=DERelayConnect(host,(int)to,'S');
+            int connectionErrno=tunnel<0?errno:0;
             if (tunnel>=0) {
-                int flags=fcntl(fd,F_GETFL);
-                if (flags>=0) fcntl(tunnel,F_SETFL,flags|O_NONBLOCK);
-                result=real(tunnel,(const struct sockaddr *)&destination,sizeof(destination));
-                int connectionErrno=result==0?0:errno;
-                if (result<0 && connectionErrno==EINPROGRESS) {
-                    struct pollfd pending={.fd=tunnel,.events=POLLOUT};
-                    int waited=poll(&pending,1,2000);
-                    int failure=0;
-                    socklen_t failureSize=sizeof(failure);
-                    if (waited>0 && getsockopt(tunnel,SOL_SOCKET,SO_ERROR,&failure,&failureSize)==0 && !failure) {
-                        result=0;connectionErrno=0;
-                    } else connectionErrno=waited==0?ETIMEDOUT:(failure?failure:errno);
-                }
-                if (result==0) {
-                    if (flags>=0) fcntl(tunnel,F_SETFL,flags);
-                    if (dup2(tunnel,fd)<0) {result=-1;connectionErrno=errno;}
-                    else redirected=1;
-                }
+                if (flags>=0) fcntl(tunnel,F_SETFL,flags);
+                if (dup2(tunnel,fd)<0) {result=-1;connectionErrno=errno;}
+                else {result=0;redirected=1;}
                 close(tunnel);
-                errno=connectionErrno;
-            }
+            } else result=-1;
+            errno=connectionErrno;
         } else result=real(fd,address,length);
     } else if (real) result=real(fd,address,length);
     else errno=ENOSYS;

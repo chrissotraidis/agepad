@@ -26,6 +26,8 @@ parser.add_argument('--original-steam-module', type=Path,
 parser.add_argument('--bundle-id', default='local.agepad.device-de-probe')
 parser.add_argument('--increased-memory-limit', action='store_true',
                     help='Request com.apple.developer.kernel.increased-memory-limit; the profile must grant it')
+parser.add_argument('--launch-env', type=Path,
+                    help='AGEPAD_* KEY=VALUE settings baked in for tap-to-play launches (AgePadLaunch.env)')
 args = parser.parse_args()
 root = args.candidate_root.resolve(strict=True)
 boundary = args.boundary.resolve(strict=True)
@@ -122,6 +124,9 @@ info_path = output / 'Info.plist'
 info = plistlib.loads(info_path.read_bytes())
 info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad DE Probe',
              'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True})
+# Tap-to-play reaches the Mac helper on the home network; iPadOS asks once.
+info['NSLocalNetworkUsageDescription'] = ('AgePad connects to the AgePad helper on your Mac, '
+                                          'which lets the game use your Mac\'s Steam sign-in.')
 info_path.write_bytes(plistlib.dumps(info))
 # The original localized InfoPlist.strings overrides this diagnostic label.
 # Keep the probe visibly distinct from a playable AgePad installation.
@@ -130,6 +135,9 @@ for localized in output.rglob('InfoPlist.strings'):
 # Normal launch shows the setup screen. Steam relay and original startup are
 # opt-in diagnostics; imported data lives only in the app's Documents folder.
 (output / 'DeviceSetupGate').write_text('hardware diagnostic; setup shown without opt-in relay\n')
+if args.launch_env:
+    lines = [line for line in args.launch_env.read_text().splitlines() if line.startswith('AGEPAD_') and '=' in line]
+    (output / 'AgePadLaunch.env').write_text('\n'.join(lines) + '\n')
 sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
 child = output / 'DeviceChildProbe'
 subprocess.run(['xcrun', 'clang', '-target', 'arm64-apple-ios15.0', '-isysroot', sdk,
