@@ -39,6 +39,7 @@
 - (void)nativeOrder:(UITapGestureRecognizer *)gesture {
     if(gesture.state!=UIGestureRecognizerStateRecognized)return;
     CGPoint point=[gesture locationInView:self];
+    fprintf(stderr,"DE_TWO_FINGER_ORDER x=%g y=%g\n",point.x,point.y);
     [self nativeMouse:5 point:point wheel:0];[self nativeMouse:3 point:point wheel:0];
     [self nativeMouse:4 point:point wheel:0];
     DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();

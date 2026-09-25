@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <malloc/malloc.h>
 #include <execinfo.h>
+#include <stdatomic.h>
 
 // Opt-in, read-only main-thread watchdog for hardware runs. A main run-loop
 // timer advances a heartbeat; if it stops, a background thread briefly
@@ -104,16 +105,34 @@ extern void (*malloc_logger)(uint32_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,ui
 #define DE_LEAK_SLOTS 4096
 typedef struct { _Atomic uintptr_t ptr; void *frames[16]; int count; } DELeakSample;
 static DELeakSample *DELeakRing;static _Atomic unsigned long long DELeakSeen;static _Atomic unsigned DELeakNext;
+// Pointer -> slot table so a free clears its sample (only still-live samples count).
+#define DE_LEAK_TABLE 16384
+static _Atomic uintptr_t *DELeakKeys;static _Atomic int *DELeakSlots;
+static size_t DELeakHash(uintptr_t p) { return (size_t)((p>>4)*0x9E3779B97F4A7C15ULL>>50)&(DE_LEAK_TABLE-1); }
 static void DELeakLogger(uint32_t type,uintptr_t zone,uintptr_t size,uintptr_t unused,uintptr_t result,uint32_t skip) {
+    if (type&4) {
+        // Deallocation (or realloc source): arg2 is the freed pointer.
+        uintptr_t freed=size;
+        for (size_t i=DELeakHash(freed),n=0;n<8;n++,i=(i+1)&(DE_LEAK_TABLE-1)) {
+            if (DELeakKeys[i]==freed) { int slot=DELeakSlots[i];DELeakKeys[i]=0;if (slot>=0 && DELeakRing[slot].ptr==freed) DELeakRing[slot].ptr=0;break; }
+        }
+        if (!(type&2)) return;
+        size=unused; // realloc: arg3 is the new size.
+    }
     if (!(type&2) || (type&4) || size<33 || size>64 || !result) return;
     if ((++DELeakSeen)%499) return;
-    DELeakSample *sample=&DELeakRing[(DELeakNext++)%DE_LEAK_SLOTS];
+    unsigned slot=(DELeakNext++)%DE_LEAK_SLOTS;DELeakSample *sample=&DELeakRing[slot];
     sample->ptr=0;sample->count=backtrace(sample->frames,16);sample->ptr=result;
+    for (size_t i=DELeakHash(result),n=0;n<8;n++,i=(i+1)&(DE_LEAK_TABLE-1)) {
+        uintptr_t expected=0;
+        if (atomic_compare_exchange_strong(&DELeakKeys[i],&expected,result)) { DELeakSlots[i]=(int)slot;break; }
+    }
 }
 static void DEInstallLeakSampler(void) {
     if (!getenv("AGEPAD_DEVICE_LEAK_SAMPLER") || DELeakRing) return;
     DELeakRing=calloc(DE_LEAK_SLOTS,sizeof(DELeakSample));
-    if (DELeakRing) malloc_logger=DELeakLogger;
+    DELeakKeys=calloc(DE_LEAK_TABLE,sizeof(uintptr_t));DELeakSlots=calloc(DE_LEAK_TABLE,sizeof(int));
+    if (DELeakRing && DELeakKeys && DELeakSlots) malloc_logger=DELeakLogger;
 }
 static void DEReportLeakSamples(unsigned seconds) {
     if (!DELeakRing) return;
