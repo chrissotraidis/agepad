@@ -97,6 +97,17 @@ static void DEDumpAllThreads(void) {
     vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
 }
 static void *DEMainWatchdogLoop(void *unused);
+// Opt-in frame-rate measurement (AGEPAD_DEVICE_FRAME_RATE): every
+// -[CAMetalLayer nextDrawable] is one frame the engine starts rendering for
+// display. The watchdog reports the count per 2 s tick as frames per second.
+static _Atomic unsigned long long DEFrameCount;
+static IMP DEOriginalNextDrawable;
+static id DECountedNextDrawable(id layer,SEL selector) { DEFrameCount++;return ((id(*)(id,SEL))DEOriginalNextDrawable)(layer,selector); }
+static void DEInstallFrameCounter(void) {
+    if (!getenv("AGEPAD_DEVICE_FRAME_RATE") || DEOriginalNextDrawable) return;
+    Method method=class_getInstanceMethod(NSClassFromString(@"CAMetalLayer"),@selector(nextDrawable));
+    if (method) DEOriginalNextDrawable=method_setImplementation(method,(IMP)DECountedNextDrawable);
+}
 // Opt-in leak sampler (AGEPAD_DEVICE_LEAK_SAMPLER): libmalloc's logger hook
 // records the call stack of 1 in 499 string-sized (33-64 byte) allocations.
 // At census time, samples that are still live Swift strings holding
@@ -381,6 +392,7 @@ static void *DEMainWatchdogLoop(void *unused) {
         uint64_t last=DEMainHeartbeat;unsigned stalled=0,dumps=0;
         DEWatchdogLog("DE_WATCHDOG_START\n");
         DEInstallLeakSampler();
+        DEInstallFrameCounter();
         for (unsigned early=1;early<=12;early++) {
             DEEnsureFaultLogger();
             usleep(100000);
@@ -390,6 +402,12 @@ static void *DEMainWatchdogLoop(void *unused) {
         }
         for (unsigned tick=1;;tick++) {
             sleep(2);
+            if (DEOriginalNextDrawable) {
+                static unsigned long long lastFrames;static uint64_t lastTime;
+                uint64_t now=clock_gettime_nsec_np(CLOCK_MONOTONIC);unsigned long long frames=DEFrameCount;
+                if (lastTime) DEWatchdogLog("DE_FRAME_RATE seconds=%u fps=%.1f frames=%llu\n",tick*2,(double)(frames-lastFrames)*1e9/(double)(now-lastTime),frames);
+                lastFrames=frames;lastTime=now;
+            }
             if (tick%1==0) {
                 char target[1024]="?";
                 fcntl(STDERR_FILENO,F_GETPATH,target);
