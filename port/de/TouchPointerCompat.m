@@ -15,14 +15,14 @@
     // top-left corner. Touch (long-press) end locations remain real points.
     if ([gesture isKindOfClass:UIHoverGestureRecognizer.class] && gesture.state==UIGestureRecognizerStateEnded) return;
     CGPoint local=[gesture locationInView:self.window];
-    if([gesture isKindOfClass:UILongPressGestureRecognizer.class]){UIView *hit=[self.window hitTest:local withEvent:nil];fprintf(stderr,"DE_TOUCH_HIT state=%ld view=%s super=%s\n",(long)gesture.state,object_getClassName(hit),object_getClassName(hit.superview));}
+    if([gesture isKindOfClass:UILongPressGestureRecognizer.class] && (gesture.state!=UIGestureRecognizerStateChanged || getenv("AGEPAD_INPUT_VERBOSE"))){UIView *hit=[self.window hitTest:local withEvent:nil];fprintf(stderr,"DE_TOUCH_HIT state=%ld view=%s super=%s\n",(long)gesture.state,object_getClassName(hit),object_getClassName(hit.superview));}
     CGPoint global=[self.window convertPoint:local toCoordinateSpace:self.window.screen.coordinateSpace];
     if(DEOrderedMousePointerIsHeld()) {
         if(getenv("AGEPAD_INPUT_TIMING"))fprintf(stderr,"DE_POINTER_UIKIT_DEFERRED x=%g y=%g ordered_button_active=1\n",global.x,global.y);
         return;
     }
     @synchronized(self) { self.position=global; }
-    fprintf(stderr,"DE_POINTER_UIKIT_UPDATE x=%g y=%g\n",global.x,global.y);
+    if(getenv("AGEPAD_INPUT_VERBOSE"))fprintf(stderr,"DE_POINTER_UIKIT_UPDATE x=%g y=%g\n",global.x,global.y);
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)a shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b { return YES; }
 @end

@@ -79,15 +79,31 @@ The Xbox intro and the menu take about two minutes to appear. Keep the Mac windo
 | Pinch | Zoom |
 | Apple Pencil tap on a unit or drag-box | Select; the next Pencil taps on the map give orders (right click) until you… |
 | Apple Pencil hold (½ s) | …plain left click, which stops giving orders |
+| Apple Pencil double-tap (on the Pencil's side, 2nd gen / Pro) | Deselect and stop giving orders |
 | Pencil tap on the top bar or bottom panel | Normal button press |
-| Side buttons | Order (next tap is a right click), Idle villager, Town Center, Zoom ±, Menu |
+| A Mac-style mouse or trackpad | Works as on the Mac (click, right click, scroll) |
+
+Side buttons:
+
+| Button | Action |
+|---|---|
+| R-CLICK | The next tap is a right click (useful with one finger). Shows CANCEL while waiting |
+| IDLE | Next idle villager |
+| TOWN | Town Center; tap again to cycle through your Town Centers |
+| ZOOM + / ZOOM − | Zoom; hold to keep zooming |
+| MENU | Opens the game menu; tap again to close it |
 
 In menus, taps are always plain clicks.
+
+**Tip:** the in-game HUD looks small on the iPad. In the game's **Options → Interface**, raise **HUD scale** and confirm; the setting is kept in your profile.
+
+**Steam:** the name at the top right of the main menu is your Steam account, signed in through the Mac. There is nothing to sign in to on the iPad.
 
 ## Known limits
 
 - The Mac must stay on with Steam open; no standalone iPad session yet.
 - Loading a skirmish takes about a minute. The first launch after install is slower.
 - Save, relaunch and resume on the iPad, sustained in-match frame rate, and multiplayer are not yet verified. The menu holds 120 fps.
-- iPads with less than 8 GB of memory are not expected to fit a match.
+- iPads with less than 8 GB of memory are not expected to fit a match; iPhones are out of scope for the same reason.
+- The player score list can overlap the top of the minimap at the default HUD scale; under investigation.
 

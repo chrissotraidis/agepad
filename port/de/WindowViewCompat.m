@@ -39,7 +39,8 @@ extern id DEUIKitScreenObject(UIScreen *screen);
 // Apple Pencil sticky orders (AGEPAD_PENCIL_STICKY_ORDER), gameplay only.
 @property(nonatomic) BOOL pencilPending,pendingIsPencil,pencilDragging,forceSecondary,overrideActive;
 @property(nonatomic) CGPoint pencilStart,overridePoint;
-@property(nonatomic) NSTimeInterval pencilStartTime;
+@property(nonatomic) NSTimeInterval pencilStartTime,lastDragSent;
+@property(nonatomic,strong) NSTimer *zoomTimer;
 @property(nonatomic,weak) UIGestureRecognizer *orderTap,*zoomPinch;
 - (void)refreshTouchCommandButton;
 - (void)installNativeGestures;
@@ -52,6 +53,16 @@ static BOOL DEGlobalTouchCommandMode;
 // (top bar, bottom panel/minimap) stay left clicks and disarm, so a build
 // button followed by a map tap places the building.
 static BOOL DEPencilOrderArmed;
+// MENU button toggle: F10 opens DE's game menu; the second press sends Escape,
+// which closes it. Gameplay gestures (orders, drag boxes, scrolls) prove the
+// menu is closed, so they reset the toggle.
+static BOOL DEMenuOpen;
+// High-rate pointer events (move/drag, up to 240 Hz from Apple Pencil) are
+// only logged with AGEPAD_INPUT_VERBOSE; the logging itself added latency.
+static BOOL DEInputVerbose(NSUInteger type) {
+    static int verbose=-1;if (verbose<0) verbose=getenv("AGEPAD_INPUT_VERBOSE")!=NULL;
+    return verbose || (type!=5 && type!=6 && type!=7 && type!=27);
+}
 static BOOL DEPencilMatchActive(void) {
     static int (*active)(void);static BOOL looked;
     if (!looked) { looked=YES;active=(int(*)(void))dlsym(RTLD_DEFAULT,"DEGameMatchActive"); }
@@ -122,7 +133,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
         _touchOrderButton.layer.borderWidth=2.0;
         _touchOrderButton.layer.cornerRadius=4.0;
         _touchOrderButton.titleLabel.font=[UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
-        _touchOrderButton.accessibilityLabel=@"Order command mode";
+        _touchOrderButton.accessibilityLabel=@"Right-click mode";
         [self addSubview:_touchOrderButton];
         NSMutableArray<UIButton *> *shortcuts=[NSMutableArray new];
         NSArray *titles=@[@"IDLE",@"TOWN",@"ZOOM +",@"ZOOM −",@"MENU"];
@@ -130,6 +141,11 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
             UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
             button.tag=i;[button setTitle:titles[i] forState:UIControlStateNormal];
             [button addTarget:self action:@selector(touchShortcut:) forControlEvents:UIControlEventTouchUpInside];
+            if(i==2 || i==3) {
+                // Zoom repeats while the button is held.
+                [button addTarget:self action:@selector(zoomHoldBegan:) forControlEvents:UIControlEventTouchDown];
+                [button addTarget:self action:@selector(zoomHoldEnded:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
+            }
             [self addSubview:button];[shortcuts addObject:button];
         }
         self.touchShortcutButtons=shortcuts;
@@ -140,7 +156,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
             button.layer.borderWidth=2;button.layer.cornerRadius=2;
             button.titleLabel.font=[UIFont fontWithName:@"Georgia-Bold" size:14];
         }
-        _touchOrderButton.accessibilityHint=@"Tap a target to issue an order. Two-finger tap also orders.";
+        _touchOrderButton.accessibilityHint=@"The next tap is a right click (move, gather, attack). Two-finger tap does the same.";
         shortcuts[0].accessibilityLabel=@"Select idle villager";
         shortcuts[1].accessibilityLabel=@"Select town center";
         shortcuts[2].accessibilityLabel=@"Zoom in";
@@ -152,10 +168,32 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
     }
     return self;
 }
+- (void)zoomHoldBegan:(UIButton *)button {
+    CGFloat wheel=button.tag==2?1:-1;
+    CGPoint center=CGPointMake(CGRectGetMidX(self.bounds),CGRectGetMidY(self.bounds));
+    [self nativeMouse:22 point:center wheel:wheel];
+    [self.zoomTimer invalidate];
+    __weak DEGameViewHost *weakSelf=self;
+    // One step on touch-down; after 0.35 s held, repeat every 0.12 s.
+    self.zoomTimer=[[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSinceNow:0.35] interval:0.12 repeats:YES block:^(NSTimer *timer){
+        DEGameViewHost *host=weakSelf;if(!host){[timer invalidate];return;}
+        [host nativeMouse:22 point:center wheel:wheel];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:self.zoomTimer forMode:NSRunLoopCommonModes];
+}
+- (void)zoomHoldEnded:(UIButton *)button { [self.zoomTimer invalidate];self.zoomTimer=nil; }
 - (void)touchShortcut:(UIButton *)button {
     if(button.tag==2 || button.tag==3) {
-        [self nativeMouse:22 point:CGPointMake(CGRectGetMidX(self.bounds),CGRectGetMidY(self.bounds)) wheel:button.tag==2?1:-1];return;
+        return; // Zoom is sent on touch-down and repeated while held.
     }
+    if(button.tag==4 && DEMenuOpen) {
+        DEMenuOpen=NO;DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
+        fprintf(stderr,"DE_MENU_TOGGLE action=close key=escape\n");
+        DEPostGameKey(53,@"\e",YES);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{DEPostGameKey(53,@"\e",NO);});
+        return;
+    }
+    if(button.tag==4){DEMenuOpen=YES;fprintf(stderr,"DE_MENU_TOGGLE action=open key=f10\n");}
     unsigned short key=button.tag==0?47:button.tag==1?4:109;
     NSString *characters=button.tag==0?@".":button.tag==1?@"h":@"\uF70D";
     DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
@@ -166,7 +204,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
 - (BOOL)canBecomeFirstResponder { return YES; }
 - (void)refreshTouchCommandButton {
     if (!self.touchOrderButton) return;
-    [self.touchOrderButton setTitle:DEGlobalTouchCommandMode?@"CANCEL":@"ORDER" forState:UIControlStateNormal];
+    [self.touchOrderButton setTitle:DEGlobalTouchCommandMode?@"CANCEL":@"R-CLICK" forState:UIControlStateNormal];
 }
 - (void)toggleTouchCommand:(UIButton *)sender {
     DEGlobalTouchCommandMode=!DEGlobalTouchCommandMode;
@@ -175,8 +213,9 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
 }
 - (void)sendGameMouse:(NSUInteger)type touch:(UITouch *)touch cancelled:(BOOL)cancelled {
  id owner=self.originalView;
- DELogTouchDetail(touch,type);
- fprintf(stderr,"DE_GAME_TOUCH_HOST host=%s owner=%s type=%lu\n",object_getClassName(self),object_getClassName(owner),(unsigned long)type);
+ BOOL verbose=DEInputVerbose(type);
+ if(verbose)DELogTouchDetail(touch,type);
+ if(verbose)fprintf(stderr,"DE_GAME_TOUCH_HOST host=%s owner=%s type=%lu\n",object_getClassName(self),object_getClassName(owner),(unsigned long)type);
  SEL action=NSSelectorFromString(type==1?@"mouseDown:":type==2?@"mouseUp:":type==5?@"mouseMoved:":@"mouseDragged:");
  // UIKit clears buttonMask on release. Use the mask captured at touchesBegan
  // for the whole gesture, including drag and release, just like ORDER mode.
@@ -193,13 +232,13 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  e.locationInWindow=CGPointMake(contentPoint.x-contentHost.bounds.origin.x,CGRectGetMaxY(contentHost.bounds)-contentPoint.y);
  e.deltaX=type==6?(point.x-self.previousTouchPoint.x):0;e.deltaY=type==6?(point.y-self.previousTouchPoint.y):0;
  static NSInteger sequence=0;e.eventNumber=++sequence;self.previousTouchPoint=point;
- DELogSynthesizedMouse(type,e,self.gameButtonMask,action);
+ if(verbose)DELogSynthesizedMouse(type,e,self.gameButtonMask,action);
  if (secondary) fprintf(stderr,"DE_TOUCH_COMMAND_EVENT phase=%lu event_type=%lu button_number=%ld\n",(unsigned long)type,(unsigned long)eventType,(long)e.buttonNumber);
- fprintf(stderr,"DE_GAME_TOUCH type=%lu action=%s view=%s x=%g y=%g taps=%lu cancelled=%d\n",(unsigned long)type,sel_getName(action),object_getClassName(owner),point.x,point.y,(unsigned long)touch.tapCount,cancelled);
+ if(verbose)fprintf(stderr,"DE_GAME_TOUCH type=%lu action=%s view=%s x=%g y=%g taps=%lu cancelled=%d\n",(unsigned long)type,sel_getName(action),object_getClassName(owner),point.x,point.y,(unsigned long)touch.tapCount,cancelled);
  id app=((id(*)(id,SEL))objc_msgSend)(NSClassFromString(@"NSApplication"),sel_registerName("sharedApplication"));
  void (^post)(void)=^{
      ((void(*)(id,SEL,id,BOOL))objc_msgSend)(app,sel_registerName("postEvent:atStart:"),e,NO);
-     fprintf(stderr,"DE_GAME_TOUCH_ENQUEUED type=%lu\n",(unsigned long)type);
+     if(verbose)fprintf(stderr,"DE_GAME_TOUCH_ENQUEUED type=%lu\n",(unsigned long)type);
  };
  DEPostOrderedMouseEvent((id)e,self.gameLayer,post);
 }
@@ -263,8 +302,15 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      if(hypot(now.x-self.pencilStart.x,now.y-self.pencilStart.y)<8){[self sendGameMouse:5 touch:self.gameTouch cancelled:NO];return;}
      [self commitPendingPress]; // Drag: selection box from the original point.
  }
- if(self.gameTouch && [touches containsObject:self.gameTouch]) DELogButtonMask(event,6,self.gameButtonMask);
- if(self.gameTouch && [touches containsObject:self.gameTouch])[self sendGameMouse:6 touch:self.gameTouch cancelled:NO];
+ if(!self.gameTouch || ![touches containsObject:self.gameTouch])return;
+ // Coalesce drags to at most one per 1/60 s. Apple Pencil reports up to 240 Hz,
+ // faster than the game consumes mouse events, so a queue built up and box
+ // selection lagged behind the tip. touchesEnded sends the final position.
+ NSTimeInterval now=self.gameTouch.timestamp;
+ if(now-self.lastDragSent<1.0/60.0)return;
+ self.lastDragSent=now;
+ if(DEInputVerbose(6))DELogButtonMask(event,6,self.gameButtonMask);
+ [self sendGameMouse:6 touch:self.gameTouch cancelled:NO];
 }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
  if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {
@@ -276,6 +322,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      else if(held>=0.45){DEPencilOrderArmed=NO;reason="hold";}
      else if(DEPencilOrderArmed){order=YES;reason="order";}
      else {DEPencilOrderArmed=YES;reason="select";}
+     if(order)DEMenuOpen=NO;
      [self sendPendingClick:order];
      self.pencilPending=NO;self.gameTouch=nil;
      fprintf(stderr,"DE_PENCIL_TAP kind=%s held=%.2f armed=%d\n",reason,held,DEPencilOrderArmed);
@@ -289,6 +336,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      // A drag-box selects (arm orders); a finger long-press without movement
      // behaves like a Pencil hold and disarms.
      DEPencilOrderArmed=box?![self pencilPointInHUD:self.pencilStart]:(held<0.45 && DEPencilOrderArmed);
+     if(box)DEMenuOpen=NO;
      fprintf(stderr,"DE_PENCIL_DRAG box=%d armed=%d\n",box,DEPencilOrderArmed);
  }
  if(self.gameTouch && [touches containsObject:self.gameTouch]) DELogButtonMask(event,2,self.gameButtonMask);
@@ -726,14 +774,16 @@ void DEUpdateVisibleGameWindows(void) {
         if(target)((void(*)(id,SEL,id))objc_msgSend)(target,action,event);
         return;
     }
-    BOOL down=type==1 || type==3, up=type==2 || type==4, dragged=type==6 || type==7;
+    BOOL down=type==1 || type==3 || type==25, up=type==2 || type==4 || type==26, dragged=type==6 || type==7 || type==27;
     BOOL moved=type==5, scroll=type==22;
     if (!down && !up && !dragged && !moved && !scroll) DEUnsupported("window dispatch currently supports mouse and key events");
     // AppKit chooses a distinct responder method for secondary-button events.
     // Original games may encode the button in that method, independently of
     // NSEvent.buttonNumber. Sending a right event to mouseDown: loses that contract.
     BOOL secondary=type==3 || type==4 || type==7;
-    SEL action=sel_registerName(scroll?"scrollWheel:":secondary ?
+    BOOL other=type==25 || type==26 || type==27; // middle button (three-finger map drag)
+    SEL action=sel_registerName(scroll?"scrollWheel:":other ?
+        (down?"otherMouseDown:":up?"otherMouseUp:":"otherMouseDragged:") : secondary ?
         (down?"rightMouseDown:":up?"rightMouseUp:":"rightMouseDragged:") :
         (down?"mouseDown:":up?"mouseUp:":moved?"mouseMoved:":"mouseDragged:"));
     id target=self.deMouseDownTarget;
@@ -755,7 +805,7 @@ void DEUpdateVisibleGameWindows(void) {
         [visited addObject:target];
         target=((id(*)(id,SEL))objc_msgSend)(target,sel_registerName("nextResponder"));
     }
-    fprintf(stderr,"DE_WINDOW_MOUSE_DISPATCH type=%lu action=%s target=%s\n",(unsigned long)type,sel_getName(action),target?object_getClassName(target):"none");
+    if(DEInputVerbose(type))fprintf(stderr,"DE_WINDOW_MOUSE_DISPATCH type=%lu action=%s target=%s\n",(unsigned long)type,sel_getName(action),target?object_getClassName(target):"none");
     if(target)((void(*)(id,SEL,id))objc_msgSend)(target,action,event);
     if(up)self.deMouseDownTarget=nil;
 }

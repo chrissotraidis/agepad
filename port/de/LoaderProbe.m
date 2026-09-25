@@ -483,6 +483,10 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
 @end
 @implementation DEProbeViewController
 - (BOOL)prefersStatusBarHidden { return YES; }
+// Keep iPadOS's Dock, home indicator and edge swipes out of the way of map
+// scrolling at the screen edges (touch and trackpad pointer).
+- (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+- (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
     return UIInterfaceOrientationMaskLandscape;
 }

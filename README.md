@@ -58,7 +58,7 @@ Game files, Steam credentials and another person's saves must not be bundled in 
 
 - One-finger tap: select / left click.
 - Two-finger tap: order / right click.
-- Three-finger drag: move the map.
+- Three-finger drag: move the map (sent as a middle-button drag).
 - Pinch: zoom.
 - Apple Pencil: tap a unit to select, then each tap on the map is an order until a ½-second hold.
 - Side shortcuts: Order, idle villager, town center, zoom and menu.
