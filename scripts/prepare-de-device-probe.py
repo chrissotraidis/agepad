@@ -24,6 +24,8 @@ parser.add_argument('--ipc-load-probe', type=Path, help='Output of build-de-devi
 parser.add_argument('--original-steam-module', type=Path,
                     help='Owned unmodified Mac libsteam_api.dylib; staged as inert data for exact module validation')
 parser.add_argument('--bundle-id', default='local.agepad.device-de-probe')
+parser.add_argument('--increased-memory-limit', action='store_true',
+                    help='Request com.apple.developer.kernel.increased-memory-limit; the profile must grant it')
 args = parser.parse_args()
 root = args.candidate_root.resolve(strict=True)
 boundary = args.boundary.resolve(strict=True)
@@ -40,6 +42,9 @@ team = decoded['TeamIdentifier'][0]
 covered = decoded['Entitlements']['application-identifier']
 if covered not in (team + '.*', team + '.' + args.bundle_id):
     parser.error('Provisioning profile does not cover the probe bundle ID')
+memory_key = 'com.apple.developer.kernel.increased-memory-limit'
+if args.increased_memory_limit and not decoded['Entitlements'].get(memory_key):
+    parser.error('Provisioning profile does not grant the increased memory limit')
 spec = importlib.util.spec_from_file_location('de_adapter', ROOT / 'scripts/prepare-de-load-image.py')
 adapter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(adapter)
@@ -142,6 +147,8 @@ if args.ipc_load_probe:
 shutil.copy2(profile, output / 'embedded.mobileprovision')
 entitlements = {'application-identifier': team + '.' + args.bundle_id,
                 'com.apple.developer.team-identifier': team, 'get-task-allow': True}
+if args.increased_memory_limit:
+    entitlements[memory_key] = True
 entitlements_path = output.parent / 'device-probe-entitlements.plist'
 entitlements_path.write_bytes(plistlib.dumps(entitlements))
 for item in staged:
