@@ -43,6 +43,10 @@
 @end
 @protocol DEWebPreferencesAPI
 - (void)setAcceleratedCompositingEnabled:(BOOL)enabled;
+@optional
+- (void)setAcceleratedDrawingEnabled:(BOOL)enabled;
+- (BOOL)acceleratedDrawingEnabled;
+@required
 - (BOOL)acceleratedCompositingEnabled;
 @end
 @protocol DEWAKViewAPI
@@ -107,6 +111,23 @@ static void DELogWebLayers(CALayer *layer,int depth) {
 }
 - (void)drawRect:(CGRect)rect {
  if (!getenv("AGEPAD_WEB_DIRECT_PAINT")) return;
+ static unsigned audits;
+ if (audits<3 && self.window) {
+  audits++;
+  NSMutableArray<CALayer *> *pending=[NSMutableArray arrayWithObject:self.window.layer];
+  unsigned async=0;
+  while (pending.count) {
+   CALayer *layer=pending.lastObject;[pending removeLastObject];
+   if (layer.drawsAsynchronously) {
+    async++;
+    fprintf(stderr,"DE_ASYNC_LAYER class=%s delegate=%s host=%d\n",object_getClassName(layer),
+            layer.delegate?object_getClassName(layer.delegate):"none",layer==self.layer);
+   }
+   if (layer.sublayers) [pending addObjectsFromArray:layer.sublayers];
+  }
+  fprintf(stderr,"DE_ASYNC_LAYER_AUDIT async=%u\n",async);
+ }
+ if (self.layer.drawsAsynchronously) self.layer.drawsAsynchronously=NO;
  DEWebLock();id<DEWAKViewAPI> web=[self.wakWindow contentView];
  CGContextRef context=UIGraphicsGetCurrentContext();
  if(context) [web displayRectIgnoringOpacity:rect inContext:context];
@@ -195,8 +216,16 @@ static UIView *DELegacyHost(id<DEWAKViewAPI> view) {
       if (![(id)prefs respondsToSelector:@selector(setAcceleratedCompositingEnabled:)]) DEUnsupported("web compositing preference unavailable");
       [prefs setAcceleratedCompositingEnabled:NO];
       fprintf(stderr,"DE_WEB_SOFTWARE_COMPOSITING enabled=%d\n",![prefs acceleratedCompositingEnabled]);
+      // Physical iPad: WebKit's accelerated drawing sends page painting through
+      // Core Animation's asynchronous Metal CG queue, which faulted in the GPU
+      // driver on hardware. Software compositing implies software drawing here.
+      if ([(id)prefs respondsToSelector:@selector(setAcceleratedDrawingEnabled:)]) {
+        [prefs setAcceleratedDrawingEnabled:NO];
+        fprintf(stderr,"DE_WEB_SOFTWARE_DRAWING enabled=%d\n",![prefs acceleratedDrawingEnabled]);
+      }
     }
     host=[[DELegacyWebHost alloc] initWithFrame:[view frame]];
+    host.layer.drawsAsynchronously=NO;
     Class cls=NSClassFromString(@"WAKWindow");
     if (!cls || ![cls instancesRespondToSelector:@selector(initWithLayer:)]) DEUnsupported("WAK layer host unavailable");
     host.wakWindow=[(id<DEWAKWindowAPI>)[cls alloc] initWithLayer:host.layer];

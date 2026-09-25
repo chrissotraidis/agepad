@@ -108,6 +108,12 @@ pid_t getpid(void) {
 }
 int kill(pid_t pid,int signal) {
     pid_t sessionPID=DEHostSessionPID();
+    if (signal!=0) {
+        char line[160];
+        int length=snprintf(line,sizeof(line),"DE_IPC_KILL pid=%d signal=%d session=%d caller=%p\n",
+                            pid,signal,sessionPID&&pid==sessionPID,__builtin_return_address(0));
+        if (length>0) write(STDERR_FILENO,line,(size_t)length);
+    }
     if (sessionPID && pid==sessionPID) {
         // The Steam images asked about "themselves": act on this app process.
         pid_t (*realPID)(void)=(pid_t (*)(void))dlsym(RTLD_NEXT,"getpid");

@@ -4,6 +4,9 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #include "UnsupportedBoundary.h"
+// Defined below; adapters installed on shared Metal classes consult it so
+// system frameworks keep the platform implementation.
+static BOOL DEAppImageCaller(const void *caller);
 #include "MetalFormatTrace.m"
 #include "BC4TextureCompat.m"
 #include "MetalTextureRouteTrace.m"
@@ -20,15 +23,40 @@ static IMP DEOriginalBCSupport;
 // Experimental software-device profile, not a report of hardware BC support.
 // The allocation/encoder adapters implement the qualified 2D sampling path;
 // other compressed operations still fail explicitly and require further work.
+static BOOL DEAppImageCaller(const void *caller);
 static BOOL DEExperimentalBCSupport(id device,SEL selector) {
     BOOL hardware=((BOOL(*)(id,SEL))DEOriginalBCSupport)(device,selector);
+    if (!DEAppImageCaller(__builtin_return_address(0))) return hardware;
     BOOL software=getenv("AGEPAD_EXPERIMENTAL_BC_PROFILE")&&getenv("AGEPAD_SOFTWARE_BC_ALL")&&DEAllBCDecoder;
     static unsigned traces=0;if(traces++<8)fprintf(stderr,"DE_BC_DEVICE_PROFILE hardware=%d software_2d=%d complete_metal_conformance=0\n",hardware,software);
     return hardware||software;
 }
 typedef id (*DETextureAllocator)(id,SEL,id) NS_RETURNS_RETAINED;
+// The adapter replaces the method on the GPU's device class, so system
+// frameworks (Core Animation's GPU CoreGraphics renderer on hardware) reach it
+// too. Only allocations requested from images inside this app bundle get the
+// game adapters; everything else receives the platform's own texture.
+static BOOL DEAppImageCaller(const void *caller) {
+    Dl_info info={0};
+    if (!caller || !dladdr(caller,&info) || !info.dli_fname) return YES;
+    static const char *bundle;
+    static size_t bundleLength;
+    if (!bundle) {
+        bundle=strdup(NSBundle.mainBundle.bundlePath.fileSystemRepresentation);
+        bundleLength=strlen(bundle);
+    }
+    const char *name=info.dli_fname;
+    if (strncmp(name,"/private",8)==0 && strncmp(bundle,"/private",8)!=0) name+=8;
+    return strncmp(name,bundle,bundleLength)==0;
+}
 static id DECheckedTextureAllocation(id<MTLDevice> device,SEL selector,MTLTextureDescriptor *descriptor) NS_RETURNS_RETAINED;
 static id DECheckedTextureAllocation(id<MTLDevice> device,SEL selector,MTLTextureDescriptor *descriptor) {
+    if (!DEAppImageCaller(__builtin_return_address(0))) {
+        static _Atomic unsigned systemCalls;
+        if (systemCalls++<4) fprintf(stderr,"DE_METAL_SYSTEM_ALLOCATION original format=%lu usage=%lu\n",
+                                     (unsigned long)descriptor.pixelFormat,(unsigned long)descriptor.usage);
+        return ((DETextureAllocator)DEOriginalTextureDescriptorAllocation)(device,selector,descriptor);
+    }
     if(getenv("AGEPAD_TEXTURE_ROUTE_TRACE"))DELogTextureRoute(device,selector,descriptor,nil,NO);
     MTLPixelFormat storage,sample;
     if(getenv("AGEPAD_SOFTWARE_BC_ALL")&&DEBCFormatInfo(descriptor.pixelFormat,NULL,&storage,&sample)) {

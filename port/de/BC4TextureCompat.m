@@ -215,16 +215,24 @@ static DEBC4MetalDecoder *DEBC4Decoder;
 static id DEWrapEncoder(id target,id command,BOOL blit) {
  if(!target)return nil;if(getenv("AGEPAD_COMMAND_TRACE"))fprintf(stderr,"DE_ENCODER_WRAPPED class=%s blit=%d\n",object_getClassName(target),blit);DEBC4Encoder *proxy=[DEBC4Encoder alloc];proxy.target=target;proxy.command=command;proxy.decoder=DEBC4Decoder;proxy.blit=blit;return proxy;
 }
-static id DEBC4BlitFactory(id command,SEL selector) { return DEWrapEncoder(((id(*)(id,SEL))DEOriginalBlitFactory)(command,selector),command,YES); }
-static id DEBC4ComputeFactory(id command,SEL selector) { return DEWrapEncoder(((id(*)(id,SEL))DEOriginalComputeFactory)(command,selector),command,NO); }
+static id DEBC4BlitFactory(id command,SEL selector) {
+ id encoder=((id(*)(id,SEL))DEOriginalBlitFactory)(command,selector);
+ return DEAppImageCaller(__builtin_return_address(0))?DEWrapEncoder(encoder,command,YES):encoder;
+}
+static id DEBC4ComputeFactory(id command,SEL selector) {
+ id encoder=((id(*)(id,SEL))DEOriginalComputeFactory)(command,selector);
+ return DEAppImageCaller(__builtin_return_address(0))?DEWrapEncoder(encoder,command,NO):encoder;
+}
 static id DEBC4RenderFactory(id command,SEL selector,MTLRenderPassDescriptor *descriptor) {
+ if(!DEAppImageCaller(__builtin_return_address(0)))return ((id(*)(id,SEL,id))DEOriginalRenderFactory)(command,selector,descriptor);
  DEBC4Encoder *proxy=DEWrapEncoder(((id(*)(id,SEL,id))DEOriginalRenderFactory)(command,selector,DEAlphaRenderPass(descriptor)),command,NO);
  if(getenv("AGEPAD_GEOMETRY_TRACE")){static double epoch=0;double now=NSProcessInfo.processInfo.systemUptime;if(now-epoch>2)epoch=now;proxy.geometryTrace=now-epoch<0.05;
  if(proxy.geometryTrace){id<MTLTexture> t=descriptor.colorAttachments[0].texture;fprintf(stderr,"DE_GEOMETRY_PASS encoder=%p texture=%p w=%lu h=%lu framebufferOnly=%d load=%lu store=%lu\n",proxy,t,(unsigned long)t.width,(unsigned long)t.height,t.framebufferOnly,(unsigned long)descriptor.colorAttachments[0].loadAction,(unsigned long)descriptor.colorAttachments[0].storeAction);}}
  return proxy;
 }
 static id DEBC4BlitDescriptorFactory(id command,SEL selector,id descriptor) {
- return DEWrapEncoder(((id(*)(id,SEL,id))DEOriginalBlitDescriptorFactory)(command,selector,descriptor),command,YES);
+ id encoder=((id(*)(id,SEL,id))DEOriginalBlitDescriptorFactory)(command,selector,descriptor);
+ return DEAppImageCaller(__builtin_return_address(0))?DEWrapEncoder(encoder,command,YES):encoder;
 }
 static IMP DEOriginalCommit;
 static void DETraceCommit(id<MTLCommandBuffer> command,SEL selector) {

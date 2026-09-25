@@ -11,6 +11,206 @@
 #include <errno.h>
 #import <objc/runtime.h>
 #include <mach-o/dyld.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+// Opt-in, read-only main-thread watchdog for hardware runs. A main run-loop
+// timer advances a heartbeat; if it stops, a background thread briefly
+// suspends the main thread, walks its frame-pointer chain with checked reads,
+// logs image+offset for each return address, and resumes it immediately.
+static _Atomic uint64_t DEMainHeartbeat;
+// Opt-in: send this process's stdout/stderr to a private container file so a
+// hardware run does not depend on an attached console stream.
+__attribute__((constructor)) static void DERedirectDeviceLog(void) {
+    if (!getenv("AGEPAD_DEVICE_LOG_FILE")) return;
+    const char *home=getenv("HOME");
+    if (!home) return;
+    char directory[1024],path[1100];
+    snprintf(directory,sizeof(directory),"%s/Library/Caches/AgePadDiagnostics",home);
+    mkdir(directory,0700);
+    snprintf(path,sizeof(path),"%s/launch.log",directory);
+    int fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0600);
+    if (fd<0) return;
+    dup2(fd,STDOUT_FILENO);dup2(fd,STDERR_FILENO);close(fd);
+    setvbuf(stderr,NULL,_IONBF,0);
+    fprintf(stderr,"DE_DEVICE_LOG_FILE active\n");
+}
+static mach_port_t DEMainThreadPort;
+// Raw write(2): never waits on stdio's stderr lock, which another thread may hold.
+static void DEWatchdogLog(const char *format,...) __attribute__((format(printf,1,2)));
+static int DEWatchdogFD=-1;
+static void DEWatchdogLog(const char *format,...) {
+    char line[512];va_list arguments;va_start(arguments,format);
+    int length=vsnprintf(line,sizeof(line),format,arguments);va_end(arguments);
+    if (length<=0) return;
+    size_t size=(size_t)length<sizeof(line)?(size_t)length:sizeof(line)-1;
+    write(STDERR_FILENO,line,size);
+    if (DEWatchdogFD>=0) write(DEWatchdogFD,line,size);
+}
+static void DELogAddress(unsigned index,uintptr_t address) {
+    Dl_info info={0};
+    const char *name="?";uintptr_t offset=address;
+    if (dladdr((void *)address,&info) && info.dli_fname) {
+        name=strrchr(info.dli_fname,'/')?strrchr(info.dli_fname,'/')+1:info.dli_fname;
+        offset=address-(uintptr_t)info.dli_fbase;
+    }
+    DEWatchdogLog("DE_MAIN_STALL_FRAME %u %s+0x%lx %s\n",index,name,(unsigned long)offset,
+            info.dli_sname?info.dli_sname:"");
+}
+static void DEDumpThread(mach_port_t thread,const char *label) {
+    if (thread==mach_thread_self()) return;
+    if (thread_suspend(thread)!=KERN_SUCCESS) return;
+    arm_thread_state64_t state;mach_msg_type_number_t count=ARM_THREAD_STATE64_COUNT;
+    kern_return_t status=thread_get_state(thread,ARM_THREAD_STATE64,(thread_state_t)&state,&count);
+    uintptr_t pcs[40];unsigned n=0;
+    if (status==KERN_SUCCESS) {
+        pcs[n++]=(uintptr_t)arm_thread_state64_get_pc(state);
+        pcs[n++]=(uintptr_t)arm_thread_state64_get_lr(state);
+        uintptr_t fp=(uintptr_t)arm_thread_state64_get_fp(state);
+        while (fp && n<40) {
+            uintptr_t frame[2];vm_size_t copied=0;
+            if (vm_read_overwrite(mach_task_self(),fp,sizeof(frame),(vm_address_t)frame,&copied)!=KERN_SUCCESS ||
+                copied!=sizeof(frame) || frame[0]<=fp) break;
+            pcs[n++]=frame[1]&0x0000000fffffffffULL;fp=frame[0];
+        }
+    }
+    thread_resume(thread);
+    char name[64]="";
+    pthread_t pthread=pthread_from_mach_thread_np(thread);
+    if (pthread) pthread_getname_np(pthread,name,sizeof(name));
+    DEWatchdogLog("DE_THREAD_DUMP %s port=%u name=%s frames=%u\n",label,thread,name,n);
+    for (unsigned i=0;i<n;i++) DELogAddress(i,pcs[i]);
+
+}
+static void DEDumpMainThread(void) { DEDumpThread(DEMainThreadPort,"main"); }
+static void DEDumpAllThreads(void) {
+    thread_act_array_t threads=NULL;mach_msg_type_number_t count=0;
+    if (task_threads(mach_task_self(),&threads,&count)!=KERN_SUCCESS) return;
+    DEWatchdogLog("DE_ALL_THREADS count=%u\n",count);
+    for (mach_msg_type_number_t i=0;i<count && i<64;i++) DEDumpThread(threads[i],"any");
+    for (mach_msg_type_number_t i=0;i<count;i++) mach_port_deallocate(mach_task_self(),threads[i]);
+    vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
+}
+static void *DEMainWatchdogLoop(void *unused);
+// Opt-in fault logger kept in front of later-installed handlers (the game's
+// crash reporter). Async-signal-safe: fixed formatting and write(2) only. It
+// then hands the signal to the handler it displaced, unchanged.
+static const int DEFaultSignals[]={SIGSEGV,SIGBUS,SIGILL,SIGTRAP,SIGABRT,SIGFPE};
+static struct sigaction DEFaultPrior[6];
+static void DEFaultHex(char *out,uintptr_t value) {
+    const char *hex="0123456789abcdef";
+    for (int i=0;i<16;i++) out[i]=hex[(value>>((15-i)*4))&15];
+}
+static void DEFaultLogger(int signalNumber,siginfo_t *info,void *context) {
+    ucontext_t *uc=(ucontext_t *)context;
+    uintptr_t pc=uc&&uc->uc_mcontext?(uintptr_t)uc->uc_mcontext->__ss.__pc:0;
+    uintptr_t lr=uc&&uc->uc_mcontext?(uintptr_t)uc->uc_mcontext->__ss.__lr:0;
+    uintptr_t base=(uintptr_t)_dyld_get_image_header(0);
+    char line[]="DE_FAULT sig=00 addr=0000000000000000 pc=0000000000000000 lr=0000000000000000 main=0000000000000000\n";
+    line[13]='0'+(signalNumber/10)%10;line[14]='0'+signalNumber%10;
+    DEFaultHex(line+21,(uintptr_t)(info?info->si_addr:0));
+    DEFaultHex(line+41,pc);DEFaultHex(line+61,lr);DEFaultHex(line+83,base);
+    write(STDERR_FILENO,line,sizeof(line)-1);
+    if (DEWatchdogFD>=0) write(DEWatchdogFD,line,sizeof(line)-1);
+    // Not async-signal-safe, but the raw line above is already durable.
+    {
+        const char *queue=dispatch_queue_get_label(DISPATCH_CURRENT_QUEUE_LABEL);
+        char label[300];
+        int length=snprintf(label,sizeof(label),"DE_FAULT_QUEUE %s\n",queue?queue:"none");
+        if (length>0) {write(STDERR_FILENO,label,(size_t)length);if (DEWatchdogFD>=0) write(DEWatchdogFD,label,(size_t)length);}
+    }
+    uintptr_t addresses[40]={pc,lr};int count=2;
+    uintptr_t fp=uc&&uc->uc_mcontext?(uintptr_t)uc->uc_mcontext->__ss.__fp:0;
+    while (fp && count<40) {
+        uintptr_t frame[2];vm_size_t copied=0;
+        if (vm_read_overwrite(mach_task_self(),fp,sizeof(frame),(vm_address_t)frame,&copied)!=KERN_SUCCESS ||
+            copied!=sizeof(frame) || frame[0]<=fp) break;
+        addresses[count++]=frame[1]&0x0000000fffffffffULL;fp=frame[0];
+    }
+    for (int i=0;i<count;i++) {
+        Dl_info where={0};
+        if (!dladdr((void *)addresses[i],&where) || !where.dli_fname) continue;
+        char symbol[600];
+        int length=snprintf(symbol,sizeof(symbol),"DE_FAULT_FRAME %d %s+0x%lx %s+0x%lx\n",i,
+            strrchr(where.dli_fname,'/')?strrchr(where.dli_fname,'/')+1:where.dli_fname,
+            (unsigned long)(addresses[i]-(uintptr_t)where.dli_fbase),
+            where.dli_sname?where.dli_sname:"?",
+            (unsigned long)(where.dli_saddr?addresses[i]-(uintptr_t)where.dli_saddr:0));
+        if (length>0) {
+            write(STDERR_FILENO,symbol,(size_t)length);
+            if (DEWatchdogFD>=0) write(DEWatchdogFD,symbol,(size_t)length);
+        }
+    }
+    for (int i=0;i<6;i++) if (DEFaultSignals[i]==signalNumber) {
+        sigaction(signalNumber,&DEFaultPrior[i],NULL);
+        break;
+    }
+}
+static void DEEnsureFaultLogger(void) {
+    for (int i=0;i<6;i++) {
+        struct sigaction current;
+        if (sigaction(DEFaultSignals[i],NULL,&current)!=0) continue;
+        if ((current.sa_flags&SA_SIGINFO) && current.sa_sigaction==DEFaultLogger) continue;
+        DEFaultPrior[i]=current;
+        struct sigaction action={0};
+        sigemptyset(&action.sa_mask);
+        action.sa_sigaction=DEFaultLogger;action.sa_flags=SA_SIGINFO|SA_ONSTACK;
+        sigaction(DEFaultSignals[i],&action,NULL);
+        DEWatchdogLog("DE_FAULT_LOGGER installed signal=%d displaced_handler=%d\n",DEFaultSignals[i],
+                      (current.sa_flags&SA_SIGINFO)?current.sa_sigaction!=NULL:current.sa_handler!=SIG_DFL);
+    }
+}
+static void DEStartMainWatchdog(void) {
+    if (!getenv("AGEPAD_DEVICE_MAIN_WATCHDOG") || DEMainThreadPort) return;
+    DEMainThreadPort=mach_thread_self();
+    CFRunLoopTimerRef timer=CFRunLoopTimerCreateWithHandler(NULL,CFAbsoluteTimeGetCurrent()+1,1,0,0,
+        ^(CFRunLoopTimerRef t){ DEMainHeartbeat++; });
+    CFRunLoopAddTimer(CFRunLoopGetMain(),timer,kCFRunLoopCommonModes);
+    // A dedicated thread: shared dispatch pools can be exhausted by the game.
+    pthread_t watchdog;
+    pthread_create(&watchdog,NULL,DEMainWatchdogLoop,NULL);
+    pthread_detach(watchdog);
+    DEWatchdogLog("DE_MAIN_WATCHDOG installed\n");
+}
+static void *DEMainWatchdogLoop(void *unused) {
+    pthread_setname_np("AgePadWatchdog");
+    const char *home=getenv("HOME");
+    if (home) {
+        char path[1100];
+        snprintf(path,sizeof(path),"%s/Library/Caches/AgePadDiagnostics/watchdog.log",home);
+        DEWatchdogFD=open(path,O_WRONLY|O_CREAT|O_TRUNC,0600);
+    }
+    {
+        uint64_t last=DEMainHeartbeat;unsigned stalled=0,dumps=0;
+        DEWatchdogLog("DE_WATCHDOG_START\n");
+        for (unsigned early=1;early<=12;early++) {
+            DEEnsureFaultLogger();
+            usleep(100000);
+            DEEnsureFaultLogger();
+            usleep(400000);
+            DEWatchdogLog("DE_WATCHDOG_EARLY half_seconds=%u main_heartbeat=%llu\n",early,(unsigned long long)DEMainHeartbeat);
+        }
+        for (unsigned tick=1;;tick++) {
+            sleep(2);
+            if (tick%5==0) {
+                char target[1024]="?";
+                fcntl(STDERR_FILENO,F_GETPATH,target);
+                DEWatchdogLog("DE_WATCHDOG_TICK seconds=%u main_heartbeat=%llu stderr=%s\n",tick*2,(unsigned long long)DEMainHeartbeat,target);
+            }
+            if (tick==10 && getenv("AGEPAD_DEVICE_THREAD_DUMP")) DEDumpAllThreads();
+            uint64_t now=DEMainHeartbeat;
+            if (now!=last) { if (stalled>=2) DEWatchdogLog("DE_MAIN_RESUMED after=%us\n",stalled*2); last=now;stalled=0;continue; }
+            stalled++;
+            if ((stalled==2 || stalled%15==0) && dumps<6) {
+                dumps++;
+                DEWatchdogLog("DE_MAIN_STALL seconds=%u heartbeat=%llu\n",stalled*2,(unsigned long long)now);
+                DEDumpMainThread();
+            }
+        }
+    }
+    return NULL;
+}
 
 // The original game searches Feral's per-user Application Support folder for
 // AgeOfEmpires2Data before asking for a folder. On iPad that folder is inside
@@ -304,6 +504,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         // to reveal the next original-engine dependency, but is not gameplay.
         if (getenv("AGEPAD_DEVICE_RUN_ORIGINAL") && steamInitialized && hasData) {
             DEDeviceLinkFeralDataFolder(data);
+            DEStartMainWatchdog();
             setenv("AGEPAD_CASE_INSENSITIVE_RESOURCE_ROOT", data.fileSystemRepresentation, 1);
             setenv("AGEPAD_DEVICE_DATA_ROOT", data.fileSystemRepresentation, 1);
             NSString *appkitPath = [NSBundle.mainBundle.bundlePath
