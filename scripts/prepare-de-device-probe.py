@@ -89,6 +89,8 @@ for file in sorted(client_source.glob('*.dylib')):
 if args.ipc_load_probe:
     for image, dependency in (
         (frameworks / 'steamclient.dylib', '/usr/lib/libSystem.B.dylib'),
+        # Valve's support library supplies the Steam client's process ID.
+        (frameworks / 'libtier0_s.dylib', '/usr/lib/libSystem.B.dylib'),
         (frameworks / 'SteamModuleSimulator.dylib', '/usr/lib/libSystem.B.dylib'),
         (output / 'Vendor_libsteam_api.dylib.dylib', '@loader_path/DEBoundary_libSystem_B.dylib'),
     ):

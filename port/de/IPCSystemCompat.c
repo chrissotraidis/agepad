@@ -60,6 +60,12 @@ kern_return_t bootstrap_look_up(mach_port_t bootstrap,const char *name,mach_port
     if (getenv("AGEPAD_DEVICE_LOCAL_IPC_PROBE") && name &&
         strcmp(name,"com.valvesoftware.steam.ipctool")==0 && service &&
         MACH_PORT_VALID(DELocalSteamPort)) {
+        // A real lookup gives the caller its own send-right reference, which
+        // the Steam client releases after each session. Match that so a later
+        // client (the game's own Steam API) can still reach the same helper.
+        kern_return_t status=mach_port_mod_refs(mach_task_self(),DELocalSteamPort,
+                                                MACH_PORT_RIGHT_SEND,1);
+        if (status!=KERN_SUCCESS) return status;
         *service=DELocalSteamPort;
         fprintf(stderr,"DE_LOCAL_STEAM_CLIENT_LOOKUP port=%u\n",DELocalSteamPort);fflush(stderr);
         return KERN_SUCCESS;
@@ -75,7 +81,39 @@ void *launch_msg(const void *request) {
     }
     return reply;
 }
+// Paired-Mac engineering relay only. Mac Steam tracks a connected game by a
+// local process ID and drops the client once that PID is not a live Mac
+// process; an iPad PID never is. The Steam images (only they link this shim)
+// report the Mac relay's PID, which lives exactly as long as this relayed
+// session. The game executable and iOS keep the real iPad PID.
+static pid_t DEHostSessionPID(void) {
+    const char *text=getenv("AGEPAD_HOST_SESSION_PID");
+    if (!text || !getenv("AGEPAD_STEAM_TUNNEL_HOST")) return 0;
+    char *end=NULL;
+    long value=strtol(text,&end,10);
+    return end && !*end && value>1 && value<INT32_MAX ? (pid_t)value : 0;
+}
+pid_t getpid(void) {
+    static pid_t (*real)(void);
+    if (!real) real=(pid_t (*)(void))dlsym(RTLD_NEXT,"getpid");
+    pid_t host=DEHostSessionPID();
+    if (host) {
+        static atomic_flag reported=ATOMIC_FLAG_INIT;
+        if (!atomic_flag_test_and_set(&reported)) {
+            fprintf(stderr,"DE_IPC_HOST_SESSION_PID steam_images=relay local=%d\n",real?real():-1);fflush(stderr);
+        }
+        return host;
+    }
+    return real?real():-1;
+}
 int kill(pid_t pid,int signal) {
+    pid_t sessionPID=DEHostSessionPID();
+    if (sessionPID && pid==sessionPID) {
+        // The Steam images asked about "themselves": act on this app process.
+        pid_t (*realPID)(void)=(pid_t (*)(void))dlsym(RTLD_NEXT,"getpid");
+        int (*realKill)(pid_t,int)=dlsym(RTLD_NEXT,"kill");
+        return realPID && realKill ? realKill(realPID(),signal) : (errno=ENOSYS,-1);
+    }
     int32_t observed=atomic_load(&DEHostSteamPID);
     const char *host=getenv("AGEPAD_HOST_PATH_RELAY_TCP_HOST");
     const char *port=getenv("AGEPAD_HOST_PATH_RELAY_TCP_PORT");

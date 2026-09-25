@@ -48,6 +48,24 @@ The separate-process result is in ignored `generated/de-device-candidate-2026092
 
 [Valve's current platform documentation](https://partner.steamgames.com/doc/store/application/platforms?language=english) lists Windows, macOS and Linux as Steam platforms. Its macOS instructions explicitly say Steam is incompatible with the macOS app sandbox. It does not describe an iOS Steam client integration. This reinforces the measured device result; copying desktop Steam files or providing a path reply is not a supported iPad authentication/session design.
 
+### 25 September: loader gate resolved, first original frame on hardware
+
+The branch after the adjacent module query is an integrity check, not a path guard. `IceLinkerDynamic::Load` reads the module file and requires `XXH64(bytes, seed 0) == 0x0b8f001cf3bc9596` (the routine at `0x3b4edc` XORs a seed; `0x2b256c` is standard XXH64). The owned Mac `libsteam_api.dylib` hashes to exactly that value. On iPad only its `stat` was mapped, so the game's `fopen` failed and `dlopen` was skipped. The exact-path mapping now also covers read-only `open`/`fopen` of that one path; the game's own check passed, `dlopen` ran, and both module hashes verified. Nothing forces or bypasses the comparison.
+
+Each later stop was measured, then fixed narrowly:
+
+| Stop on hardware | Evidence | Change |
+|---|---|---|
+| Game's Steam API: `MACH_SEND_INVALID_DEST` after the first session | In-process lookup returned the helper port without a send-right reference; the client released it | Lookup adds one send-right reference, as a real bootstrap lookup does |
+| `+[NSOpenPanel openPanel]` (exit 78) | Failed-lookup trace: the game searches `Library/Application Support/Feral Interactive/Age Of Empires II/AgeOfEmpires2Data`, then app-adjacent paths | Probe creates a relative symlink there to the verified `Documents/AgeOfEmpires2Data`; the data is not copied or moved |
+| Carbon layout, cursor, Gestalt, display modes | Unsupported-boundary exits | Device launch now passes the Simulator session's compat switches |
+| `-[AGXG14GDevice isRemovable]` | macOS-only `MTLDevice` queries | Built-in Apple GPU values surveyed from a native M3 Max: not removable/low-power/headless, no peer group, no Depth24Stencil8 |
+| `CreateFn failed for SteamUser021` | Probe's vendor `SteamAPI_Init` left a second session in the process (`SteamAPI_Shutdown` there raises `SIGSYS`) | Original launch uses the released pipe/user/logged-on check as preflight; the game owns the only session |
+| `fatal stalled cross-thread pipe` | Mac Steam log: game `ProcID` = iPad PID, then `no such process` two seconds later | In relay mode only, Steam images (incl. Valve's `libtier0_s`) report the live Mac relay's PID; the game and iOS keep the real PID |
+
+Result: Mac Steam tracked the relayed session for its full 90-second window, and the original executable built its menus, created its game window and web launcher, and drew [the Feral launcher with its Usage Statistics dialog](images/device-de-launcher-20260925.jpg) on the iPad Pro. This is the first original DE frame on hardware. It is not gameplay: the window is 930×640 points in the top-left of the screen, the dialog's buttons are clipped, no touch was tested, and no scenario ran. The six Simulator preload libraries (graphics wait, audio output, resource case mapping, input trace) are not yet in the device build. Logs are in ignored `generated/de-device-candidate-20260925t` through `ab`.
+
+
 ## DE engine/data alternatives checked
 
 The installed Steam copy is AoE II **Definitive Edition** (app `813780`), with about 19 GB of `AgeOfEmpires2Data`. Chris explicitly requires this edition on iPad; classic/HD is outside the active product scope, regardless of what an older PRD route proposed. The old `ref/` and `worktrees/` inputs cited in that route are absent from this checkout.

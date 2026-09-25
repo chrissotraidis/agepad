@@ -7,9 +7,14 @@
 #include <CommonCrypto/CommonDigest.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdatomic.h>
+#include <stdio.h>
 #include <string.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "MachDiscovery.h"
 static _Thread_local int DESteamModuleLoading;
 static NSString *DEAdjacentSteamPath(void) {
@@ -74,36 +79,112 @@ static void *DESteamModuleDlopen(const char *path,int flags) {
 }
 // iPad app bundles cannot carry a sibling Frameworks directory. Preserve the
 // owned Mac module as inert data and answer only the game's exact adjacent-file
-// metadata query with that file's real metadata. This is a diagnostic, not a
-// complete filesystem mapping. Loading is separately gated by both hashes.
-static int DESteamModuleStat(const char *path,struct stat *buffer) {
+// metadata query and read-only opens with that file's real metadata and bytes.
+// The game hashes those bytes itself before it calls dlopen; nothing here
+// changes that check. This is a diagnostic, not a complete filesystem mapping.
+// Loading is separately gated by both hashes.
+static BOOL DESteamModuleMappedPath(const char *path,char *original,size_t size) {
     static const char suffix[]="/Frameworks/libsteam_api.dylib";
-    if (getenv("AGEPAD_DEVICE_STEAM_MODULE") && path) {
-        size_t length=strlen(path),suffixLength=sizeof(suffix)-1;
-        if (length>suffixLength && strcmp(path+length-suffixLength,suffix)==0 &&
-            strstr(path,"/Bundle/Application/")) {
-            char original[4096];
-            int count=snprintf(original,sizeof(original),"%.*s/AgePadDeviceProbe.app/OriginalSteamModule.data",
-                (int)(length-suffixLength),path);
-            if (count>0 && (size_t)count<sizeof(original)) {
-                int result=stat(original,buffer);
-                int saved=errno;
-                uintptr_t caller=(uintptr_t)__builtin_return_address(0);
-                uintptr_t base=(uintptr_t)_dyld_get_image_header(0);
-                fprintf(stderr,"DE_STEAM_MODULE_STAT mapped=1 result=%d size=%lld caller_offset=0x%llx path=%s\n",
-                    result,result?0:(long long)buffer->st_size,
-                    (unsigned long long)(caller>=base?caller-base:0),path);
-                errno=saved;
-                return result;
-            }
-        }
+    if (!path || !getenv("AGEPAD_DEVICE_STEAM_MODULE")) return NO;
+    size_t length=strlen(path),suffixLength=sizeof(suffix)-1;
+    if (length<=suffixLength || strcmp(path+length-suffixLength,suffix)!=0 ||
+        !strstr(path,"/Bundle/Application/")) return NO;
+    int count=snprintf(original,size,"%.*s/AgePadDeviceProbe.app/OriginalSteamModule.data",
+        (int)(length-suffixLength),path);
+    return count>0 && (size_t)count<size;
+}
+static uintptr_t DESteamModuleCallerOffset(uintptr_t caller) {
+    uintptr_t base=(uintptr_t)_dyld_get_image_header(0);
+    return caller>=base?caller-base:0;
+}
+// Log-only: report the first failed lookups so the next missing input is
+// measured rather than guessed. Results and errno are returned unchanged.
+static void DEDevicePathMiss(const char *operation,const char *path,int result,int error,uintptr_t caller) {
+    static _Atomic unsigned count;
+    if (result==0 || !path || !getenv("AGEPAD_DEVICE_PATH_MISS_TRACE")) return;
+    if (strncmp(path,"/System/",8)==0 || strncmp(path,"/usr/",5)==0) return;
+    if (atomic_fetch_add(&count,1)>=120) return;
+    char line[1200];
+    int length=snprintf(line,sizeof(line),"DE_DEVICE_PATH_MISS op=%s errno=%d caller_offset=0x%llx path=%s\n",
+        operation,error,(unsigned long long)DESteamModuleCallerOffset(caller),path);
+    if (length>0) write(STDERR_FILENO,line,(size_t)length<sizeof(line)?(size_t)length:sizeof(line)-1);
+}
+static int DESteamModuleStat(const char *path,struct stat *buffer) {
+    char original[4096];
+    if (DESteamModuleMappedPath(path,original,sizeof(original))) {
+        int result=stat(original,buffer);
+        int saved=errno;
+        fprintf(stderr,"DE_STEAM_MODULE_STAT mapped=1 result=%d size=%lld caller_offset=0x%llx path=%s\n",
+            result,result?0:(long long)buffer->st_size,
+            (unsigned long long)DESteamModuleCallerOffset((uintptr_t)__builtin_return_address(0)),path);
+        errno=saved;
+        return result;
     }
-    return stat(path,buffer);
+    int result=stat(path,buffer),saved=errno;
+    DEDevicePathMiss("stat",path,result,saved,(uintptr_t)__builtin_return_address(0));
+    errno=saved;
+    return result;
+}
+static int DESteamModuleOpen(const char *path,int flags,...) {
+    int mode=0;
+    if (flags&O_CREAT) {
+        va_list arguments;
+        va_start(arguments,flags);
+        mode=va_arg(arguments,int);
+        va_end(arguments);
+    }
+    char original[4096];
+    if ((flags&O_ACCMODE)==O_RDONLY && !(flags&(O_CREAT|O_TRUNC)) &&
+        DESteamModuleMappedPath(path,original,sizeof(original))) {
+        int result=open(original,flags);
+        int saved=errno;
+        fprintf(stderr,"DE_STEAM_MODULE_OPEN mapped=1 result=%d errno=%d caller_offset=0x%llx\n",
+            result,result<0?saved:0,
+            (unsigned long long)DESteamModuleCallerOffset((uintptr_t)__builtin_return_address(0)));
+        errno=saved;
+        return result;
+    }
+    int result=(flags&O_CREAT)?open(path,flags,mode):open(path,flags),saved=errno;
+    DEDevicePathMiss("open",path,result<0?-1:0,saved,(uintptr_t)__builtin_return_address(0));
+    errno=saved;
+    return result;
+}
+static BOOL DESteamModuleReadMode(const char *mode) {
+    return mode && mode[0]=='r' && !strchr(mode,'+');
+}
+// The game imports both fopen spellings; name each exactly.
+extern FILE *DEFopenPlain(const char *,const char *) __asm("_fopen");
+extern FILE *DEFopenExtension(const char *,const char *) __asm("_fopen$DARWIN_EXTSN");
+static FILE *DESteamModuleFopenWith(FILE *(*function)(const char *,const char *),
+                                    const char *path,const char *mode,uintptr_t caller) {
+    char original[4096];
+    if (DESteamModuleReadMode(mode) && DESteamModuleMappedPath(path,original,sizeof(original))) {
+        FILE *result=function(original,mode);
+        int saved=errno;
+        fprintf(stderr,"DE_STEAM_MODULE_FOPEN mapped=1 result=%d errno=%d caller_offset=0x%llx\n",
+            result!=NULL,result?0:saved,(unsigned long long)DESteamModuleCallerOffset(caller));
+        errno=saved;
+        return result;
+    }
+    FILE *result=function(path,mode);
+    int saved=errno;
+    DEDevicePathMiss("fopen",path,result?0:-1,saved,caller);
+    errno=saved;
+    return result;
+}
+static FILE *DESteamModuleFopen(const char *path,const char *mode) {
+    return DESteamModuleFopenWith(DEFopenPlain,path,mode,(uintptr_t)__builtin_return_address(0));
+}
+static FILE *DESteamModuleFopenExtension(const char *path,const char *mode) {
+    return DESteamModuleFopenWith(DEFopenExtension,path,mode,(uintptr_t)__builtin_return_address(0));
 }
 // Interposition can affect caller-relative loads. This experiment maps only the
 // exact absolute module path; broader loader compatibility remains unqualified.
 __attribute__((used,section("__DATA,__interpose")))
 static const struct { const void *replacement; const void *original; } DESteamModuleInterpose[]={
     {(const void *)DESteamModuleDlopen,(const void *)dlopen},
-    {(const void *)DESteamModuleStat,(const void *)stat}
+    {(const void *)DESteamModuleStat,(const void *)stat},
+    {(const void *)DESteamModuleOpen,(const void *)open},
+    {(const void *)DESteamModuleFopen,(const void *)DEFopenPlain},
+    {(const void *)DESteamModuleFopenExtension,(const void *)DEFopenExtension}
 };

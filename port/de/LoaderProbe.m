@@ -12,6 +12,36 @@
 #import <objc/runtime.h>
 #include <mach-o/dyld.h>
 
+// The original game searches Feral's per-user Application Support folder for
+// AgeOfEmpires2Data before asking for a folder. On iPad that folder is inside
+// this app's own container, so a relative link can expose the verified import
+// in Documents without copying, moving or modifying it. Never replace an
+// existing entry. Returns the game-facing path, or nil if unavailable.
+static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
+    NSString *support=[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES).firstObject
+        stringByAppendingPathComponent:@"Feral Interactive/Age Of Empires II"];
+    NSString *link=[support stringByAppendingPathComponent:@"AgeOfEmpires2Data"];
+    NSString *home=NSHomeDirectory();
+    if (![imported hasPrefix:[home stringByAppendingString:@"/"]] ||
+        ![support hasPrefix:[home stringByAppendingString:@"/"]]) return nil;
+    NSFileManager *files=NSFileManager.defaultManager;
+    [files createDirectoryAtPath:support withIntermediateDirectories:YES attributes:nil error:NULL];
+    // Relative to support, which is Library/Application Support/Feral Interactive/Age Of Empires II.
+    NSString *target=[@"../../../.." stringByAppendingPathComponent:
+        [imported substringFromIndex:home.length+1]];
+    NSString *existing=[files destinationOfSymbolicLinkAtPath:link error:NULL];
+    BOOL created=NO;
+    if (!existing && ![files fileExistsAtPath:link]) {
+        created=symlink(target.fileSystemRepresentation,link.fileSystemRepresentation)==0;
+        existing=[files destinationOfSymbolicLinkAtPath:link error:NULL];
+    }
+    char resolved[PATH_MAX]={0},expected[PATH_MAX]={0};
+    BOOL matches=realpath(link.fileSystemRepresentation,resolved) &&
+                 realpath(imported.fileSystemRepresentation,expected) && strcmp(resolved,expected)==0;
+    fprintf(stderr,"DE_DEVICE_DATA_LINK created=%d link=%d matches=%d\n",created,existing!=nil,matches);
+    return matches?link:nil;
+}
+
 @interface DEProbeViewController : UIViewController
 @property(nonatomic) CGSize lastLayoutSize;
 @end
@@ -181,6 +211,7 @@
                 }
             }
         }
+        bool sessionLoggedOn = false;
         NSString *steamClient = [NSBundle.mainBundle.bundlePath
             stringByAppendingPathComponent:@"Frameworks/steamclient.dylib"];
         dlerror();
@@ -226,8 +257,8 @@
                         if (userInterface) {
                             void **userMethods = *(void ***)userInterface;
                             bool (*loggedOn)(void *) = (bool (*)(void *))userMethods[1];
-                            fprintf(stderr, "DE_DEVICE_STEAM_LOGGED_ON logged_on=%d\n",
-                                    loggedOn(userInterface));
+                            sessionLoggedOn = loggedOn(userInterface);
+                            fprintf(stderr, "DE_DEVICE_STEAM_LOGGED_ON logged_on=%d\n", sessionLoggedOn);
                         }
                         releaseUser(steamInterface, pipe, user);
                     }
@@ -236,14 +267,22 @@
                 }
             }
         }
-        NSString *steamAPI = [NSBundle.mainBundle.bundlePath
+        bool steamInitialized = false;
+        // For the original launch, the released pipe/user/logged-on check above
+        // is the preflight. A second, never-released SteamAPI_Init in this
+        // process conflicts with the game's own Steam API session.
+        bool gameOwnsSession = getenv("AGEPAD_DEVICE_RUN_ORIGINAL") != NULL;
+        if (gameOwnsSession) {
+            steamInitialized = sessionLoggedOn;
+            fprintf(stderr, "DE_DEVICE_STEAM_API_PREFLIGHT vendor_init=skipped logged_on=%d\n", sessionLoggedOn);
+        }
+        NSString *steamAPI = gameOwnsSession ? nil : [NSBundle.mainBundle.bundlePath
             stringByAppendingPathComponent:@"Vendor_libsteam_api.dylib.dylib"];
         dlerror();
-        void *apiLoaded = dlopen(steamAPI.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+        void *apiLoaded = steamAPI ? dlopen(steamAPI.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL) : NULL;
         const char *apiError = dlerror();
-        fprintf(stderr, "DE_DEVICE_STEAM_API_LOAD loaded=%d error=%s\n",
-                apiLoaded != NULL, apiError ?: "none");
-        bool steamInitialized = false;
+        if (steamAPI) fprintf(stderr, "DE_DEVICE_STEAM_API_LOAD loaded=%d error=%s\n",
+                              apiLoaded != NULL, apiError ?: "none");
         if (apiLoaded) {
             bool (*initializeSteam)(void) = dlsym(apiLoaded, "SteamAPI_Init");
             fprintf(stderr, "DE_DEVICE_STEAM_API_INIT_BEGIN present=%d\n", initializeSteam != NULL);
@@ -264,6 +303,7 @@
         // This opt-in is a launch diagnostic. A partial import may be enough
         // to reveal the next original-engine dependency, but is not gameplay.
         if (getenv("AGEPAD_DEVICE_RUN_ORIGINAL") && steamInitialized && hasData) {
+            DEDeviceLinkFeralDataFolder(data);
             setenv("AGEPAD_CASE_INSENSITIVE_RESOURCE_ROOT", data.fileSystemRepresentation, 1);
             setenv("AGEPAD_DEVICE_DATA_ROOT", data.fileSystemRepresentation, 1);
             NSString *appkitPath = [NSBundle.mainBundle.bundlePath

@@ -166,6 +166,39 @@ static void DEPlatformCompilationScheduling(id device,SEL selector,BOOL requeste
     fprintf(stderr,"DE_METAL_COMPILATION_SCHEDULING requested_maximum=%d effective=platform-default\n",requested);
 }
 static BOOL DEPlatformCompilationSchedulingValue(id device,SEL selector) { return NO; }
+// macOS-only topology/format queries absent from UIKit's built-in Apple GPU.
+// Values match a native macOS Apple-silicon integrated GPU (M3 Max survey:
+// not removable, low-power or headless; no peer group; no Depth24Stencil8).
+static BOOL DEBuiltInAppleGPUNo(id device,SEL selector) {
+    static _Atomic unsigned traces;
+    if(traces++<8)fprintf(stderr,"DE_METAL_BUILTIN_QUERY %s=0\n",sel_getName(selector));
+    return NO;
+}
+static uint64_t DEBuiltInAppleGPUPeerGroup(id device,SEL selector) { return 0; }
+static uint32_t DEBuiltInAppleGPUPeerValue(id device,SEL selector) { return 0; }
+static void DEInstallBuiltInAppleGPUQueries(id<MTLDevice> device,Class cls) {
+    static const char *const flags[]={"isRemovable","isLowPower","isHeadless","isDepth24Stencil8PixelFormatSupported"};
+    static const char *const peers[]={"peerIndex","peerCount"};
+    SEL group=sel_registerName("peerGroupID");
+    BOOL missing=!class_getInstanceMethod(cls,group);
+    for(unsigned i=0;i<4;i++) missing|=!class_getInstanceMethod(cls,sel_registerName(flags[i]));
+    for(unsigned i=0;i<2;i++) missing|=!class_getInstanceMethod(cls,sel_registerName(peers[i]));
+    if(!missing)return;
+    if(!device.hasUnifiedMemory)DEUnsupported("macOS GPU topology for a non-unified-memory device");
+    for(unsigned i=0;i<4;i++) {
+        SEL selector=sel_registerName(flags[i]);
+        if(!class_getInstanceMethod(cls,selector)&&!class_addMethod(cls,selector,(IMP)DEBuiltInAppleGPUNo,"B@:"))
+            DEUnsupported("Metal built-in GPU flag installation failed");
+    }
+    if(!class_getInstanceMethod(cls,group)&&!class_addMethod(cls,group,(IMP)DEBuiltInAppleGPUPeerGroup,"Q@:"))
+        DEUnsupported("Metal peer-group installation failed");
+    for(unsigned i=0;i<2;i++) {
+        SEL selector=sel_registerName(peers[i]);
+        if(!class_getInstanceMethod(cls,selector)&&!class_addMethod(cls,selector,(IMP)DEBuiltInAppleGPUPeerValue,"I@:"))
+            DEUnsupported("Metal peer-value installation failed");
+    }
+    fprintf(stderr,"DE_METAL_BUILTIN_GPU_QUERIES installed unified=1\n");
+}
 static void DEInstallMissingDeviceMetadata(NSArray<id<MTLDevice>> *devices) {
     DEInstallFormatTrace();
     for (id<MTLDevice> device in devices) {
@@ -210,6 +243,7 @@ static void DEInstallMissingDeviceMetadata(NSArray<id<MTLDevice>> *devices) {
         selector=sel_registerName("maxTransferRate");
         if (!class_getInstanceMethod(cls,selector) && !class_addMethod(cls,selector,(IMP)DEUnifiedMemoryTransferRate,"Q@:"))
             DEUnsupported("Metal transfer-rate adapter installation failed");
+        DEInstallBuiltInAppleGPUQueries(device,cls);
     }
 }
 __attribute__((constructor)) static void DEInstallInitialMetalAdapter(void) {
