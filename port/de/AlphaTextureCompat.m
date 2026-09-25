@@ -3,12 +3,18 @@
 #import <Metal/Metal.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#include <stdatomic.h>
 #include "UnsupportedBoundary.h"
 @interface DEAlphaTexture : NSProxy
 @property(nonatomic,strong) id<MTLTexture> backing;
 @property(nonatomic,strong) id<MTLTexture> sampled;
 @end
 @implementation DEAlphaTexture
+// The engine allocates an A8 render target only while a match is running
+// (fog/visibility mask). Its live count lets touch input tell gameplay from menus.
+static _Atomic int DEAlphaLiveTargets;
++ (instancetype)alloc { DEAlphaLiveTargets++; return [super alloc]; }
+- (void)dealloc { DEAlphaLiveTargets--; }
 - (MTLPixelFormat)pixelFormat{return MTLPixelFormatA8Unorm;}
 - (NSMethodSignature*)methodSignatureForSelector:(SEL)s{return [(NSObject*)self.backing methodSignatureForSelector:s];}
 - (BOOL)respondsToSelector:(SEL)s{return s==@selector(pixelFormat)||[self.backing respondsToSelector:s];}
@@ -19,6 +25,7 @@
 }
 @end
 static BOOL DEIsAlpha(id value){return value&&object_getClass(value)==DEAlphaTexture.class;}
+__attribute__((visibility("default"))) int DEGameMatchActive(void){return DEAlphaLiveTargets>0;}
 static id DEAlphaSample(id value){return DEIsAlpha(value)?((DEAlphaTexture*)value).sampled:value;}
 static id DEAlphaResource(id value){return DEIsAlpha(value)?((DEAlphaTexture*)value).backing:value;}
 static MTLRenderPassDescriptor*DEAlphaRenderPass(MTLRenderPassDescriptor*input){

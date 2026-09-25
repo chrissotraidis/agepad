@@ -15,6 +15,8 @@
 #include <os/proc.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <malloc/malloc.h>
+#include <execinfo.h>
 
 // Opt-in, read-only main-thread watchdog for hardware runs. A main run-loop
 // timer advances a heartbeat; if it stops, a background thread briefly
@@ -94,6 +96,136 @@ static void DEDumpAllThreads(void) {
     vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
 }
 static void *DEMainWatchdogLoop(void *unused);
+// Opt-in leak sampler (AGEPAD_DEVICE_LEAK_SAMPLER): libmalloc's logger hook
+// records the call stack of 1 in 499 string-sized (33-64 byte) allocations.
+// At census time, samples that are still live Swift strings holding
+// "DEOriginalGame" are grouped by stack. The hook never allocates.
+extern void (*malloc_logger)(uint32_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uint32_t);
+#define DE_LEAK_SLOTS 4096
+typedef struct { _Atomic uintptr_t ptr; void *frames[16]; int count; } DELeakSample;
+static DELeakSample *DELeakRing;static _Atomic unsigned long long DELeakSeen;static _Atomic unsigned DELeakNext;
+static void DELeakLogger(uint32_t type,uintptr_t zone,uintptr_t size,uintptr_t unused,uintptr_t result,uint32_t skip) {
+    if (!(type&2) || (type&4) || size<33 || size>64 || !result) return;
+    if ((++DELeakSeen)%499) return;
+    DELeakSample *sample=&DELeakRing[(DELeakNext++)%DE_LEAK_SLOTS];
+    sample->ptr=0;sample->count=backtrace(sample->frames,16);sample->ptr=result;
+}
+static void DEInstallLeakSampler(void) {
+    if (!getenv("AGEPAD_DEVICE_LEAK_SAMPLER") || DELeakRing) return;
+    DELeakRing=calloc(DE_LEAK_SLOTS,sizeof(DELeakSample));
+    if (DELeakRing) malloc_logger=DELeakLogger;
+}
+static void DEReportLeakSamples(unsigned seconds) {
+    if (!DELeakRing) return;
+    uintptr_t stringClass=(uintptr_t)objc_getClass("_TtCs15__StringStorage");
+    struct { int slot;unsigned hits; } groups[24];int groupCount=0;unsigned strings=0,named=0,live=0;
+    for (int i=0;i<DE_LEAK_SLOTS;i++) {
+        uintptr_t p=DELeakRing[i].ptr;if (!p) continue;live++;
+        uintptr_t isa=*(uintptr_t *)p;
+        if ((isa&0x0000000ffffffff8ULL)!=stringClass && (isa&0x00007ffffffffff8ULL)!=stringClass) continue;
+        strings++;
+        if (memcmp((const char *)p+32,"DEOriginalGame",14)) continue;
+        named++;
+        int g=0;
+        for (;g<groupCount;g++) {
+            DELeakSample *a=&DELeakRing[groups[g].slot],*b=&DELeakRing[i];
+            if (a->count==b->count && !memcmp(a->frames+2,b->frames+2,sizeof(void *)*(size_t)(a->count>10?8:(a->count>2?a->count-2:0)))) break;
+        }
+        if (g<groupCount) groups[g].hits++;
+        else if (groupCount<24) { groups[groupCount].slot=i;groups[groupCount].hits=1;groupCount++; }
+    }
+    DEWatchdogLog("DE_LEAK_SAMPLES seconds=%u sampled=%llu slots_filled=%u swift_strings=%u process_name_strings=%u stacks=%d\n",
+        seconds,(unsigned long long)DELeakSeen/499,live,strings,named,groupCount);
+    for (int rank=0;rank<4;rank++) {
+        int best=-1;for (int g=0;g<groupCount;g++) if (groups[g].hits && (best<0 || groups[g].hits>groups[best].hits)) best=g;
+        if (best<0) break;
+        DELeakSample *s=&DELeakRing[groups[best].slot];
+        DEWatchdogLog("DE_LEAK_STACK seconds=%u rank=%d hits=%u\n",seconds,rank,groups[best].hits);
+        for (int f=1;f<s->count;f++) DELogAddress((unsigned)f,(uintptr_t)s->frames[f]);
+        groups[best].hits=0;
+    }
+}
+// Opt-in read-only heap census (AGEPAD_DEVICE_HEAP_CENSUS): counts live malloc
+// blocks by Objective-C/Swift class (first word as isa) and by size. Zones are
+// locked while walking, so the callback never allocates or logs.
+static uintptr_t *DECensusSet;static uint32_t *DECensusIndex;static size_t DECensusMask;
+static Class *DECensusClasses;static unsigned DECensusClassCount;
+static uint64_t *DECensusHits,*DECensusBytes;static uint64_t DECensusSizeHits[64],DECensusSizeBytes[64],DECensusBlocks;
+static long DECensusStringClass=-1;static char DECensusSamples[8][49];static unsigned DECensusSampleCount;
+static kern_return_t DECensusReader(task_t task,vm_address_t address,vm_size_t size,void **local) { *local=(void *)address;return KERN_SUCCESS; }
+static long DECensusLookup(uintptr_t isa) {
+    if (!isa) return -1;
+    for (size_t i=(isa>>3)&DECensusMask;;i=(i+1)&DECensusMask) {
+        if (!DECensusSet[i]) return -1;
+        if (DECensusSet[i]==isa) return DECensusIndex[i];
+    }
+}
+static void DECensusRecorder(task_t task,void *context,unsigned type,vm_range_t *ranges,unsigned count) {
+    for (unsigned r=0;r<count;r++) {
+        vm_size_t size=ranges[r].size;DECensusBlocks++;
+        long index=-1;
+        if (size>=sizeof(uintptr_t)) {
+            uintptr_t word=*(uintptr_t *)ranges[r].address;
+            index=DECensusLookup(word&0x0000000ffffffff8ULL);
+            if (index<0) index=DECensusLookup(word&0x00007ffffffffff8ULL);
+        }
+        if (index<0) { unsigned bucket=size>=1024?63:(unsigned)(size>>4);DECensusSizeHits[bucket]++;DECensusSizeBytes[bucket]+=size;continue; }
+        DECensusHits[index]++;DECensusBytes[index]+=size;
+        if (index==DECensusStringClass && DECensusSampleCount<8 && size>=40 && (DECensusHits[index]%100003)==1) {
+            // Swift native string storage: UTF-8 payload starts at offset 32.
+            const unsigned char *payload=(const unsigned char *)ranges[r].address+32;
+            size_t length=size-32<48?size-32:48;char *out=DECensusSamples[DECensusSampleCount++];
+            for (size_t i=0;i<length;i++) out[i]=(payload[i]>=32 && payload[i]<127)?(char)payload[i]:'.';
+            out[length]=0;
+        }
+    }
+}
+static void DELogHeapCensus(unsigned seconds) {
+    if (!DECensusClasses) {
+        DECensusClasses=objc_copyClassList(&DECensusClassCount);
+        size_t cap=1;while (cap<(size_t)DECensusClassCount*4) cap<<=1;
+        DECensusMask=cap-1;DECensusSet=calloc(cap,sizeof(uintptr_t));DECensusIndex=calloc(cap,sizeof(uint32_t));
+        DECensusHits=calloc(DECensusClassCount,sizeof(uint64_t));DECensusBytes=calloc(DECensusClassCount,sizeof(uint64_t));
+        for (unsigned c=0;c<DECensusClassCount;c++) {
+            uintptr_t isa=(uintptr_t)DECensusClasses[c];
+            size_t i=(isa>>3)&DECensusMask;while (DECensusSet[i]) i=(i+1)&DECensusMask;
+            DECensusSet[i]=isa;DECensusIndex[i]=c;
+            if (!strcmp(class_getName(DECensusClasses[c]),"Swift.__StringStorage") || !strcmp(class_getName(DECensusClasses[c]),"_TtCs15__StringStorage")) DECensusStringClass=c;
+        }
+    }
+    DECensusSampleCount=0;
+    memset(DECensusHits,0,DECensusClassCount*sizeof(uint64_t));memset(DECensusBytes,0,DECensusClassCount*sizeof(uint64_t));
+    memset(DECensusSizeHits,0,sizeof DECensusSizeHits);memset(DECensusSizeBytes,0,sizeof DECensusSizeBytes);DECensusBlocks=0;
+    vm_address_t *zones=NULL;unsigned zoneCount=0;
+    if (malloc_get_all_zones(mach_task_self(),DECensusReader,&zones,&zoneCount)!=KERN_SUCCESS) return;
+    vm_address_t copy[32];unsigned n=zoneCount<32?zoneCount:32;memcpy(copy,zones,n*sizeof(vm_address_t));
+    uint64_t start=clock_gettime_nsec_np(CLOCK_MONOTONIC);
+    for (unsigned z=0;z<n;z++) {
+        malloc_zone_t *zone=(malloc_zone_t *)copy[z];
+        if (!zone || !zone->introspect || !zone->introspect->enumerator) continue;
+        zone->introspect->force_lock(zone);
+        zone->introspect->enumerator(mach_task_self(),NULL,MALLOC_PTR_IN_USE_RANGE_TYPE,copy[z],DECensusReader,DECensusRecorder);
+        zone->introspect->force_unlock(zone);
+    }
+    DEWatchdogLog("DE_HEAP_CENSUS seconds=%u zones=%u blocks=%llu walk_ms=%llu\n",seconds,n,(unsigned long long)DECensusBlocks,
+        (unsigned long long)((clock_gettime_nsec_np(CLOCK_MONOTONIC)-start)/1000000));
+    for (unsigned s=0;s<DECensusSampleCount;s++) DEWatchdogLog("DE_HEAP_STRING_SAMPLE seconds=%u index=%u text=%s\n",seconds,s,DECensusSamples[s]);
+    DEReportLeakSamples(seconds);
+    for (int rank=0;rank<30;rank++) {
+        long best=-1;for (unsigned c=0;c<DECensusClassCount;c++) if (DECensusHits[c] && (best<0 || DECensusHits[c]>DECensusHits[best])) best=c;
+        if (best<0) break;
+        DEWatchdogLog("DE_HEAP_CLASS seconds=%u rank=%d count=%llu kb=%llu class=%s\n",seconds,rank,(unsigned long long)DECensusHits[best],
+            (unsigned long long)(DECensusBytes[best]>>10),class_getName(DECensusClasses[best]));
+        DECensusHits[best]=0;
+    }
+    for (int rank=0;rank<16;rank++) {
+        int best=-1;for (int b=0;b<64;b++) if (DECensusSizeHits[b] && (best<0 || DECensusSizeHits[b]>DECensusSizeHits[best])) best=b;
+        if (best<0) break;
+        DEWatchdogLog("DE_HEAP_SIZE seconds=%u rank=%d bytes_from=%d count=%llu mb=%llu\n",seconds,rank,best==63?1024:best*16,
+            (unsigned long long)DECensusSizeHits[best],(unsigned long long)(DECensusSizeBytes[best]>>20));
+        DECensusSizeHits[best]=0;
+    }
+}
 // Read-only memory census: dirty (and compressed/swapped) bytes by VM user tag.
 static void DELogMemoryByTag(unsigned seconds) {
     uint64_t bytes[256]={0};
@@ -113,6 +245,9 @@ static void DELogMemoryByTag(unsigned seconds) {
         bytes[best]=0;
     }
     task_vm_info_data_t vm={0};mach_msg_type_number_t vmCount=TASK_VM_INFO_COUNT;
+    malloc_statistics_t heap={0};malloc_zone_statistics(NULL,&heap);
+    DEWatchdogLog("DE_MALLOC_STATS seconds=%u blocks=%u in_use_mb=%llu allocated_mb=%llu\n",seconds,heap.blocks_in_use,
+        (unsigned long long)(heap.size_in_use>>20),(unsigned long long)(heap.size_allocated>>20));
     if (task_info(mach_task_self(),TASK_VM_INFO,(task_info_t)&vm,&vmCount)==KERN_SUCCESS)
         DEWatchdogLog("DE_MEMORY_LEDGER seconds=%u footprint_mb=%llu internal_mb=%llu compressed_mb=%llu graphics_mb=%llu graphics_compressed_mb=%llu media_mb=%llu\n",seconds,
             (unsigned long long)(vm.phys_footprint>>20),(unsigned long long)(vm.internal>>20),(unsigned long long)(vm.compressed>>20),
@@ -226,6 +361,7 @@ static void *DEMainWatchdogLoop(void *unused) {
     {
         uint64_t last=DEMainHeartbeat;unsigned stalled=0,dumps=0;
         DEWatchdogLog("DE_WATCHDOG_START\n");
+        DEInstallLeakSampler();
         for (unsigned early=1;early<=12;early++) {
             DEEnsureFaultLogger();
             usleep(100000);
@@ -246,6 +382,14 @@ static void *DEMainWatchdogLoop(void *unused) {
             }
             if ((tick==10 || tick==120) && getenv("AGEPAD_DEVICE_THREAD_DUMP")) DEDumpAllThreads();
             if (tick%15==0) DELogMemoryByTag(tick*2);
+            if ((tick==120 || tick==180) && getenv("AGEPAD_DEVICE_HEAP_CENSUS")) DELogHeapCensus(tick*2);
+            // Opt-in: return free malloc pages to the system (Apple API; no
+            // allocation is moved or freed). Tests whether idle heap growth
+            // is retained free space rather than live game data.
+            if (tick%5==0 && getenv("AGEPAD_DEVICE_MALLOC_RELIEF")) {
+                size_t released=malloc_zone_pressure_relief(NULL,0);
+                if (released>=(1u<<20)) DEWatchdogLog("DE_MALLOC_RELIEF seconds=%u released_mb=%llu\n",tick*2,(unsigned long long)(released>>20));
+            }
             uint64_t now=DEMainHeartbeat;
             if (now!=last) { if (stalled>=2) DEWatchdogLog("DE_MAIN_RESUMED after=%us\n",stalled*2); last=now;stalled=0;continue; }
             stalled++;

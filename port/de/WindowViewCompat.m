@@ -5,6 +5,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <GameController/GameController.h>
 #include "UnsupportedBoundary.h"
+#include <dlfcn.h>
 #include "RenderScale.h"
 #include "DrawablePresentationCompat.m"
 @class NSWindow, DEGameTrackingController;
@@ -35,12 +36,26 @@ extern id DEUIKitScreenObject(UIScreen *screen);
 @property(nonatomic,strong) UIButton *touchOrderButton;
 @property(nonatomic,strong) NSArray<UIButton *> *touchShortcutButtons;
 @property(nonatomic) BOOL touchCommandMode;
+// Apple Pencil sticky orders (AGEPAD_PENCIL_STICKY_ORDER), gameplay only.
+@property(nonatomic) BOOL pencilPending,pencilDragging,forceSecondary,overrideActive;
+@property(nonatomic) CGPoint pencilStart,overridePoint;
+@property(nonatomic) NSTimeInterval pencilStartTime;
 - (void)refreshTouchCommandButton;
 - (void)installNativeGestures;
 - (void)nativeMouse:(NSUInteger)type point:(CGPoint)point wheel:(CGFloat)wheel;
 @end
 static void DEPostGameKey(unsigned short macKey, NSString *characters, BOOL pressed);
 static BOOL DEGlobalTouchCommandMode;
+// Pencil: a tap or drag-box on the map selects and arms orders; further map
+// taps are right-click orders; a hold is a left click that disarms. HUD taps
+// (top bar, bottom panel/minimap) stay left clicks and disarm, so a build
+// button followed by a map tap places the building.
+static BOOL DEPencilOrderArmed;
+static BOOL DEPencilMatchActive(void) {
+    static int (*active)(void);static BOOL looked;
+    if (!looked) { looked=YES;active=(int(*)(void))dlsym(RTLD_DEFAULT,"DEGameMatchActive"); }
+    return active && active();
+}
 static NSHashTable<DEGameViewHost *> *DETouchCommandHosts;
 static void DERefreshTouchCommandButtons(void) {
     for (DEGameViewHost *host in DETouchCommandHosts.allObjects) {
@@ -143,6 +158,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
     unsigned short key=button.tag==0?47:button.tag==1?4:109;
     NSString *characters=button.tag==0?@".":button.tag==1?@"h":@"\uF70D";
     DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
+    DEPencilOrderArmed=button.tag==0 || button.tag==1; // IDLE/TOWN select units; MENU does not.
     DEPostGameKey(key,characters,YES);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{DEPostGameKey(key,characters,NO);});
 }
@@ -163,16 +179,16 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  SEL action=NSSelectorFromString(type==1?@"mouseDown:":type==2?@"mouseUp:":type==5?@"mouseMoved:":@"mouseDragged:");
  // UIKit clears buttonMask on release. Use the mask captured at touchesBegan
  // for the whole gesture, including drag and release, just like ORDER mode.
- BOOL secondary=(DEGlobalTouchCommandMode || (self.gameButtonMask & UIEventButtonMaskSecondary)) && (type==1 || type==2 || type==6);
+ BOOL secondary=(self.forceSecondary || DEGlobalTouchCommandMode || (self.gameButtonMask & UIEventButtonMaskSecondary)) && (type==1 || type==2 || type==6);
  NSUInteger eventType=type==1?(secondary?3:1):type==2?(secondary?4:2):type==6?(secondary?7:6):type;
  id<DEGameMouseEvent> e=[NSClassFromString(@"NSEvent") new];
- CGPoint point=cancelled?CGPointMake(-100,-100):[touch locationInView:self.window];
+ CGPoint point=cancelled?CGPointMake(-100,-100):self.overrideActive?self.overridePoint:[touch locationInView:self.window];
  e.type=eventType;e.locationInWindow=point;e.timestamp=touch.timestamp;e.modifierFlags=0;e.buttonNumber=secondary?1:0;e.clickCount=type==5?0:self.gameClickCount;e.pressure=(type==2 || type==5)?0:1;
  e.window=((id(*)(id,SEL))objc_msgSend)(owner,sel_registerName("window"));
  e.windowNumber=((NSInteger(*)(id,SEL))objc_msgSend)(e.window,sel_registerName("windowNumber"));
  id content=((id(*)(id,SEL))objc_msgSend)(e.window,sel_registerName("contentView"));
  UIView *contentHost=((id(*)(id,SEL))objc_msgSend)(content,sel_registerName("deHost"));
- CGPoint contentPoint=cancelled?CGPointMake(-100,-100):[touch locationInView:contentHost];
+ CGPoint contentPoint=cancelled?CGPointMake(-100,-100):self.overrideActive?[self.window convertPoint:self.overridePoint toView:contentHost]:[touch locationInView:contentHost];
  e.locationInWindow=CGPointMake(contentPoint.x-contentHost.bounds.origin.x,CGRectGetMaxY(contentHost.bounds)-contentPoint.y);
  e.deltaX=type==6?(point.x-self.previousTouchPoint.x):0;e.deltaY=type==6?(point.y-self.previousTouchPoint.y):0;
  static NSInteger sequence=0;e.eventNumber=++sequence;self.previousTouchPoint=point;
@@ -192,16 +208,50 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  // reporting 1 on press. Preserve the click identity across the mouse pair.
  self.gameClickCount=MAX((NSInteger)self.gameTouch.tapCount,1);
  self.gameButtonMask=event.buttonMask;DELogButtonMask(event,1,self.gameButtonMask);
+ self.pencilPending=NO;self.pencilDragging=NO;
+ if(getenv("AGEPAD_PENCIL_STICKY_ORDER") && self.gameTouch.type==UITouchTypePencil && !DEGlobalTouchCommandMode && DEPencilMatchActive()) {
+     // Decide the button when the gesture resolves (tap, hold or drag).
+     self.pencilPending=YES;self.pencilStart=[self.gameTouch locationInView:self.window];self.pencilStartTime=self.gameTouch.timestamp;
+     [self sendGameMouse:5 touch:self.gameTouch cancelled:NO];
+     return;
+ }
  // A touch can relocate the virtual pointer without a hardware hover phase.
  // Preserve AppKit's move-before-button ordering at the same actual point.
  if(getenv("AGEPAD_TOUCH_MOVE_BEFORE_DOWN")) [self sendGameMouse:5 touch:self.gameTouch cancelled:NO];
  [self sendGameMouse:1 touch:self.gameTouch cancelled:NO];
 }
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {
+     CGPoint now=[self.gameTouch locationInView:self.window];
+     if(hypot(now.x-self.pencilStart.x,now.y-self.pencilStart.y)<8){[self sendGameMouse:5 touch:self.gameTouch cancelled:NO];return;}
+     // Drag: a left-button selection box from the original contact point.
+     self.pencilPending=NO;self.pencilDragging=YES;
+     self.overrideActive=YES;self.overridePoint=self.pencilStart;
+     [self sendGameMouse:5 touch:self.gameTouch cancelled:NO];[self sendGameMouse:1 touch:self.gameTouch cancelled:NO];
+     self.overrideActive=NO;
+ }
  if(self.gameTouch && [touches containsObject:self.gameTouch]) DELogButtonMask(event,6,self.gameButtonMask);
  if(self.gameTouch && [touches containsObject:self.gameTouch])[self sendGameMouse:6 touch:self.gameTouch cancelled:NO];
 }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {
+     BOOL hud=[self pencilPointInHUD:self.pencilStart];
+     NSTimeInterval held=self.gameTouch.timestamp-self.pencilStartTime;
+     BOOL order=NO;const char *reason;
+     if(hud){DEPencilOrderArmed=NO;reason="hud";}
+     else if(held>=0.45){DEPencilOrderArmed=NO;reason="hold";}
+     else if(DEPencilOrderArmed){order=YES;reason="order";}
+     else {DEPencilOrderArmed=YES;reason="select";}
+     self.overrideActive=YES;self.overridePoint=self.pencilStart;self.forceSecondary=order;
+     [self sendGameMouse:1 touch:self.gameTouch cancelled:NO];[self sendGameMouse:2 touch:self.gameTouch cancelled:NO];
+     self.overrideActive=NO;self.forceSecondary=NO;self.pencilPending=NO;self.gameTouch=nil;
+     fprintf(stderr,"DE_PENCIL_TAP kind=%s held=%.2f armed=%d\n",reason,held,DEPencilOrderArmed);
+     return;
+ }
+ if(self.pencilDragging && self.gameTouch && [touches containsObject:self.gameTouch]) {
+     self.pencilDragging=NO;DEPencilOrderArmed=![self pencilPointInHUD:self.pencilStart];
+     fprintf(stderr,"DE_PENCIL_DRAG armed=%d\n",DEPencilOrderArmed);
+ }
  if(self.gameTouch && [touches containsObject:self.gameTouch]) DELogButtonMask(event,2,self.gameButtonMask);
  if(self.gameTouch && [touches containsObject:self.gameTouch]){
      // UIKit may coalesce a short drag into begin/end (also seen in Simulator).
@@ -213,8 +263,17 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      [self sendGameMouse:2 touch:self.gameTouch cancelled:NO];self.gameTouch=nil;if(DEGlobalTouchCommandMode){DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();fprintf(stderr,"DE_TOUCH_COMMAND_MODE mode=select reason=target-complete\n");}}
 }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {
+     self.pencilPending=NO;self.gameTouch=nil;return; // No button was pressed yet.
+ }
+ self.pencilDragging=NO;
  if(self.gameTouch && [touches containsObject:self.gameTouch]) DELogButtonMask(event,2,self.gameButtonMask);
  if(self.gameTouch && [touches containsObject:self.gameTouch]){[self sendGameMouse:6 touch:self.gameTouch cancelled:YES];[self sendGameMouse:2 touch:self.gameTouch cancelled:YES];self.gameTouch=nil;if(DEGlobalTouchCommandMode){DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();fprintf(stderr,"DE_TOUCH_COMMAND_MODE mode=select reason=cancelled\n");}}
+}
+- (BOOL)pencilPointInHUD:(CGPoint)windowPoint {
+    // DE's top resource bar and bottom command panel/minimap bands.
+    CGPoint local=[self convertPoint:windowPoint fromView:self.window];CGFloat h=self.bounds.size.height;
+    return local.y<h*0.05 || local.y>h*0.83;
 }
 - (void)layoutSubviews {
     [super layoutSubviews];

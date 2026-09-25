@@ -243,15 +243,26 @@ static void DETraceCommit(id<MTLCommandBuffer> command,SEL selector) {
 static void DEInstallBC4(id<MTLDevice>device) {
  DEInstallGameCapture(device);
  if(getenv("AGEPAD_SOFTWARE_BC_ALL")&&!DEAllBCDecoder){NSError *error=nil;DEAllBCDecoder=[[DEBCMetalDecoder alloc]initWithDevice:device error:&error];if(!DEAllBCDecoder)DEUnsupported(error.description.UTF8String);}
- if((!getenv("AGEPAD_SOFTWARE_BC4")&&!getenv("AGEPAD_SOFTWARE_BC_ALL")) || DEBC4Decoder)return;
- NSError *error=nil;DEBC4Decoder=[[DEBC4MetalDecoder alloc]initWithDevice:device error:&error];
- if(!DEBC4Decoder){fprintf(stderr,"DE_BC4_COMPILE_ERROR %s\n",error.description.UTF8String);DEUnsupported("BC4 decoder compilation");}
- if(getenv("AGEPAD_SOFTWARE_BC7")){DEBC7Decoder=[[DEBC7MetalDecoder alloc]initWithDevice:device error:&error];if(!DEBC7Decoder)DEUnsupported(error.description.UTF8String);}
+ // Encoder wrapping is also required without software BC: A8 render-target
+ // stand-ins (AGEPAD_ALPHA_RENDER_TARGET) must be swapped for their real
+ // textures in render passes and bindings before reaching the GPU driver.
+ // On the M2 iPad, the stand-in reached the driver unwrapped when a skirmish
+ // started and AGX faulted in renderCommandEncoderWithDescriptor:.
+ BOOL softwareBC=getenv("AGEPAD_SOFTWARE_BC4")||getenv("AGEPAD_SOFTWARE_BC_ALL");
+ static BOOL encodersWrapped;
+ if((!softwareBC && !getenv("AGEPAD_ALPHA_RENDER_TARGET")) || encodersWrapped)return;
+ encodersWrapped=YES;
+ NSError *error=nil;
+ if(softwareBC){
+  DEBC4Decoder=[[DEBC4MetalDecoder alloc]initWithDevice:device error:&error];
+  if(!DEBC4Decoder){fprintf(stderr,"DE_BC4_COMPILE_ERROR %s\n",error.description.UTF8String);DEUnsupported("BC4 decoder compilation");}
+  if(getenv("AGEPAD_SOFTWARE_BC7")){DEBC7Decoder=[[DEBC7MetalDecoder alloc]initWithDevice:device error:&error];if(!DEBC7Decoder)DEUnsupported(error.description.UTF8String);}
+ }
  id<MTLCommandQueue>q=[device newCommandQueue];id<MTLCommandBuffer>cb=[q commandBuffer];Class cls=object_getClass(cb);
  SEL selectors[]={@selector(blitCommandEncoder),@selector(computeCommandEncoder),@selector(renderCommandEncoderWithDescriptor:)};
  IMP replacements[]={(IMP)DEBC4BlitFactory,(IMP)DEBC4ComputeFactory,(IMP)DEBC4RenderFactory};IMP *originals[]={&DEOriginalBlitFactory,&DEOriginalComputeFactory,&DEOriginalRenderFactory};
  for(int i=0;i<3;i++){Method m=class_getInstanceMethod(cls,selectors[i]);if(!m)DEUnsupported("BC4 encoder factory missing");*originals[i]=method_getImplementation(m);class_replaceMethod(cls,selectors[i],replacements[i],method_getTypeEncoding(m));}
  {SEL sel=@selector(blitCommandEncoderWithDescriptor:);Method m=class_getInstanceMethod(cls,sel);if(m){DEOriginalBlitDescriptorFactory=method_getImplementation(m);class_replaceMethod(cls,sel,(IMP)DEBC4BlitDescriptorFactory,method_getTypeEncoding(m));}}
  if(getenv("AGEPAD_COMMAND_TRACE")){Method m=class_getInstanceMethod(cls,@selector(commit));DEOriginalCommit=method_getImplementation(m);class_replaceMethod(cls,@selector(commit),(IMP)DETraceCommit,method_getTypeEncoding(m));}
- fprintf(stderr,"DE_BC4_COMPAT_INSTALLED software decoder; hardware feature unchanged\n");
+ fprintf(stderr,"DE_BC4_COMPAT_INSTALLED encoder wrapping; software_bc=%d\n",(int)softwareBC);
 }
