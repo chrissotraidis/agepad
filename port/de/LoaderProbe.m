@@ -214,7 +214,7 @@ static void *DEMainWatchdogLoop(void *unused) {
                 fcntl(STDERR_FILENO,F_GETPATH,target);
                 DEWatchdogLog("DE_WATCHDOG_TICK seconds=%u main_heartbeat=%llu stderr=%s\n",tick*2,(unsigned long long)DEMainHeartbeat,target);
             }
-            if (tick==10 && getenv("AGEPAD_DEVICE_THREAD_DUMP")) DEDumpAllThreads();
+            if ((tick==10 || tick==120) && getenv("AGEPAD_DEVICE_THREAD_DUMP")) DEDumpAllThreads();
             uint64_t now=DEMainHeartbeat;
             if (now!=last) { if (stalled>=2) DEWatchdogLog("DE_MAIN_RESUMED after=%us\n",stalled*2); last=now;stalled=0;continue; }
             stalled++;

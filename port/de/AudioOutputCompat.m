@@ -7,6 +7,12 @@
 static AudioComponent DEFindAudioComponent(AudioComponent previous,
                                            const AudioComponentDescription *description) {
     AudioComponent result=AudioComponentFindNext(previous,description);
+    if(getenv("AGEPAD_AUDIO_COMPONENT_TRACE") && description) {
+        static _Atomic unsigned traces;
+        if(traces++<24)fprintf(stderr,"DE_AUDIO_COMPONENT_QUERY type=%08x subtype=%08x manufacturer=%08x previous=%d found=%d\n",
+            (unsigned)description->componentType,(unsigned)description->componentSubType,
+            (unsigned)description->componentManufacturer,previous!=NULL,result!=NULL);
+    }
     if(result || previous || !description ||
        description->componentType!=kAudioUnitType_Output ||
        description->componentSubType!=0x64656620 || // macOS 'def '

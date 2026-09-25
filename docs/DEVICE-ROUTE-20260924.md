@@ -78,6 +78,9 @@ Result: Mac Steam tracked the relayed session for its full 90-second window, and
 
 Result: the Xbox Game Studios intro played and the [original DE main menu](images/device-de-main-menu-20260925.jpg) rendered full screen with the real Steam profile, and the app stayed alive for over four minutes. Still not gameplay: nothing has been tapped in the menu, no match has started, and saves, sustained frame rate and audio are unmeasured. The session still depends on the paired-Mac relay.
 
+**Audio on hardware (open).** The device build now links the Simulator's output-unit remap (`port/de/DeviceAudioOutput.m`), but on the iPad the game never requests an output unit: an opt-in `AGEPAD_AUDIO_COMPONENT_TRACE` saw only two Apple effect-unit queries, and at the menu Wwise's `AK::AudioMgr` waits idle beside an `AK::Suspended` thread. The Simulator run did request the macOS default output and was remapped. Sound on the physical iPad is therefore unverified and probably absent; the output path used by the Mac engine on device still needs tracing.
+
+
 
 
 
