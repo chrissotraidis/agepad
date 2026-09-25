@@ -28,8 +28,10 @@ if not dynamic_pair and (not bind.is_private or not allow.is_private or bind == 
     parser.error('Use distinct private tunnel IPv6 addresses')
 if not 1024 <= args.listen_port <= 65535 or not 1024 <= args.steam_port <= 65535:
     parser.error('Ports must be unprivileged TCP ports')
-if not 1 <= args.seconds <= 600:
-    parser.error('Relay duration must be 1–600 seconds')
+# Play sessions last as long as a match; the listener still accepts only the
+# paired iPad's tunnel address.
+if not 1 <= args.seconds <= 14400:
+    parser.error('Relay duration must be 1–14400 seconds (4 hours)')
 if bool(args.path_listen_port) != bool(args.path_socket):
     parser.error('Specify both path relay options or neither')
 if args.path_listen_port and not 1024 <= args.path_listen_port <= 65535:

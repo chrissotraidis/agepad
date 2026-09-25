@@ -8,13 +8,21 @@
     // UIKit cancels that stream if a multi-finger gesture wins recognition.
     order.numberOfTouchesRequired=2;order.delaysTouchesBegan=NO;
     UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(nativeMapPan:)];
-    pan.minimumNumberOfTouches=2;pan.maximumNumberOfTouches=2;
+    // Three fingers scroll the map; two fingers are reserved for the
+    // right-click tap and pinch zoom so they never compete with a scroll.
+    pan.minimumNumberOfTouches=3;pan.maximumNumberOfTouches=3;
     UIPinchGestureRecognizer *pinch=[[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(nativeZoom:)];
-    [order requireGestureRecognizerToFail:pan];[order requireGestureRecognizerToFail:pinch];
-    // Pan and pinch are exclusive: a zoom must not issue a move order.
+    // The order tap no longer waits for pinch/pan to fail: two fingers landing
+    // a few ms apart register a small scale change, which previously made the
+    // pinch win and silently swallowed the right-click. A real pinch moves the
+    // fingers beyond the tap's allowable movement, so the tap fails by itself.
     for(UIGestureRecognizer *gesture in @[order,pan,pinch]) {
         gesture.delegate=self;gesture.cancelsTouchesInView=YES;[self addGestureRecognizer:gesture];
     }
+    self.orderTap=order;self.zoomPinch=pinch;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)a shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
+    return (a==self.orderTap && b==self.zoomPinch) || (a==self.zoomPinch && b==self.orderTap);
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
     for(UIView *view=touch.view;view && view!=self;view=view.superview)
@@ -48,10 +56,12 @@
     // The shipped hotkeys.json binds click-drag scroll to slash.
     CGPoint point=[gesture locationInView:self];
     if(gesture.state==UIGestureRecognizerStateBegan) {
+        fprintf(stderr,"DE_GESTURE_SCROLL state=began x=%g y=%g\n",point.x,point.y);
         [self nativeMouse:5 point:point wheel:0];DEPostGameKey(44,@"/",YES);
     } else if(gesture.state==UIGestureRecognizerStateChanged) {
         [self nativeMouse:5 point:point wheel:0];
     } else if(gesture.state==UIGestureRecognizerStateEnded || gesture.state==UIGestureRecognizerStateCancelled || gesture.state==UIGestureRecognizerStateFailed) {
+        fprintf(stderr,"DE_GESTURE_SCROLL state=end x=%g y=%g\n",point.x,point.y);
         DEPostGameKey(44,@"/",NO);
     }
 }
@@ -59,6 +69,7 @@
     if(gesture.state!=UIGestureRecognizerStateChanged)return;
     CGFloat amount=log(gesture.scale)*8.0;
     if(fabs(amount)<0.2)return;
+    fprintf(stderr,"DE_GESTURE_ZOOM amount=%g\n",amount);
     [self nativeMouse:22 point:[gesture locationInView:self] wheel:amount];gesture.scale=1;
 }
 @end

@@ -2,9 +2,9 @@
 
 Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game and an iPad compatibility layer. This is a development project, not yet a downloadable, standalone playable IPA.
 
-**25 September hardware check:** a signed native [hardware scout](docs/DEVICE-SCOUT-20260924.md) installed and launched on Chris's iPad Pro; real tap and pinch changed its readouts. The signed DE device probe initializes the genuine Steam SDK through a temporary paired-Mac relay and invokes the original game on hardware. The full Steam DE data tree has been copied to the iPad and checked by path, type and size. The game still crashes in its SteamUtils startup path before a menu or playable frame. The device setup screen remains a diagnostic, not a playable build.
+**Start here: [Playing AgePad on your iPad](docs/IPAD-SETUP.md)** — what you need, how Steam is used, setup steps and controls. On the Mac, `scripts/agepad-ipad.sh check` tells you what is ready and what is missing.
 
-The [physical route check](docs/DEVICE-ROUTE-20260924.md) found that iPadOS denied the Simulator's separate Steam helper and global Mach service. An in-app helper plus a paired Mac tunnel now lets the original Steam client create a pipe, observe the genuine logged-on account, and return success from `SteamAPI_Init()` on the physical iPad. The original game launch callback also runs. At the pre-menu crash, it has selected `IceLinkerDynamic`, but that backend has a null module handle. The full data import is present; device gameplay is unverified. The active product remains **Definitive Edition only**.
+**25 September 2026, physical iPad Pro 12.9-inch (M2, 8 GB):** the original Steam Mac game boots to the menu, plays audio, loads and plays a skirmish, and accepts touch and Apple Pencil. The Mac's Steam app stays the owner check: the game on the iPad reaches it over the USB/Wi-Fi link while `scripts/agepad-ipad.sh play` runs. Two iPadOS leaks were fixed (calendar objects and Apple's Bluetooth audio plug-in), and the app now requests Apple's increased memory limit (8 GB instead of 5.1 GB) because a loaded skirmish needs about 5.1 GB. Save/resume, long matches and in-match frame rate are still being verified. Details: [device route log](docs/DEVICE-ROUTE-20260924.md). The older Simulator notes below are kept for history.
 
 ## What works today
 
@@ -58,8 +58,9 @@ Game files, Steam credentials and another person's saves must not be bundled in 
 
 - One-finger tap: select / left click.
 - Two-finger tap: order / right click.
-- Two-finger drag: move the map.
+- Three-finger drag: move the map.
 - Pinch: zoom.
+- Apple Pencil: tap a unit to select, then each tap on the map is an order until a ½-second hold.
 - Side shortcuts: Order, idle villager, town center, zoom and menu.
 
 These are the requested controls, not a claim that all gestures have passed device testing. Current validation details are in [execution status](docs/STATUS.md) and the [reorientation journal](docs/MADEIRA-REORIENTATION.md).

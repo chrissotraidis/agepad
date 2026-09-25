@@ -40,6 +40,7 @@ extern id DEUIKitScreenObject(UIScreen *screen);
 @property(nonatomic) BOOL pencilPending,pendingIsPencil,pencilDragging,forceSecondary,overrideActive;
 @property(nonatomic) CGPoint pencilStart,overridePoint;
 @property(nonatomic) NSTimeInterval pencilStartTime;
+@property(nonatomic,weak) UIGestureRecognizer *orderTap,*zoomPinch;
 - (void)refreshTouchCommandButton;
 - (void)installNativeGestures;
 - (void)nativeMouse:(NSUInteger)type point:(CGPoint)point wheel:(CGFloat)wheel;
@@ -221,7 +222,9 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      [self sendGameMouse:5 touch:self.gameTouch cancelled:NO];
      if(!pencil) {
          UITouch *touch=self.gameTouch;
-         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,150*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+         // 220 ms covers the usual gap between the two fingers of an order tap,
+         // so the first finger is cancelled instead of clicking (deselecting).
+         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,220*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
              if(self.pencilPending && self.gameTouch==touch){[self commitPendingPress];fprintf(stderr,"DE_TOUCH_DEFERRED_PRESS reason=held\n");}
          });
      }

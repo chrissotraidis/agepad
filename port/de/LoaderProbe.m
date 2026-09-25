@@ -391,6 +391,14 @@ static void *DEMainWatchdogLoop(void *unused) {
     {
         uint64_t last=DEMainHeartbeat;unsigned stalled=0,dumps=0;
         DEWatchdogLog("DE_WATCHDOG_START\n");
+        {
+            // Effective per-app limit = current footprint + what iOS still allows.
+            task_vm_info_data_t vm={0};mach_msg_type_number_t n=TASK_VM_INFO_COUNT;
+            task_info(mach_task_self(),TASK_VM_INFO,(task_info_t)&vm,&n);
+            DEWatchdogLog("DE_MEMORY_LIMIT limit_mb=%llu footprint_mb=%llu available_mb=%llu\n",
+                (unsigned long long)((vm.phys_footprint+os_proc_available_memory())>>20),
+                (unsigned long long)(vm.phys_footprint>>20),(unsigned long long)(os_proc_available_memory()>>20));
+        }
         DEInstallLeakSampler();
         DEInstallFrameCounter();
         for (unsigned early=1;early<=12;early++) {
@@ -798,20 +806,21 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         NSString *freeSpace = [NSByteCountFormatter stringFromByteCount:(long long)freeBytes countStyle:NSByteCountFormatterCountStyleFile];
         addLine(@"AGEPAD", 20, UIFontWeightBold, gold);
         addLine(@"Age of Empires II: Definitive Edition", 34, UIFontWeightBold, UIColor.whiteColor);
-        addLine(@"iPad setup is still in testing. Play is not available in this build.",
+        addLine(@"Start the game from your Mac. Opening AgePad from the Home Screen shows this setup check only.",
                 23, UIFontWeightSemibold, UIColor.whiteColor);
         addLine(inventoryChecked ? @"Game files · Imported inventory checked" :
                 hasData ? @"Game files · Import incomplete or unchecked" : @"Game files · Not imported",
                 19, UIFontWeightMedium, UIColor.whiteColor);
         addLine([NSString stringWithFormat:@"Available iPad storage · %@",freeSpace],
                 19, UIFontWeightMedium, UIColor.whiteColor);
-        addLine(steamInitialized ? @"Steam · Connected through the paired Mac for this test" :
-                @"Steam · No active connection. Pairing with the Mac works only in the engineering test.",
+        addLine(@"Steam · Uses the Steam app on your Mac. Your login never leaves the Mac; the game reaches it over the USB/Wi-Fi link while the Mac launches AgePad.",
                 19, UIFontWeightMedium, UIColor.whiteColor);
         addLine(inventoryChecked ?
-                @"Next: keep your Steam Mac copy installed and signed in. AgePad still needs a dependable Steam connection and a successful original-game startup before a match can begin on this iPad." :
-                @"Next: keep your Steam Mac copy installed and signed in. AgePad still needs a guided data import and a successful original-game startup before a match can begin on this iPad.",
+                @"To play: keep the iPad connected to your Mac, open Steam on the Mac and stay signed in, then run  scripts/agepad-ipad.sh play  in the AgePad folder. The game opens here in about two minutes." :
+                @"Game files are missing. On your Mac run  scripts/agepad-ipad.sh check  in the AgePad folder; it explains how to copy your Steam copy of the game to this iPad.",
                 18, UIFontWeightRegular, muted);
+        addLine(@"Controls · tap: select · Pencil tap after selecting: move/order · hold: plain click · two-finger tap: right-click · three-finger drag: scroll map · pinch: zoom",
+                16, UIFontWeightRegular, muted);
         fprintf(stderr, "DE_DEVICE_SETUP_GATE data_folder_present=%d inventory_checked=%d steam_connection=%d original_launch=skipped\n",
                 hasData, inventoryChecked, steamInitialized);
         fflush(stderr);
