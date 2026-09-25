@@ -16,6 +16,21 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "MachDiscovery.h"
+#include <dirent.h>
+#include <limits.h>
+#include <TargetConditionals.h>
+#include "CaseInsensitiveResourcePaths.h"
+// Physical iPad: the game lowercases data paths, but the imported tree keeps
+// the original names on a case-sensitive volume. Retry only failed lookups
+// inside the configured data root with the one real on-disk spelling. The
+// Simulator uses its separately injected RuntimeFileTrace resolver instead.
+static BOOL DEDeviceCaseRetry(const char *path,int error,char resolved[PATH_MAX]) {
+#if TARGET_OS_SIMULATOR
+    return NO;
+#else
+    return getenv("AGEPAD_DEVICE_DATA_ROOT") && DEResolveResourceCase(path,error,resolved);
+#endif
+}
 static _Thread_local int DESteamModuleLoading;
 static NSString *DEAdjacentSteamPath(void) {
     return [[[NSBundle mainBundle].bundlePath stringByDeletingLastPathComponent]
@@ -103,7 +118,8 @@ static void DEDevicePathMiss(const char *operation,const char *path,int result,i
     static _Atomic unsigned count;
     if (result==0 || !path || !getenv("AGEPAD_DEVICE_PATH_MISS_TRACE")) return;
     if (strncmp(path,"/System/",8)==0 || strncmp(path,"/usr/",5)==0) return;
-    if (atomic_fetch_add(&count,1)>=120) return;
+    if (strstr(path,"FeralCrashReport") || strstr(path,"Saved Application State")) return;
+    if (atomic_fetch_add(&count,1)>=1500) return;
     char line[1200];
     int length=snprintf(line,sizeof(line),"DE_DEVICE_PATH_MISS op=%s errno=%d caller_offset=0x%llx path=%s\n",
         operation,error,(unsigned long long)DESteamModuleCallerOffset(caller),path);
@@ -121,6 +137,8 @@ static int DESteamModuleStat(const char *path,struct stat *buffer) {
         return result;
     }
     int result=stat(path,buffer),saved=errno;
+    char resolved[PATH_MAX];
+    if (result<0 && DEDeviceCaseRetry(path,saved,resolved)) {result=stat(resolved,buffer);saved=errno;}
     DEDevicePathMiss("stat",path,result,saved,(uintptr_t)__builtin_return_address(0));
     errno=saved;
     return result;
@@ -145,6 +163,10 @@ static int DESteamModuleOpen(const char *path,int flags,...) {
         return result;
     }
     int result=(flags&O_CREAT)?open(path,flags,mode):open(path,flags),saved=errno;
+    char resolved[PATH_MAX];
+    if (result<0 && (flags&O_ACCMODE)==O_RDONLY && !(flags&O_CREAT) && DEDeviceCaseRetry(path,saved,resolved)) {
+        result=open(resolved,flags);saved=errno;
+    }
     DEDevicePathMiss("open",path,result<0?-1:0,saved,(uintptr_t)__builtin_return_address(0));
     errno=saved;
     return result;
@@ -168,6 +190,10 @@ static FILE *DESteamModuleFopenWith(FILE *(*function)(const char *,const char *)
     }
     FILE *result=function(path,mode);
     int saved=errno;
+    char resolved[PATH_MAX];
+    if (!result && DESteamModuleReadMode(mode) && DEDeviceCaseRetry(path,saved,resolved)) {
+        result=function(resolved,mode);saved=errno;
+    }
     DEDevicePathMiss("fopen",path,result?0:-1,saved,caller);
     errno=saved;
     return result;
@@ -188,3 +214,29 @@ static const struct { const void *replacement; const void *original; } DESteamMo
     {(const void *)DESteamModuleFopen,(const void *)DEFopenPlain},
     {(const void *)DESteamModuleFopenExtension,(const void *)DEFopenExtension}
 };
+#if !TARGET_OS_SIMULATOR
+static int DEDeviceLstat(const char *path,struct stat *buffer) {
+    int result=lstat(path,buffer),saved=errno;char resolved[PATH_MAX];
+    if (result<0 && DEDeviceCaseRetry(path,saved,resolved)) {result=lstat(resolved,buffer);saved=errno;}
+    DEDevicePathMiss("lstat",path,result,saved,(uintptr_t)__builtin_return_address(0));
+    errno=saved;return result;
+}
+static int DEDeviceAccess(const char *path,int mode) {
+    int result=access(path,mode),saved=errno;char resolved[PATH_MAX];
+    if (result<0 && DEDeviceCaseRetry(path,saved,resolved)) {result=access(resolved,mode);saved=errno;}
+    DEDevicePathMiss("access",path,result,saved,(uintptr_t)__builtin_return_address(0));
+    errno=saved;return result;
+}
+static DIR *DEDeviceOpendir(const char *path) {
+    DIR *result=opendir(path);int saved=errno;char resolved[PATH_MAX];
+    if (!result && DEDeviceCaseRetry(path,saved,resolved)) {result=opendir(resolved);saved=errno;}
+    DEDevicePathMiss("opendir",path,result?0:-1,saved,(uintptr_t)__builtin_return_address(0));
+    errno=saved;return result;
+}
+__attribute__((used,section("__DATA,__interpose")))
+static const struct { const void *replacement; const void *original; } DEDeviceCaseInterpose[]={
+    {(const void *)DEDeviceLstat,(const void *)lstat},
+    {(const void *)DEDeviceAccess,(const void *)access},
+    {(const void *)DEDeviceOpendir,(const void *)opendir}
+};
+#endif

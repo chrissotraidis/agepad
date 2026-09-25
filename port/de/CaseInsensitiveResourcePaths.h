@@ -8,6 +8,12 @@ static NSDictionary<NSString *,id> *DECaseResourceIndex;
 static NSString *DECaseResourceRoot;
 static _Thread_local int DECaseResolving;
 static _Atomic unsigned DECaseResolveCount;
+// stringByStandardizingPath drops a leading /private only when the path
+// exists, so a missing requested spelling and its existing root disagree.
+static NSString *DECaseStandardPath(NSString *path) {
+    NSString *standard=[path stringByStandardizingPath];
+    return [standard hasPrefix:@"/private/var/"]?[standard substringFromIndex:8]:standard;
+}
 static BOOL DEResolveResourceCase(const char *path,int error,char resolved[PATH_MAX]) {
     if(DECaseResolving || !path || path[0]!='/' || (error!=ENOENT && error!=ENOTDIR))return NO;
     const char *configured=getenv("AGEPAD_CASE_INSENSITIVE_RESOURCE_ROOT");
@@ -19,10 +25,12 @@ static BOOL DEResolveResourceCase(const char *path,int error,char resolved[PATH_
     @autoreleasepool {
         static dispatch_once_t once;
         dispatch_once(&once,^{
-            DECaseResourceRoot=[[@(configured) stringByStandardizingPath] copy];
+            DECaseResourceRoot=[DECaseStandardPath(@(configured)) copy];
             NSMutableDictionary<NSString *,id> *index=[NSMutableDictionary dictionary];
             index[DECaseResourceRoot.lowercaseString]=DECaseResourceRoot;
-            NSDirectoryEnumerator *entries=[NSFileManager.defaultManager enumeratorAtPath:DECaseResourceRoot];
+            // The configured root may be a link (device data link); index its target.
+            NSDirectoryEnumerator *entries=[NSFileManager.defaultManager enumeratorAtPath:
+                [DECaseResourceRoot stringByResolvingSymlinksInPath]];
             for(NSString *relative in entries) {
                 NSString *canonical=[DECaseResourceRoot stringByAppendingPathComponent:relative];
                 NSString *key=canonical.lowercaseString;
@@ -33,7 +41,7 @@ static BOOL DEResolveResourceCase(const char *path,int error,char resolved[PATH_
             DECaseResourceIndex=[index copy];
             fprintf(stderr,"DE_RESOURCE_CASE_INDEX entries=%lu\n",(unsigned long)index.count);
         });
-        NSString *requested=[[NSString stringWithUTF8String:path] stringByStandardizingPath];
+        NSString *requested=DECaseStandardPath([NSString stringWithUTF8String:path]);
         NSString *key=requested.lowercaseString;
         NSString *rootKey=DECaseResourceRoot.lowercaseString;
         if([key isEqualToString:rootKey] || [key hasPrefix:[rootKey stringByAppendingString:@"/"]]) {

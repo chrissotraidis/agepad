@@ -67,6 +67,18 @@ Result: Mac Steam tracked the relayed session for its full 90-second window, and
 
 **Launcher freeze (later on 25 September).** The drawn launcher then stopped changing. A per-second watchdog writing to its own file showed that every thread stopped about 2.5 seconds after launch. A fault logger kept in front of the game's PLCrashReporter caught `SIGSEGV` at address `0x768` inside the AGX GPU driver, called from QuartzCore on `CA::CG::Queue` (Core Animation's GPU CoreGraphics renderer). PLCrashReporter then suspended the process while writing, which explains the silent freeze. The cause was ours: the texture, encoder and pipeline adapters in `MetalDevicesCompat.m`, `BC4TextureCompat.m` and `AlphaTextureCompat.m` are installed on the shared GPU device and command-buffer classes, so Core Animation received proxy encoders/textures. The adapters now apply only to callers inside the app bundle; system frameworks get the platform implementation. After the change the launcher's [Usage Statistics dialog completes](images/device-de-launcher-consent-20260925.jpg) with its three buttons and the app stays responsive. Web accelerated drawing is also turned off beside the existing software compositing. Opt-in hardware diagnostics added: `AGEPAD_DEVICE_LOG_FILE`, `AGEPAD_DEVICE_MAIN_WATCHDOG` (with fault logger), `AGEPAD_DEVICE_THREAD_DUMP`. Touch input on the launcher and Play are next and need a person at the iPad.
 
+**Main menu on hardware (25 September, afternoon).** After the launcher, each stop was again measured, then addressed narrowly:
+
+| Stop | Evidence | Change |
+|---|---|---|
+| Launcher waits for taps (consent, desktop notices, Play) | Feral preferences keys | Applied Chris's own recorded Simulator choices to the iPad preferences (Do Not Send; acknowledged mouse/function-key/mod notices; update check) and \`GameOptionsDialogShouldShow=0\`, \`GameOptionsDialogShown=1\` so the desktop launcher is skipped. Backups kept under ignored \`generated/de-device-prefs-20260925/\`. |
+| \`File not found: ...\EntitlementData.pbin\` | Game requests lowercase paths; iPad volume is case-sensitive | Device file hooks retry failed lookups inside the data root with the one real on-disk spelling (shared resolver; \`/private\` prefix normalization fixed; unit test passes). |
+| \`fatal stalled cross-thread pipe\` at ~20 s | Relay \`OSError 65 No route to host\`; Mac log: CoreDevice cancelled the tunnel "No active usage assertions" 20 s after creation | Launch keeps an attached \`devicectl --console\` client for the session; the app logs to its own container file. Not a Steam or game defect. |
+| App vanished while uploading 7168×7424 BC7 atlases | Software BC decode expands to RGBA; \`DE_BC_DEVICE_PROFILE hardware=1\` | Device launch no longer enables the Simulator's software-BC switches; the M2 GPU samples BC textures natively. |
+
+Result: the Xbox Game Studios intro played and the [original DE main menu](images/device-de-main-menu-20260925.jpg) rendered full screen with the real Steam profile, and the app stayed alive for over four minutes. Still not gameplay: nothing has been tapped in the menu, no match has started, and saves, sustained frame rate and audio are unmeasured. The session still depends on the paired-Mac relay.
+
+
 
 
 ## DE engine/data alternatives checked

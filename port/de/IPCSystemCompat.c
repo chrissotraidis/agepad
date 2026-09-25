@@ -106,6 +106,29 @@ pid_t getpid(void) {
     }
     return real?real():-1;
 }
+static void DELogExitFrames(int status) {
+    // Opt-in hardware diagnostic: Steam's fatal-assert path leaves through
+    // _exit; record the calling thread's frames first, then exit unchanged.
+    if (getenv("AGEPAD_DEVICE_MAIN_WATCHDOG")) {
+        char line[512];
+        int length=snprintf(line,sizeof(line),"DE_STEAM_EXIT status=%d\n",status);
+        if (length>0) write(STDERR_FILENO,line,(size_t)length);
+        uintptr_t fp=(uintptr_t)__builtin_frame_address(0);
+        for (unsigned i=0;fp && i<40;i++) {
+            uintptr_t frame[2];vm_size_t copied=0;
+            if (vm_read_overwrite(mach_task_self(),fp,sizeof(frame),(vm_address_t)frame,&copied)!=KERN_SUCCESS ||
+                copied!=sizeof(frame) || frame[0]<=fp) break;
+            uintptr_t pc=frame[1]&0x0000000fffffffffULL;fp=frame[0];
+            Dl_info info={0};
+            if (dladdr((void *)pc,&info) && info.dli_fname) {
+                const char *slash=strrchr(info.dli_fname,'/');
+                length=snprintf(line,sizeof(line),"DE_STEAM_EXIT_FRAME %u %s+0x%lx %s\n",i,slash?slash+1:info.dli_fname,
+                                (unsigned long)(pc-(uintptr_t)info.dli_fbase),info.dli_sname?info.dli_sname:"?");
+                if (length>0) write(STDERR_FILENO,line,(size_t)length);
+            }
+        }
+    }
+}
 int kill(pid_t pid,int signal) {
     pid_t sessionPID=DEHostSessionPID();
     if (signal!=0) {
@@ -245,6 +268,7 @@ __attribute__((noreturn)) void _exit(int status) {
         DELocalSteamPort=MACH_PORT_NULL;
         pthread_exit((void *)(intptr_t)(status+1));
     }
+    DELogExitFrames(status);
     void (*real)(int)=dlsym(RTLD_NEXT,"_exit");
     if (real) real(status);
     __builtin_trap();

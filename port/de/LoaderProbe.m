@@ -88,11 +88,26 @@ static void DEDumpAllThreads(void) {
     thread_act_array_t threads=NULL;mach_msg_type_number_t count=0;
     if (task_threads(mach_task_self(),&threads,&count)!=KERN_SUCCESS) return;
     DEWatchdogLog("DE_ALL_THREADS count=%u\n",count);
-    for (mach_msg_type_number_t i=0;i<count && i<64;i++) DEDumpThread(threads[i],"any");
+    for (mach_msg_type_number_t i=0;i<count && i<128;i++) DEDumpThread(threads[i],"any");
     for (mach_msg_type_number_t i=0;i<count;i++) mach_port_deallocate(mach_task_self(),threads[i]);
     vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
 }
 static void *DEMainWatchdogLoop(void *unused);
+static void DEDumpAllThreads(void);
+// The Steam fatal-assert path leaves through exit(); record every other
+// thread and the exiting thread's own frame chain at that moment.
+static void DEDumpThreadsAtExit(void) {
+    DEWatchdogLog("DE_EXIT_DUMP begin\n");
+    uintptr_t fp=(uintptr_t)__builtin_frame_address(0);
+    for (unsigned i=0;fp && i<40;i++) {
+        uintptr_t frame[2];vm_size_t copied=0;
+        if (vm_read_overwrite(mach_task_self(),fp,sizeof(frame),(vm_address_t)frame,&copied)!=KERN_SUCCESS ||
+            copied!=sizeof(frame) || frame[0]<=fp) break;
+        DELogAddress(i,frame[1]&0x0000000fffffffffULL);fp=frame[0];
+    }
+    DEDumpAllThreads();
+    DEWatchdogLog("DE_EXIT_DUMP end\n");
+}
 // Opt-in fault logger kept in front of later-installed handlers (the game's
 // crash reporter). Async-signal-safe: fixed formatting and write(2) only. It
 // then hands the signal to the handler it displaced, unchanged.
@@ -169,6 +184,7 @@ static void DEStartMainWatchdog(void) {
     CFRunLoopAddTimer(CFRunLoopGetMain(),timer,kCFRunLoopCommonModes);
     // A dedicated thread: shared dispatch pools can be exhausted by the game.
     pthread_t watchdog;
+    atexit(DEDumpThreadsAtExit);
     pthread_create(&watchdog,NULL,DEMainWatchdogLoop,NULL);
     pthread_detach(watchdog);
     DEWatchdogLog("DE_MAIN_WATCHDOG installed\n");
@@ -412,6 +428,9 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
             }
         }
         bool sessionLoggedOn = false;
+        // Experiment switch: leave the in-process Steam client untouched until
+        // the game's own SteamAPI_Init, which then performs the real check.
+        bool skipPreflight = getenv("AGEPAD_DEVICE_SKIP_STEAM_PREFLIGHT") && getenv("AGEPAD_DEVICE_RUN_ORIGINAL");
         NSString *steamClient = [NSBundle.mainBundle.bundlePath
             stringByAppendingPathComponent:@"Frameworks/steamclient.dylib"];
         dlerror();
@@ -419,7 +438,11 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         const char *clientError = dlerror();
         fprintf(stderr, "DE_DEVICE_STEAM_CLIENT_LOAD loaded=%d error=%s\n",
                 clientLoaded != NULL, clientError ?: "none");
-        if (clientLoaded) {
+        if (skipPreflight) {
+            sessionLoggedOn = true;
+            fprintf(stderr, "DE_DEVICE_STEAM_PREFLIGHT skipped=1 game_performs_init=1\n");
+        }
+        if (clientLoaded && !skipPreflight) {
             void *(*createInterface)(const char *, int *) = dlsym(clientLoaded, "CreateInterface");
             int interfaceStatus = -1;
             void *steamInterface = createInterface ? createInterface("SteamClient020", &interfaceStatus) : NULL;
@@ -503,9 +526,16 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         // This opt-in is a launch diagnostic. A partial import may be enough
         // to reveal the next original-engine dependency, but is not gameplay.
         if (getenv("AGEPAD_DEVICE_RUN_ORIGINAL") && steamInitialized && hasData) {
-            DEDeviceLinkFeralDataFolder(data);
+            NSString *gameData=DEDeviceLinkFeralDataFolder(data);
             DEStartMainWatchdog();
-            setenv("AGEPAD_CASE_INSENSITIVE_RESOURCE_ROOT", data.fileSystemRepresentation, 1);
+            // The game spells its data root through the Feral link with the
+            // real /private prefix; the case resolver matches that raw prefix.
+            char supportReal[PATH_MAX]={0};
+            NSString *caseRoot=data;
+            if (gameData && realpath(gameData.stringByDeletingLastPathComponent.fileSystemRepresentation,supportReal))
+                caseRoot=[@(supportReal) stringByAppendingPathComponent:@"AgeOfEmpires2Data"];
+            setenv("AGEPAD_CASE_INSENSITIVE_RESOURCE_ROOT", caseRoot.fileSystemRepresentation, 1);
+            fprintf(stderr, "DE_DEVICE_CASE_ROOT %s\n", caseRoot.fileSystemRepresentation);
             setenv("AGEPAD_DEVICE_DATA_ROOT", data.fileSystemRepresentation, 1);
             NSString *appkitPath = [NSBundle.mainBundle.bundlePath
                 stringByAppendingPathComponent:@"DEBoundary_AppKit.dylib"];
