@@ -66,6 +66,7 @@ def link_fresh_boundaries(package, output, sdk):
                         'GameController', '-framework', 'Metal', '-framework', 'CoreGraphics',
                         '-framework', 'AudioToolbox', '-framework', 'AVFoundation']
             command.append(str(ROOT / 'port/de/DeviceAudioOutput.m'))
+            command += [str(ROOT / 'port/de/DeviceLocaleCompat.mm'), '-lc++']
             # The generated NSColor diagnostic class has a different ObjC name
             # because UIKit already owns NSColor internally on some runtimes.
             # Preserve the two aliases emitted by build-de-boundary-probe.py.

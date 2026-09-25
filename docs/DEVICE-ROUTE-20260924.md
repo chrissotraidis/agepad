@@ -80,6 +80,9 @@ Result: the Xbox Game Studios intro played and the [original DE main menu](image
 
 **Audio on hardware (open).** The device build now links the Simulator's output-unit remap (`port/de/DeviceAudioOutput.m`), but on the iPad the game never requests an output unit: an opt-in `AGEPAD_AUDIO_COMPONENT_TRACE` saw only two Apple effect-unit queries, and at the menu Wwise's `AK::AudioMgr` waits idle beside an `AK::Suspended` thread. The Simulator run did request the macOS default output and was remapped. Sound on the physical iPad is therefore unverified and probably absent; the output path used by the Mac engine on device still needs tracing.
 
+**Starting a match (25 September, with Chris at the iPad).** Chris reached the menu by touch and reported two problems. (1) Apple Pencil taps jumped the cursor to the top-left: the pointer tracker accepted the hover recognizer's Ended state, whose location UIKit reports as (0,0) when the tip leaves hover range (11 such updates in the log). Hover-end no longer moves the pointer. (2) Starting a skirmish aborted: a game thread constructs `std::locale("en")`/`("en_US")` for telemetry timestamps; iPadOS ships no named POSIX locales, libc++ throws, nothing catches it. `port/de/DeviceLocaleCompat.mm` tries the requested locale and only on failure uses the C locale (logged as `DE_LOCALE_UNAVAILABLE`). The match then loaded further, and iOS terminated the app for memory: footprint 4.78 GB with 340 MB left. A per-tag census at the main menu shows ~2.0 GB small-malloc heap, ~0.57 GB large-malloc, ~0.78 GB resident plus ~1.42 GB compressed GPU memory (footprint 4.85 GB). Setting the game's Graphics Preset from 3 (Ultra, auto-selected) to 0 (Low) did not materially change the menu footprint. The default iPad per-app limit (~5.1 GB here) is below what DE uses; the next step is the increased-memory-limit entitlement and/or reducing the game's resident data.
+
+
 
 
 

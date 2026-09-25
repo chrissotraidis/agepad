@@ -10,6 +10,10 @@
 @implementation DEPointerTracker
 - (void)track:(UIGestureRecognizer *)gesture {
     if (gesture.state==UIGestureRecognizerStateCancelled || gesture.state==UIGestureRecognizerStateFailed) return;
+    // Apple Pencil hover ends when the tip leaves hover range; UIKit then
+    // reports (0,0). Keep the last hovered position instead of jumping to the
+    // top-left corner. Touch (long-press) end locations remain real points.
+    if ([gesture isKindOfClass:UIHoverGestureRecognizer.class] && gesture.state==UIGestureRecognizerStateEnded) return;
     CGPoint local=[gesture locationInView:self.window];
     if([gesture isKindOfClass:UILongPressGestureRecognizer.class]){UIView *hit=[self.window hitTest:local withEvent:nil];fprintf(stderr,"DE_TOUCH_HIT state=%ld view=%s super=%s\n",(long)gesture.state,object_getClassName(hit),object_getClassName(hit.superview));}
     CGPoint global=[self.window convertPoint:local toCoordinateSpace:self.window.screen.coordinateSpace];

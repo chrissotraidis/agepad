@@ -12,6 +12,7 @@
 #import <objc/runtime.h>
 #include <mach-o/dyld.h>
 #include <pthread.h>
+#include <os/proc.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 
@@ -93,6 +94,31 @@ static void DEDumpAllThreads(void) {
     vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
 }
 static void *DEMainWatchdogLoop(void *unused);
+// Read-only memory census: dirty (and compressed/swapped) bytes by VM user tag.
+static void DELogMemoryByTag(unsigned seconds) {
+    uint64_t bytes[256]={0};
+    vm_address_t address=0;natural_t depth=0;
+    for (;;) {
+        vm_size_t size=0;vm_region_submap_info_data_64_t info;
+        mach_msg_type_number_t count=VM_REGION_SUBMAP_INFO_COUNT_64;
+        if (vm_region_recurse_64(mach_task_self(),&address,&size,&depth,(vm_region_recurse_info_t)&info,&count)!=KERN_SUCCESS) break;
+        if (info.is_submap) { depth++; continue; }
+        bytes[info.user_tag&255]+=((uint64_t)info.pages_dirtied+info.pages_swapped_out)*vm_page_size;
+        address+=size;
+    }
+    for (int rank=0;rank<8;rank++) {
+        int best=-1;for (int t=0;t<256;t++) if (bytes[t] && (best<0 || bytes[t]>bytes[best])) best=t;
+        if (best<0) break;
+        DEWatchdogLog("DE_MEMORY_TAG seconds=%u rank=%d tag=%d dirty_mb=%llu\n",seconds,rank,best,(unsigned long long)(bytes[best]>>20));
+        bytes[best]=0;
+    }
+    task_vm_info_data_t vm={0};mach_msg_type_number_t vmCount=TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(),TASK_VM_INFO,(task_info_t)&vm,&vmCount)==KERN_SUCCESS)
+        DEWatchdogLog("DE_MEMORY_LEDGER seconds=%u footprint_mb=%llu internal_mb=%llu compressed_mb=%llu graphics_mb=%llu graphics_compressed_mb=%llu media_mb=%llu\n",seconds,
+            (unsigned long long)(vm.phys_footprint>>20),(unsigned long long)(vm.internal>>20),(unsigned long long)(vm.compressed>>20),
+            (unsigned long long)(vm.ledger_tag_graphics_footprint>>20),(unsigned long long)(vm.ledger_tag_graphics_footprint_compressed>>20),
+            (unsigned long long)(vm.ledger_tag_media_footprint>>20));
+}
 static void DEDumpAllThreads(void);
 // The Steam fatal-assert path leaves through exit(); record every other
 // thread and the exiting thread's own frame chain at that moment.
@@ -209,12 +235,17 @@ static void *DEMainWatchdogLoop(void *unused) {
         }
         for (unsigned tick=1;;tick++) {
             sleep(2);
-            if (tick%5==0) {
+            if (tick%1==0) {
                 char target[1024]="?";
                 fcntl(STDERR_FILENO,F_GETPATH,target);
-                DEWatchdogLog("DE_WATCHDOG_TICK seconds=%u main_heartbeat=%llu stderr=%s\n",tick*2,(unsigned long long)DEMainHeartbeat,target);
+                task_vm_info_data_t vm;mach_msg_type_number_t vmCount=TASK_VM_INFO_COUNT;
+                uint64_t footprint=task_info(mach_task_self(),TASK_VM_INFO,(task_info_t)&vm,&vmCount)==KERN_SUCCESS?vm.phys_footprint:0;
+                DEWatchdogLog("DE_WATCHDOG_TICK seconds=%u main_heartbeat=%llu footprint_mb=%llu available_mb=%llu stderr=%s\n",tick*2,
+                              (unsigned long long)DEMainHeartbeat,(unsigned long long)(footprint>>20),
+                              (unsigned long long)(os_proc_available_memory()>>20),target);
             }
             if ((tick==10 || tick==120) && getenv("AGEPAD_DEVICE_THREAD_DUMP")) DEDumpAllThreads();
+            if (tick%15==0) DELogMemoryByTag(tick*2);
             uint64_t now=DEMainHeartbeat;
             if (now!=last) { if (stalled>=2) DEWatchdogLog("DE_MAIN_RESUMED after=%us\n",stalled*2); last=now;stalled=0;continue; }
             stalled++;
