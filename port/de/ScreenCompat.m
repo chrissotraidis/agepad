@@ -1,6 +1,7 @@
 // Initial NSScreen adapter backed by real UIKit display objects.
 #import <UIKit/UIKit.h>
 #include "UnsupportedBoundary.h"
+#include "RenderScale.h"
 @interface NSScreen : NSObject
 @property(nonatomic,strong) UIScreen *uiScreen;
 @property(nonatomic) uint32_t displayIdentifier;
@@ -34,7 +35,7 @@ uint32_t DEUIKitDisplayIdentifier(UIScreen *screen) { return screen?DEWrapScreen
 + (BOOL)screensHaveSeparateSpaces { return NO; } // No macOS Spaces in UIKit.
 - (CGRect)frame { return self.uiScreen.bounds; }
 - (CGRect)visibleFrame { return self.uiScreen.bounds; } // No desktop menu/Dock exclusion.
-- (CGFloat)backingScaleFactor { return self.uiScreen.scale; }
+- (CGFloat)backingScaleFactor { return DERenderScale(self.uiScreen); }
 - (NSTimeInterval)minimumRefreshInterval {
  NSInteger fps=self.uiScreen.maximumFramesPerSecond;
  if(fps<=0)DEUnsupported("UIKit screen has no maximum refresh rate");

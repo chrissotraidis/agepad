@@ -5,6 +5,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <GameController/GameController.h>
 #include "UnsupportedBoundary.h"
+#include "RenderScale.h"
 #include "DrawablePresentationCompat.m"
 @class NSWindow, DEGameTrackingController;
 extern id DEUIKitScreenObject(UIScreen *screen);
@@ -219,7 +220,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
     [super layoutSubviews];
     if (self.gameLayer) {
         [CATransaction begin];[CATransaction setDisableActions:YES];
-        self.gameLayer.frame=self.bounds;self.gameLayer.contentsScale=self.window.screen.scale ?: UIScreen.mainScreen.scale;
+        self.gameLayer.frame=self.bounds;self.gameLayer.contentsScale=DERenderScale(self.window.screen);
         [CATransaction commit];
     }
     if (self.touchOrderButton) {
@@ -549,8 +550,8 @@ void DEUpdateVisibleGameWindows(void) {
     CGPoint local=[self.deHost convertPoint:point toView:root];
     return CGPointMake(local.x-root.bounds.origin.x,CGRectGetMaxY(root.bounds)-local.y);
 }
-- (CGRect)convertRectToBacking:(CGRect)r { CGFloat s=self.deHost.window.screen.scale ?: UIScreen.mainScreen.scale;return CGRectMake(r.origin.x*s,r.origin.y*s,r.size.width*s,r.size.height*s); }
-- (CGRect)convertRectFromBacking:(CGRect)r { CGFloat s=self.deHost.window.screen.scale ?: UIScreen.mainScreen.scale;return CGRectMake(r.origin.x/s,r.origin.y/s,r.size.width/s,r.size.height/s); }
+- (CGRect)convertRectToBacking:(CGRect)r { CGFloat s=DERenderScale(self.deHost.window.screen);return CGRectMake(r.origin.x*s,r.origin.y*s,r.size.width*s,r.size.height*s); }
+- (CGRect)convertRectFromBacking:(CGRect)r { CGFloat s=DERenderScale(self.deHost.window.screen);return CGRectMake(r.origin.x/s,r.origin.y/s,r.size.width/s,r.size.height/s); }
 + (BOOL)resolveInstanceMethod:(SEL)sel {fprintf(stderr,"DE_UNSUPPORTED_SELECTOR -[NSView %s]\n",sel_getName(sel));DEUnsupported("NSView");}
 @end
 @implementation NSWindow
@@ -698,7 +699,7 @@ void DEUpdateVisibleGameWindows(void) {
 - (BOOL)canBecomeMainWindow { return YES; }
 - (CGRect)frame { return self.deFrame; }
 - (id)screen { return DEUIKitScreenObject(self.deUIKitWindow.screen); }
-- (CGFloat)backingScaleFactor { return self.deUIKitWindow.screen.scale; }
+- (CGFloat)backingScaleFactor { return DERenderScale(self.deUIKitWindow.screen); }
 - (CGRect)frameRectForContentRect:(CGRect)rect { return rect; } // UIKit host has no desktop decorations.
 - (CGRect)contentRectForFrameRect:(CGRect)rect { return rect; } // No desktop decorations.
 + (CGRect)contentRectForFrameRect:(CGRect)rect styleMask:(NSUInteger)style { return rect; }
