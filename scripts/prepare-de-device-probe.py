@@ -142,6 +142,18 @@ info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePa
 info['NSLocalNetworkUsageDescription'] = ('AgePad connects to the AgePad helper on your Mac, '
                                           'which lets the game use your Mac\'s Steam sign-in.')
 info_path.write_bytes(plistlib.dumps(info))
+# AgePad's page in the iPad Settings app: who is signed in to Steam, and a
+# switch that signs out the next time AgePad opens.
+settings = output / 'Settings.bundle'
+settings.mkdir(exist_ok=True)
+(settings / 'Root.plist').write_bytes(plistlib.dumps({'PreferenceSpecifiers': [
+    {'Type': 'PSGroupSpecifier', 'Title': 'Steam',
+     'FooterText': 'Signing out removes the Steam sign-in from this iPad the next time you open AgePad; '
+                   'you then sign in again with the QR code. To also remove the iPad from your Steam account, '
+                   'revoke "AgePad (iPad)" under Steam > Settings > Security.'},
+    {'Type': 'PSTitleValueSpecifier', 'Title': 'Signed in as', 'Key': 'AgePadSteamAccountName', 'DefaultValue': 'Not signed in'},
+    {'Type': 'PSToggleSwitchSpecifier', 'Title': 'Sign out of Steam', 'Key': 'AgePadSteamSignOut', 'DefaultValue': False},
+]}))
 # The original localized InfoPlist.strings overrides this diagnostic label.
 # Keep the probe visibly distinct from a playable AgePad installation.
 for localized in output.rglob('InfoPlist.strings'):

@@ -737,6 +737,15 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         BOOL usbPlay = macTunnel && getenv("AGEPAD_HOST_SESSION_PID");
         BOOL engineRoute = NO;
 #if AGEPAD_ENGINE_ROUTE
+        // iPad Settings > AgePad: "Sign out of Steam" applies on this launch.
+        NSUserDefaults *settings = NSUserDefaults.standardUserDefaults;
+        if ([settings boolForKey:@"AgePadSteamSignOut"]) {
+            [AgePadSteamRoute forgetAccount];
+            [settings setBool:NO forKey:@"AgePadSteamSignOut"];
+            fprintf(stderr, "AGEPAD_STEAM_SIGNED_OUT from_settings=1\n");
+        }
+        [settings setObject:[AgePadSteamRoute hasAccount] ? [AgePadSteamRoute accountName] : @"Not signed in"
+                     forKey:@"AgePadSteamAccountName"];
         engineRoute = !usbPlay && clientLoaded && ipcReady && ipcReady() && shimLookUp;
         fprintf(stderr, "AGEPAD_STEAM_ROUTE engine=%d usb=%d paired=%d signed_in=%d\n",
                 engineRoute, usbPlay, macTunnel != NULL, [AgePadSteamRoute hasAccount]);

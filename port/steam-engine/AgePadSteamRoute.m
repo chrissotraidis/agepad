@@ -107,6 +107,7 @@ static NSString *LoadToken(NSString *account) {
     if (steamID) SecItemDelete((__bridge CFDictionaryRef)KeychainQuery(@(steamID)));
     [NSFileManager.defaultManager removeItemAtPath:AccountFile() error:nil];
     unsetenv("AGEPAD_STEAM_ENGINE_ID");unsetenv("AGEPAD_STEAM_ENGINE_NAME");
+    [NSUserDefaults.standardUserDefaults setObject:@"Not signed in" forKey:@"AgePadSteamAccountName"];
 }
 + (void)prepareWithClient:(void *)client {
     dispatch_async(EngineQueue(),^{
@@ -134,6 +135,7 @@ static NSString *LoadToken(NSString *account) {
     NSString *file=[NSString stringWithFormat:@"AGEPAD_STEAM_ENGINE_ID=%@\nAGEPAD_STEAM_ENGINE_NAME=%@\n",steamID,name];
     [file writeToFile:AccountFile() atomically:YES encoding:NSUTF8StringEncoding error:nil];
     setenv("AGEPAD_STEAM_ENGINE_ID",steamID.UTF8String,1);setenv("AGEPAD_STEAM_ENGINE_NAME",name.UTF8String,1);
+    [NSUserDefaults.standardUserDefaults setObject:name forKey:@"AgePadSteamAccountName"];
 }
 + (void)startWithClient:(void *)client path:(NSString *)clientPath lookUp:(AgePadBootstrapLookUp)lookUp
                  status:(void (^)(NSString *))status completion:(void (^)(NSString *))completion {
