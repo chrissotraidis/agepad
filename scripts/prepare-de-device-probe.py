@@ -58,6 +58,12 @@ client_source = args.steam_client.resolve(strict=True) if args.steam_client else
 if not (app_source / 'DEOriginalGame').is_file() or not client_source.is_dir():
     parser.error('Candidate root has no complete Simulator game/client package')
 shutil.copytree(app_source, output)
+# On the iPad the game program runs as the app's own executable (DEOriginalGame).
+# The Simulator-era copies (OriginalEngine, the unmodified program; Engine.dylib,
+# the dylib form) are never used there: 184 MB less to install and sideload.
+if json.loads((output / 'BoundaryDiagnostic.json').read_text()).get('engine_is_main_executable'):
+    for unused in ('OriginalEngine', 'Engine.dylib'):
+        (output / unused).unlink(missing_ok=True)
 frameworks = output / 'Frameworks'
 frameworks.mkdir(exist_ok=True)
 staged = []

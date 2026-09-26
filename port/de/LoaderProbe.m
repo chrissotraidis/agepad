@@ -1146,7 +1146,8 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         result[@"platform_survey"] = survey;
     }
     NSString *raw = [root stringByAppendingPathComponent:@"OriginalEngine"];
-    void *handle = dlopen(raw.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+    // Diagnostic only; not present in iPad builds, where the game is the app's executable.
+    void *handle = [NSFileManager.defaultManager fileExistsAtPath:raw] ? dlopen(raw.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL) : NULL;
     const char *err = handle ? NULL : dlerror();
     result[@"original_load"] = @{@"loaded":@(handle != NULL),@"error":err ? @(err) : @""};
     NSString *adapted = [root stringByAppendingPathComponent:@"Engine.dylib"];
