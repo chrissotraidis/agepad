@@ -129,6 +129,12 @@ if args.original_steam_module:
     if hashlib.sha256(original.read_bytes()).hexdigest() != config['original_sha256']:
         parser.error('Owned original Steam module does not match the pinned build')
     shutil.copy2(original, output / 'OriginalSteamModule.data')
+    # The game's own Metal shader library runs unchanged on the iPad (verified on
+    # hardware, 26 Sep), so ship the owned file itself rather than a rebuild.
+    shader = original.parents[1] / 'Resources/feral.metallib'  # Contents/Frameworks/libsteam_api.dylib -> Contents
+    if shader.is_file():
+        for name in ('feral.metallib', 'feral-retargeted.metallib'):
+            shutil.copy2(shader, output / name)
 info_path = output / 'Info.plist'
 if args.steam_app_manifest:
     # The in-app Steam engine's install record for the imported game: same build
@@ -209,6 +215,13 @@ for image in ipc_images:
 if args.original_steam_module:
     config['device_translated_sha256'] = hashlib.sha256(
         (frameworks / 'SteamModuleSimulator.dylib').read_bytes()).hexdigest()
+    # Also a digest of the module's sections only, which stays valid when the
+    # app is signed again by someone else (a sideloading tool).
+    kit_spec = importlib.util.spec_from_file_location('agepad_kit', ROOT / 'scripts/agepad-kit.py')
+    kit = importlib.util.module_from_spec(kit_spec)
+    kit_spec.loader.exec_module(kit)
+    config['device_translated_sections_sha256'] = kit.sections_digest(
+        (frameworks / 'SteamModuleSimulator.dylib').read_bytes())
     config_path.write_text(json.dumps(config, indent=2) + '\n')
 subprocess.run(['codesign', '--force', '--sign', args.identity, '--entitlements',
                 str(entitlements_path), str(output)], check=True)

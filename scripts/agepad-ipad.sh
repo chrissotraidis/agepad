@@ -4,6 +4,8 @@
 #   scripts/agepad-ipad.sh build            build, sign and install the app (in place, keeps saves)
 #   scripts/agepad-ipad.sh sync             copy the game files to the iPad over USB-C (after a game update: only what changed)
 #   scripts/agepad-ipad.sh ipa              package the last build as a private .ipa (your copy only; never share it)
+#   scripts/agepad-ipad.sh kit              (maintainers) make the shareable base app: AgePad's own files only
+#   scripts/agepad-ipad.sh inject BASE.ipa  (players) add your own game and Steam to a base app -> AgePad-mine.ipa
 #   scripts/agepad-ipad.sh pair             once, over USB: let the iPad reach this Mac's Steam over Wi-Fi
 #   scripts/agepad-ipad.sh install-helper   run the Mac helper automatically at login (tap-to-play)
 #   scripts/agepad-ipad.sh serve            run the Mac helper in this window instead
@@ -262,5 +264,16 @@ ipa() { # the last signed build as an .ipa: contains your copy of the game progr
   print "Wrote $OUT ($(du -h $OUT | cut -f1)). It holds your own copy of the game program and Steam, signed for your"
   print "registered iPads only: install it with Xcode, Apple Configurator or devicectl; do not share or upload it."
 }
-case ${1:-check} in check) check;; setup) setup;; build) build;; sync) shift; sync "$@";; ipa) ipa;; pair) pair;; serve) serve;; install-helper) install_helper;;
+kit() {
+  local APP=$(ls -dt generated/ipad-build-2*/AgePadDeviceProbe.app 2>/dev/null | head -1)
+  [[ -n $APP ]] || { print "Build first: scripts/agepad-ipad.sh build"; return 1; }
+  mkdir -p generated/kit
+  python3 scripts/agepad-kit.py recipe $APP generated/kit/recipe.json || return 1
+  python3 scripts/agepad-kit.py base $APP generated/kit/recipe.json generated/kit/AgePad-base.ipa
+}
+inject() {
+  [[ -f ${1:-} ]] || { print "Usage: scripts/agepad-ipad.sh inject AgePad-base.ipa"; return 1; }
+  python3 scripts/agepad-kit.py inject $1 generated/AgePad-mine.ipa
+}
+case ${1:-check} in check) check;; setup) setup;; build) build;; sync) shift; sync "$@";; ipa) ipa;; kit) kit;; inject) shift; inject "$@";; pair) pair;; serve) serve;; install-helper) install_helper;;
   play) shift; play "$@";; logs) logs;; *) sed -n 2,12p $0; exit 2;; esac

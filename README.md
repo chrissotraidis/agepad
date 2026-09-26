@@ -46,7 +46,9 @@ AgePad runs Valve's own Steam software (taken from your Mac's Steam) inside the 
 
 ## Why there's no download
 
-A ready-made IPA would have to contain Microsoft's game program and Valve's Steam software, which aren't ours to distribute, and iPadOS only runs code that is signed into the app itself. So an App Store, TestFlight or public IPA release isn't possible. Instead, this repository contains only AgePad's own code, and the setup command assembles and signs the app on your Mac from **your** copy. `scripts/agepad-ipad.sh ipa` saves that personal build as an .ipa for reinstalling on your registered iPads; it's for you only, so don't share it.
+A ready-made IPA would have to contain Microsoft's game program and Valve's Steam software, which aren't ours to distribute, and iPadOS only runs code that is signed into the app itself. So an App Store, TestFlight or full public IPA isn't possible.
+
+What works instead is a **1 MB base app with only AgePad's own code**, plus a Mac command that adds your own game and Steam files to it in a few seconds (`scripts/agepad-ipad.sh inject AgePad-base.ipa`). You then install the result with any sideloading tool (Xcode, Sideloadly, AltStore). Details, tests and limits are in [the IPA route](docs/IPA-ROUTE.md). Whether a free Apple ID can get the larger memory limit the game needs hasn't been tested yet.
 
 ## Keeping it up to date
 

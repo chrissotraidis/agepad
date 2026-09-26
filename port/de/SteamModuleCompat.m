@@ -56,6 +56,32 @@ static NSString *DESteamModuleDigest(NSString *path) {
     for (unsigned i=0;i<sizeof(digest);i++) [text appendFormat:@"%02x",digest[i]];
     return text;
 }
+// SHA-256 over every section's bytes of a thin arm64 Mach-O: the module's code
+// and data, unaffected by re-signing (a sideloading tool signs the app again).
+static NSString *DESteamModuleSectionsDigest(NSString *path) {
+    NSData *file=[NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+    const uint8_t *d=file.bytes;size_t n=file.length;
+    if (n<32 || *(const uint32_t *)d!=0xfeedfacf) return nil;
+    uint32_t count=*(const uint32_t *)(d+16);size_t offset=32;
+    CC_SHA256_CTX context;CC_SHA256_Init(&context);
+    for (uint32_t i=0;i<count && offset+8<=n;i++) {
+        uint32_t cmd=*(const uint32_t *)(d+offset),size=*(const uint32_t *)(d+offset+4);
+        if (cmd==0x19 && offset+72<=n) {
+            uint32_t sections=*(const uint32_t *)(d+offset+64);
+            for (uint32_t s=0;s<sections && offset+72+80*(s+1)<=n;s++) {
+                const uint8_t *section=d+offset+72+80*s;
+                uint64_t length=*(const uint64_t *)(section+40);uint32_t start=*(const uint32_t *)(section+48);
+                if (start && start+length<=n) CC_SHA256_Update(&context,d+start,(CC_LONG)length);
+            }
+        }
+        if (!size) return nil;
+        offset+=size;
+    }
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256_Final(digest,&context);
+    NSMutableString *text=[NSMutableString stringWithCapacity:64];
+    for (unsigned i=0;i<sizeof(digest);i++) [text appendFormat:@"%02x",digest[i]];
+    return text;
+}
 static void *DESteamModuleDlopen(const char *path,int flags) {
     if (DESteamModuleLoading || !path || !strstr(path,"libsteam_api.dylib") ||
         (!getenv("AGEPAD_MAC_STEAM_MODULE") && !getenv("AGEPAD_DEVICE_STEAM_MODULE"))) return dlopen(path,flags);
@@ -72,7 +98,9 @@ static void *DESteamModuleDlopen(const char *path,int flags) {
         NSString *translatedDigest=device?config[@"device_translated_sha256"]:config[@"translated_sha256"];
         BOOL verified=[requested isEqualToString:expected] &&
             [DESteamModuleDigest(original) isEqualToString:config[@"original_sha256"]] &&
-            [DESteamModuleDigest(translated) isEqualToString:translatedDigest];
+            ([DESteamModuleDigest(translated) isEqualToString:translatedDigest] ||
+             (device && config[@"device_translated_sections_sha256"] &&
+              [DESteamModuleSectionsDigest(translated) isEqualToString:config[@"device_translated_sections_sha256"]]));
         if (verified) {
             if (getenv("AGEPAD_MAC_STEAM_DISCOVERY")) {
                 NSData *data=[NSJSONSerialization dataWithJSONObject:DESteamMachDiscovery() options:0 error:NULL];
