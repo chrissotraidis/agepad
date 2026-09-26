@@ -22,7 +22,7 @@ What's shared is only AgePad's own work. Each player's app is assembled from fil
 
 ## Limits
 
-- **Memory.** The game needs Apple's increased memory limit (8 GB instead of about 5 GB on the tested iPad). That is an entitlement in the provisioning profile. With a paid developer account it works (tested). Whether free Apple IDs used by AltStore or Sideloadly can get it is **untested**. If not, the game would be limited to about 5 GB, which is around what a skirmish needs, so it would likely be closed by iPadOS mid-match.
+- **Memory.** The game needs Apple's increased memory limit (8 GB instead of about 5 GB on the tested iPad). That is an entitlement in the provisioning profile. With a paid developer account it works (tested). Whether free Apple IDs used by AltStore or Sideloadly can get it is **untested**. If not, the game would be limited to about 5 GB, which is right at what a skirmish uses (up to 4.9 GB measured in a five-player match), so larger or longer matches would likely be closed by iPadOS. A test build without the capability can settle this.
 - **Free Apple IDs** need re-signing every 7 days. AltStore/SideStore can refresh automatically; the game data isn't affected.
 - **Versions.** A base app matches one game build and one Steam version. `inject` refuses mismatched files with a clear message, so each game patch needs a new base app release.
 - A Mac with Steam is still needed once, to get the Mac game files. (Steam's Windows or Linux clients don't install the Mac version by default.)
