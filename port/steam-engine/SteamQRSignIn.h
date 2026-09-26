@@ -20,6 +20,14 @@ extern NSString *const AgePadSteamRefreshToken,*const AgePadSteamAccountName,*co
 // Renders a QR code PNG for a challenge URL (CoreImage).
 NSData *AgePadSteamQRPNG(NSString *challengeURL,CGFloat pixels);
 
+// Fallback: account name + password (+ Steam Guard). The password is only
+// encrypted in memory with Steam's RSA key and sent; it is never stored or
+// logged. askCode (blocking, off the main thread) returns the code for codeType
+// 2 (email) or 3 (authenticator). waitingForApproval fires when Steam offers
+// approval in the phone app. Returns the same keys as the QR sign-in.
+NSDictionary *AgePadSteamPasswordSignIn(NSString *accountName,NSString *password,NSString *deviceName,
+    NSString *(^askCode)(int codeType),void (^waitingForApproval)(void),NSString **error);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,6 +1,7 @@
 #import "SteamQRSignIn.h"
 #import <CoreImage/CoreImage.h>
 #import <ImageIO/ImageIO.h>
+#import <Security/Security.h>
 
 NSString *const AgePadSteamRefreshToken=@"refresh_token";
 NSString *const AgePadSteamAccountName=@"account_name";
@@ -30,18 +31,27 @@ static NSDictionary *Parse(NSData *data) {
         else if (type==5) { if (at+4>length) break;float f;memcpy(&f,bytes+at,4);fields[field]=@(f);at+=4; }
         else if (type==1) { if (at+8>length) break;uint64_t v;memcpy(&v,bytes+at,8);fields[field]=@(v);at+=8; }
         else break;
+        // Repeated fields: every value, in order, under "*<field>".
+        NSString *all=[NSString stringWithFormat:@"*%@",field];
+        if (!fields[all]) fields[all]=[NSMutableArray array];
+        [fields[all] addObject:fields[field]];
     }
     return fields;
 }
 static NSString *String(id value) { return [value isKindOfClass:NSData.class]?[[NSString alloc] initWithData:value encoding:NSUTF8StringEncoding]:nil; }
 
 static NSDictionary *Call(NSString *method,NSData *body,int *eresult,NSString **error) {
-    NSURL *url=[NSURL URLWithString:[NSString stringWithFormat:@"https://api.steampowered.com/IAuthenticationService/%@/v1/",method]];
-    NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:url];
-    request.HTTPMethod=@"POST";request.timeoutInterval=20;
-    [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
     NSString *encoded=[[body base64EncodedStringWithOptions:0] stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.alphanumericCharacterSet];
-    request.HTTPBody=[[@"input_protobuf_encoded=" stringByAppendingString:encoded] dataUsingEncoding:NSUTF8StringEncoding];
+    BOOL get=[method isEqualToString:@"GetPasswordRSAPublicKey"]; // a GET method in Steam's Web API
+    NSString *address=[NSString stringWithFormat:@"https://api.steampowered.com/IAuthenticationService/%@/v1/",method];
+    if (get) address=[address stringByAppendingFormat:@"?input_protobuf_encoded=%@",encoded];
+    NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:address]];
+    request.timeoutInterval=20;
+    if (!get) {
+        request.HTTPMethod=@"POST";
+        [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+        request.HTTPBody=[[@"input_protobuf_encoded=" stringByAppendingString:encoded] dataUsingEncoding:NSUTF8StringEncoding];
+    }
     __block NSData *reply=nil;__block NSHTTPURLResponse *response=nil;__block NSError *failure=nil;
     dispatch_semaphore_t done=dispatch_semaphore_create(0);
     [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *d,NSURLResponse *r,NSError *e) {
@@ -68,20 +78,10 @@ static NSString *SteamIDFromToken(NSString *token) {
     return [subject isKindOfClass:NSString.class]?subject:nil;
 }
 
-NSDictionary *AgePadSteamQRSignIn(NSString *deviceName,NSTimeInterval timeout,AgePadSteamChallengeHandler onChallenge,NSString **error) {
-    // k_EAuthTokenPlatformType_SteamClient = 1: the token audience Valve's client engine logs on with.
-    NSMutableData *details=[NSMutableData data],*begin=[NSMutableData data];
-    PutString(details,1,deviceName);PutInt(details,2,1);
-    PutString(begin,1,deviceName);PutInt(begin,2,1);PutBytes(begin,3,details);PutString(begin,4,@"Client");
+// Waits for an approved auth session and returns its Steam-client token.
+static NSDictionary *PollForToken(uint64_t clientID,NSData *requestID,double interval,NSTimeInterval timeout,
+                                  NSString *challenge,AgePadSteamChallengeHandler onChallenge,NSString **error) {
     int eresult=0;
-    NSDictionary *session=Call(@"BeginAuthSessionViaQR",begin,&eresult,error);
-    if (!session || eresult!=1) { if (error && !*error) *error=[NSString stringWithFormat:@"BeginAuthSessionViaQR eresult %d",eresult];return nil; }
-    uint64_t clientID=[session[@1] unsignedLongLongValue];
-    NSData *requestID=session[@3];
-    double interval=MAX(1.0,[session[@4] doubleValue]?:5.0);
-    NSString *challenge=String(session[@2]);
-    if (!clientID || !requestID || !challenge) { if (error) *error=@"Steam returned an incomplete QR session";return nil; }
-    onChallenge(challenge);
     NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:timeout];
     while (deadline.timeIntervalSinceNow>0) {
         [NSThread sleepForTimeInterval:interval];
@@ -92,7 +92,7 @@ NSDictionary *AgePadSteamQRSignIn(NSString *deviceName,NSTimeInterval timeout,Ag
         if (!status) { if (error) *error=pollError;return nil; } // expired or rejected
         if (status[@1]) clientID=[status[@1] unsignedLongLongValue];
         NSString *next=String(status[@2]);
-        if (next.length && ![next isEqualToString:challenge]) { challenge=next;onChallenge(challenge); }
+        if (onChallenge && next.length && ![next isEqualToString:challenge]) { challenge=next;onChallenge(challenge); }
         NSString *token=String(status[@3]);
         if (token.length) {
             NSString *account=String(status[@6])?:@"";
@@ -101,8 +101,94 @@ NSDictionary *AgePadSteamQRSignIn(NSString *deviceName,NSTimeInterval timeout,Ag
             return @{AgePadSteamRefreshToken:token,AgePadSteamAccountName:account,AgePadSteamID64:steamID};
         }
     }
-    if (error) *error=@"QR sign-in timed out";
+    if (error) *error=@"Sign-in timed out";
     return nil;
+}
+static NSData *DeviceDetails(NSString *deviceName) {
+    // k_EAuthTokenPlatformType_SteamClient = 1: the token audience Valve's client engine logs on with.
+    NSMutableData *details=[NSMutableData data];
+    PutString(details,1,deviceName);PutInt(details,2,1);
+    return details;
+}
+
+NSDictionary *AgePadSteamQRSignIn(NSString *deviceName,NSTimeInterval timeout,AgePadSteamChallengeHandler onChallenge,NSString **error) {
+    NSMutableData *begin=[NSMutableData data];
+    PutString(begin,1,deviceName);PutInt(begin,2,1);PutBytes(begin,3,DeviceDetails(deviceName));PutString(begin,4,@"Client");
+    int eresult=0;
+    NSDictionary *session=Call(@"BeginAuthSessionViaQR",begin,&eresult,error);
+    if (!session || eresult!=1) { if (error && !*error) *error=[NSString stringWithFormat:@"BeginAuthSessionViaQR eresult %d",eresult];return nil; }
+    uint64_t clientID=[session[@1] unsignedLongLongValue];
+    NSData *requestID=session[@3];
+    NSString *challenge=String(session[@2]);
+    if (!clientID || !requestID || !challenge) { if (error) *error=@"Steam returned an incomplete QR session";return nil; }
+    onChallenge(challenge);
+    return PollForToken(clientID,requestID,MAX(1.0,[session[@4] doubleValue]?:5.0),timeout,challenge,onChallenge,error);
+}
+
+// DER RSAPublicKey { modulus, exponent } from Steam's hex strings.
+static NSData *DERInteger(NSString *hex) {
+    NSMutableData *value=[NSMutableData data];
+    for (NSUInteger i=0;i+1<hex.length;i+=2) { unsigned byte;sscanf([hex substringWithRange:NSMakeRange(i,2)].UTF8String,"%2x",&byte);uint8_t b=byte;[value appendBytes:&b length:1]; }
+    while (value.length>1 && ((uint8_t *)value.bytes)[0]==0) [value replaceBytesInRange:NSMakeRange(0,1) withBytes:NULL length:0];
+    if (value.length && ((uint8_t *)value.bytes)[0]&0x80) [value replaceBytesInRange:NSMakeRange(0,0) withBytes:"\0" length:1]; // stays positive
+    return value;
+}
+static void PutDER(NSMutableData *out,uint8_t tag,NSData *content) {
+    [out appendBytes:&tag length:1];
+    NSUInteger length=content.length;
+    if (length<128) { uint8_t b=length;[out appendBytes:&b length:1]; }
+    else { uint8_t lengthBytes[4];int count=0;for (NSUInteger l=length;l;l>>=8) lengthBytes[count++]=l&0xff;
+           uint8_t b=0x80|count;[out appendBytes:&b length:1];for (int i=count-1;i>=0;i--) [out appendBytes:&lengthBytes[i] length:1]; }
+    [out appendData:content];
+}
+
+NSDictionary *AgePadSteamPasswordSignIn(NSString *accountName,NSString *password,NSString *deviceName,
+        NSString *(^askCode)(int codeType),void (^waitingForApproval)(void),NSString **error) {
+    int eresult=0;
+    NSMutableData *keyRequest=[NSMutableData data];PutString(keyRequest,1,accountName);
+    NSDictionary *rsa=Call(@"GetPasswordRSAPublicKey",keyRequest,&eresult,error);
+    NSString *modulus=String(rsa[@1]),*exponent=String(rsa[@2]);
+    if (!modulus.length || !exponent.length) { if (error && !*error) *error=@"Steam didn't return its sign-in key";return nil; }
+    NSMutableData *integers=[NSMutableData data],*der=[NSMutableData data];
+    PutDER(integers,0x02,DERInteger(modulus));PutDER(integers,0x02,DERInteger(exponent));PutDER(der,0x30,integers);
+    SecKeyRef key=SecKeyCreateWithData((__bridge CFDataRef)der,(__bridge CFDictionaryRef)@{
+        (__bridge id)kSecAttrKeyType:(__bridge id)kSecAttrKeyTypeRSA,(__bridge id)kSecAttrKeyClass:(__bridge id)kSecAttrKeyClassPublic},NULL);
+    // The password exists only here, in memory, and only its encrypted form is sent.
+    NSData *encrypted=key?(__bridge_transfer NSData *)SecKeyCreateEncryptedData(key,kSecKeyAlgorithmRSAEncryptionPKCS1,
+        (__bridge CFDataRef)[password dataUsingEncoding:NSUTF8StringEncoding],NULL):nil;
+    if (key) CFRelease(key);
+    if (!encrypted) { if (error) *error=@"Couldn't encrypt the password with Steam's key";return nil; }
+    NSMutableData *begin=[NSMutableData data];
+    PutString(begin,1,deviceName);PutString(begin,2,accountName);
+    PutString(begin,3,[encrypted base64EncodedStringWithOptions:0]);PutInt(begin,4,[rsa[@3] unsignedLongLongValue]);
+    PutInt(begin,5,1);PutInt(begin,6,1);PutInt(begin,7,1);PutString(begin,8,@"Client");PutBytes(begin,9,DeviceDetails(deviceName));
+    NSDictionary *session=Call(@"BeginAuthSessionViaCredentials",begin,&eresult,error);
+    if (!session || eresult!=1) {
+        if (error) *error=eresult==5?@"Wrong account name or password.":eresult==84?@"Too many attempts. Wait a while and try again.":
+            (*error?:[NSString stringWithFormat:@"Steam refused the sign-in (error %d).",eresult]);
+        return nil;
+    }
+    uint64_t clientID=[session[@1] unsignedLongLongValue],steamID=[session[@5] unsignedLongLongValue];
+    NSData *requestID=session[@2];
+    // Steam Guard: 2 email code, 3 authenticator code, 4 approve in the Steam app, 1 none.
+    int codeType=0;BOOL approval=NO;
+    for (NSData *confirmation in session[@"*4"]) {
+        int type=[Parse(confirmation)[@1] intValue];
+        if ((type==3 || type==2) && !codeType) codeType=type;
+        if (type==4) approval=YES;
+    }
+    if (approval && waitingForApproval) waitingForApproval();
+    if (codeType) {
+        NSString *code=askCode(codeType);
+        if (!code.length) { if (error) *error=@"Sign-in cancelled.";return nil; }
+        NSMutableData *update=[NSMutableData data];
+        PutInt(update,1,clientID);
+        PutVarint(update,2<<3|1);[update appendBytes:&steamID length:8]; // fixed64 steamid
+        PutString(update,3,code);PutInt(update,4,codeType);
+        Call(@"UpdateAuthSessionWithSteamGuardCode",update,&eresult,error);
+        if (eresult!=1) { if (error) *error=eresult==65?@"That Steam Guard code didn't work.":[NSString stringWithFormat:@"Steam Guard code rejected (error %d).",eresult];return nil; }
+    }
+    return PollForToken(clientID,requestID,MAX(1.0,[session[@3] doubleValue]?:5.0),300,nil,nil,error);
 }
 
 NSData *AgePadSteamQRPNG(NSString *challengeURL,CGFloat pixels) {
