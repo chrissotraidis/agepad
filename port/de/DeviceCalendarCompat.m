@@ -61,6 +61,62 @@ static BOOL DECalendarUnits(const char *op,const char *desc,NSCalendarUnit *unit
     }
     return desc!=NULL;
 }
+// Fast path. The game converts dates millions of times while it starts (5 M
+// decompositions, 1 M compositions per launch), almost all with the Gregorian
+// calendar in this iPad's own time zone. For that calendar localtime_r/mktime
+// give the same fields as NSCalendar without a Foundation round trip; any other
+// calendar, time zone or unit keeps the NSCalendar path below.
+#include <time.h>
+static BOOL DECalendarIsLocalGregorian(CFCalendarRef calendar) {
+    static _Thread_local CFCalendarRef known;
+    static _Thread_local BOOL knownResult;
+    if (known==calendar) return knownResult;
+    @autoreleasepool {
+        NSCalendar *value=(__bridge NSCalendar *)calendar;
+        knownResult=[value.calendarIdentifier isEqualToString:NSCalendarIdentifierGregorian] &&
+                    [value.timeZone isEqualToTimeZone:NSTimeZone.systemTimeZone];
+    }
+    known=calendar;
+    return knownResult;
+}
+static const double DEReferenceToUnix=978307200.0; // 2001-01-01 in Unix time
+static BOOL DECalendarFastDecompose(CFCalendarRef calendar,CFAbsoluteTime at,const char *desc,va_list args) {
+    for (const char *p=desc;*p;p++) if (!strchr("GyMdHmsE",*p)) return NO;
+    if (!DECalendarIsLocalGregorian(calendar) || at!=at) return NO;
+    time_t seconds=(time_t)floor(at+DEReferenceToUnix);
+    struct tm local;
+    if (!localtime_r(&seconds,&local) || local.tm_year+1900<1) return NO;
+    for (const char *p=desc;*p;p++) {
+        int *out=va_arg(args,int *),value=0;
+        switch (*p) {
+            case 'G': value=1;break; case 'y': value=local.tm_year+1900;break; case 'M': value=local.tm_mon+1;break;
+            case 'd': value=local.tm_mday;break; case 'H': value=local.tm_hour;break; case 'm': value=local.tm_min;break;
+            case 's': value=local.tm_sec;break; case 'E': value=local.tm_wday+1;break; // NSCalendar: Sunday = 1
+        }
+        if (out) *out=value;
+    }
+    return YES;
+}
+static BOOL DECalendarFastCompose(CFCalendarRef calendar,CFAbsoluteTime *at,const char *desc,va_list args) {
+    if (strcmp(desc,"yMdHms")!=0 || !DECalendarIsLocalGregorian(calendar)) return NO;
+    struct tm local={0};
+    local.tm_year=va_arg(args,int)-1900;local.tm_mon=va_arg(args,int)-1;local.tm_mday=va_arg(args,int);
+    local.tm_hour=va_arg(args,int);local.tm_min=va_arg(args,int);local.tm_sec=va_arg(args,int);local.tm_isdst=-1;
+    if (local.tm_year<-1899) return NO;
+    struct tm request=local,earlier=local;
+    time_t seconds=mktime(&local);
+    if (seconds==(time_t)-1) return NO;
+    // A wall-clock time repeated when clocks go back: NSCalendar picks the
+    // earlier instant (daylight time); mktime may pick the later one.
+    earlier.tm_isdst=1;
+    time_t daylight=mktime(&earlier);
+    struct tm check;
+    if (daylight!=(time_t)-1 && daylight<seconds && localtime_r(&daylight,&check) &&
+        check.tm_year==request.tm_year && check.tm_mon==request.tm_mon && check.tm_mday==request.tm_mday &&
+        check.tm_hour==request.tm_hour && check.tm_min==request.tm_min && check.tm_sec==request.tm_sec) seconds=daylight;
+    *at=(double)seconds-DEReferenceToUnix;
+    return YES;
+}
 static Boolean DECalendarDecompose(CFCalendarRef calendar,CFAbsoluteTime at,const char *desc,...) {
     static _Atomic unsigned long long calls;
     unsigned long long n=++calls;
@@ -68,6 +124,10 @@ static Boolean DECalendarDecompose(CFCalendarRef calendar,CFAbsoluteTime at,cons
     NSCalendarUnit units;
     if (!calendar || !DECalendarUnits("decompose",desc,&units)) return false;
     va_list args;va_start(args,desc);
+    va_list fast;va_copy(fast,args);
+    BOOL done=DECalendarFastDecompose(calendar,at,desc,fast);
+    va_end(fast);
+    if (done) { va_end(args);return true; }
     @autoreleasepool {
         NSDateComponents *parts=[(__bridge NSCalendar *)calendar components:units fromDate:[NSDate dateWithTimeIntervalSinceReferenceDate:at]];
         for (const char *p=desc;*p;p++) { int *out=va_arg(args,int *); if (out) *out=(int)DECalendarGet(parts,*p); }
@@ -83,6 +143,10 @@ static Boolean DECalendarCompose(CFCalendarRef calendar,CFAbsoluteTime *at,const
     if (!calendar || !at || !DECalendarUnits("compose",desc,&units)) return false;
     Boolean ok=false;
     va_list args;va_start(args,desc);
+    va_list fast;va_copy(fast,args);
+    BOOL done=DECalendarFastCompose(calendar,at,desc,fast);
+    va_end(fast);
+    if (done) { va_end(args);return true; }
     @autoreleasepool {
         NSDateComponents *parts=[NSDateComponents new];
         for (const char *p=desc;*p;p++) DECalendarSet(parts,*p,va_arg(args,int));
