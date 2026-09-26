@@ -93,6 +93,19 @@ static void DEDumpThread(mach_port_t thread,const char *label) {
 
 }
 static void DEDumpMainThread(void) { DEDumpThread(DEMainThreadPort,"main"); }
+extern unsigned long long DEFileStatCounter(int which) __attribute__((weak_import));
+// Opt-in startup profile: sample the game's own main loop thread ("WinMain").
+static void DEDumpNamedThread(const char *wanted) {
+    thread_act_array_t threads=NULL;mach_msg_type_number_t count=0;
+    if (task_threads(mach_task_self(),&threads,&count)!=KERN_SUCCESS) return;
+    for (mach_msg_type_number_t i=0;i<count;i++) {
+        char name[64]="";pthread_t pthread=pthread_from_mach_thread_np(threads[i]);
+        if (pthread) pthread_getname_np(pthread,name,sizeof(name));
+        if (strcmp(name,wanted)==0) DEDumpThread(threads[i],"profile");
+        mach_port_deallocate(mach_task_self(),threads[i]);
+    }
+    vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
+}
 static void DEDumpAllThreads(void) {
     thread_act_array_t threads=NULL;mach_msg_type_number_t count=0;
     if (task_threads(mach_task_self(),&threads,&count)!=KERN_SUCCESS) return;
@@ -471,6 +484,12 @@ static void *DEMainWatchdogLoop(void *unused) {
                               (unsigned long long)(os_proc_available_memory()>>20),target);
             }
             if ((tick==10 || tick==120) && getenv("AGEPAD_DEVICE_THREAD_DUMP")) DEDumpAllThreads();
+            if (tick<=60 && getenv("AGEPAD_DEVICE_STARTUP_PROFILE")) {
+                DEWatchdogLog("DE_PROFILE_TICK seconds=%u\n",tick*2);
+                if (DEFileStatCounter) DEWatchdogLog("DE_PROFILE_STAT seconds=%u index_answers=%llu calls=%llu misses=%llu case_resolved=%llu stat_ms=%llu retry_ms=%llu\n",tick*2,
+                    DEFileStatCounter(5),DEFileStatCounter(0),DEFileStatCounter(1),DEFileStatCounter(2),DEFileStatCounter(3)/1000000,DEFileStatCounter(4)/1000000);
+                DEDumpNamedThread("WinMain");
+            }
             if (tick%15==0) DELogMemoryByTag(tick*2);
             if ((tick==120 || tick==180) && getenv("AGEPAD_DEVICE_HEAP_CENSUS")) DELogHeapCensus(tick*2);
             // Opt-in: return free malloc pages to the system (Apple API; no

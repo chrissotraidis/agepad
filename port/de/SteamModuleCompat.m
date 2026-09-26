@@ -20,6 +20,9 @@
 #include <limits.h>
 #include <TargetConditionals.h>
 #include "CaseInsensitiveResourcePaths.h"
+#if !TARGET_OS_SIMULATOR
+#include "DeviceDataTree.h"
+#endif
 // Physical iPad: the game lowercases data paths, but the imported tree keeps
 // the original names on a case-sensitive volume. Retry only failed lookups
 // inside the configured data root with the one real on-disk spelling. The
@@ -108,6 +111,15 @@ static BOOL DESteamModuleMappedPath(const char *path,char *original,size_t size)
         (int)(length-suffixLength),path);
     return count>0 && (size_t)count<size;
 }
+// Startup profile counters (read by the launcher's watchdog): stat calls,
+// failed first attempts, case-retry resolutions, and time inside each stage.
+static _Atomic unsigned long long DEStatCalls,DEStatMisses,DEStatRetried,DEStatNanos,DEStatRetryNanos,DEStatTreeAnswers;
+unsigned long long DEFileStatCounter(int which) {
+    switch (which) {
+        case 0: return DEStatCalls; case 1: return DEStatMisses; case 2: return DEStatRetried;
+        case 3: return DEStatNanos; case 4: return DEStatRetryNanos; case 5: return DEStatTreeAnswers; default: return 0;
+    }
+}
 static uintptr_t DESteamModuleCallerOffset(uintptr_t caller) {
     uintptr_t base=(uintptr_t)_dyld_get_image_header(0);
     return caller>=base?caller-base:0;
@@ -136,9 +148,22 @@ static int DESteamModuleStat(const char *path,struct stat *buffer) {
         errno=saved;
         return result;
     }
+#if !TARGET_OS_SIMULATOR
+    {
+        int treeError=0,tree=DETreeStat(path,buffer,&treeError);
+        if (tree!=-2) { atomic_fetch_add(&DEStatTreeAnswers,1);if (tree<0) errno=treeError;return tree; }
+    }
+#endif
+    uint64_t begin=clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     int result=stat(path,buffer),saved=errno;
+    uint64_t afterFirst=clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    atomic_fetch_add(&DEStatCalls,1);atomic_fetch_add(&DEStatNanos,afterFirst-begin);
     char resolved[PATH_MAX];
-    if (result<0 && DEDeviceCaseRetry(path,saved,resolved)) {result=stat(resolved,buffer);saved=errno;}
+    if (result<0) {
+        atomic_fetch_add(&DEStatMisses,1);
+        if (DEDeviceCaseRetry(path,saved,resolved)) {result=stat(resolved,buffer);saved=errno;atomic_fetch_add(&DEStatRetried,1);}
+        atomic_fetch_add(&DEStatRetryNanos,clock_gettime_nsec_np(CLOCK_UPTIME_RAW)-afterFirst);
+    }
     DEDevicePathMiss("stat",path,result,saved,(uintptr_t)__builtin_return_address(0));
     errno=saved;
     return result;
@@ -162,6 +187,15 @@ static int DESteamModuleOpen(const char *path,int flags,...) {
         errno=saved;
         return result;
     }
+#if !TARGET_OS_SIMULATOR
+    if ((flags&O_ACCMODE)!=O_RDONLY || (flags&(O_CREAT|O_TRUNC))) DETreeNoteWrite(path);
+    else {
+        DETreeEntry *entry=NULL;
+        int kind=DETreeLookup(path,&entry);
+        if (kind==DETreeAbsent) { errno=ENOENT;return -1; }
+        if (kind==DETreePresent) return open(entry->canonical,flags);
+    }
+#endif
     int result=(flags&O_CREAT)?open(path,flags,mode):open(path,flags),saved=errno;
     char resolved[PATH_MAX];
     if (result<0 && (flags&O_ACCMODE)==O_RDONLY && !(flags&O_CREAT) && DEDeviceCaseRetry(path,saved,resolved)) {
@@ -188,6 +222,15 @@ static FILE *DESteamModuleFopenWith(FILE *(*function)(const char *,const char *)
         errno=saved;
         return result;
     }
+#if !TARGET_OS_SIMULATOR
+    if (!DESteamModuleReadMode(mode)) DETreeNoteWrite(path);
+    else {
+        DETreeEntry *entry=NULL;
+        int kind=DETreeLookup(path,&entry);
+        if (kind==DETreeAbsent) { errno=ENOENT;return NULL; }
+        if (kind==DETreePresent) return function(entry->canonical,mode);
+    }
+#endif
     FILE *result=function(path,mode);
     int saved=errno;
     char resolved[PATH_MAX];
@@ -216,18 +259,30 @@ static const struct { const void *replacement; const void *original; } DESteamMo
 };
 #if !TARGET_OS_SIMULATOR
 static int DEDeviceLstat(const char *path,struct stat *buffer) {
+    int treeError=0,tree=DETreeStat(path,buffer,&treeError);
+    if (tree!=-2) { if (tree<0) errno=treeError;return tree; }
     int result=lstat(path,buffer),saved=errno;char resolved[PATH_MAX];
     if (result<0 && DEDeviceCaseRetry(path,saved,resolved)) {result=lstat(resolved,buffer);saved=errno;}
     DEDevicePathMiss("lstat",path,result,saved,(uintptr_t)__builtin_return_address(0));
     errno=saved;return result;
 }
 static int DEDeviceAccess(const char *path,int mode) {
+    if (!(mode&(W_OK|X_OK))) { // existence/read checks; the tree is readable
+        DETreeEntry *entry=NULL;
+        int kind=DETreeLookup(path,&entry);
+        if (kind==DETreeAbsent) { errno=ENOENT;return -1; }
+        if (kind==DETreePresent) return 0;
+    }
     int result=access(path,mode),saved=errno;char resolved[PATH_MAX];
     if (result<0 && DEDeviceCaseRetry(path,saved,resolved)) {result=access(resolved,mode);saved=errno;}
     DEDevicePathMiss("access",path,result,saved,(uintptr_t)__builtin_return_address(0));
     errno=saved;return result;
 }
 static DIR *DEDeviceOpendir(const char *path) {
+    DETreeEntry *entry=NULL;
+    int kind=DETreeLookup(path,&entry);
+    if (kind==DETreeAbsent) { errno=ENOENT;return NULL; }
+    if (kind==DETreePresent) return opendir(entry->canonical);
     DIR *result=opendir(path);int saved=errno;char resolved[PATH_MAX];
     if (!result && DEDeviceCaseRetry(path,saved,resolved)) {result=opendir(resolved);saved=errno;}
     DEDevicePathMiss("opendir",path,result?0:-1,saved,(uintptr_t)__builtin_return_address(0));
