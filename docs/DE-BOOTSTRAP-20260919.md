@@ -32,6 +32,15 @@ python3 scripts/bootstrap-de-simulator.py generated/de-candidate-YYYYMMDD
 
 Stages, in order, each resumable with `--only <stage>`:
 
+The two Simulator surveys can be reused from an earlier run of the same game,
+Steam and iOS versions: `--survey <platform-survey.json>` and
+`--client-survey <steam-client-survey.json>` (both in a previous package's
+`artifacts/`). With both, every stage except `install` and `manifest` runs
+without a booted Simulator; the iPad build (`scripts/agepad-ipad.sh build` with
+`AGEPAD_CANDIDATE` pointing at the new folder) does not need those two stages.
+On 26 September 2026 such a package, built from scratch, reached the main menu
+on the tested iPad.
+
 | Stage | What it does | Source |
 | --- | --- | --- |
 | `steam` | verify the Steam install, version and hashes | your game |
