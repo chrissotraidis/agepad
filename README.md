@@ -2,11 +2,39 @@
 
 # AgePad
 
-**Your own Steam copy of Age of Empires II: Definitive Edition, running natively on an iPad.** Not a stream, not a remake: the real Mac game, with touch, Apple Pencil, mouse and keyboard controls, and Steam signed in on the iPad itself. Once it's set up, tap the icon and play, with no computer involved, online or offline.
+<p align="center">
+  <strong>Age of Empires II: Definitive Edition, native on iPad.</strong><br>
+  Your own Steam copy of the real Mac game, running on the iPad itself, with touch, Apple Pencil, mouse and keyboard, and Steam signed in on the iPad. No stream, no computer at play time, online or offline.
+</p>
+
+<p align="center">
+  <img alt="iPadOS" src="https://img.shields.io/badge/platform-iPad%20%288%20GB%2B%29-0A84FF?logo=apple">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF?logo=apple">
+  <img alt="Metal renderer" src="https://img.shields.io/badge/renderer-Metal-5E5CE6">
+  <img alt="Steam signed in on the iPad" src="https://img.shields.io/badge/Steam-signed%20in%20on%20iPad-1B2838?logo=steam">
+  <img alt="Offline play" src="https://img.shields.io/badge/offline-Steam%20offline%20mode-30D158">
+  <img alt="Game version" src="https://img.shields.io/badge/AoE%20II%20DE-488492.107976-FF9F0A">
+  <img alt="Game data not included" src="https://img.shields.io/badge/game%20data-not%20included-FF453A">
+  <a href="https://discord.gg/xwHfUD2bxW"><img alt="Join the Discord" src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&amp;logoColor=white"></a>
+</p>
 
 ![A skirmish on an iPad Pro](docs/images/ipad-skirmish-20260926.jpg)
 
-> **Status (26 September 2026):** working on an iPad Pro 12.9-inch (M2, 8 GB). Menu in about 30 seconds, skirmishes at about 120 fps, save and resume, offline play through Steam's offline mode. There is no download: you build it on your Mac from your own copy of the game (below). This is an unofficial fan project, not affiliated with Microsoft, Valve, Feral Interactive or Apple.
+> [!IMPORTANT]
+> **Bring your own game.** AgePad needs Age of Empires II: Definitive Edition from Steam (the Mac version, included with the Steam purchase). Releases contain only AgePad's own code: no game program, game data, Steam software or saves. You assemble your app from your own copy.
+>
+> **Preview.** Tested on one iPad (iPad Pro 12.9-inch, M2, 8 GB). Menu in about 30 seconds, skirmishes at about 120 fps, save and load, offline play. Unofficial fan project, not affiliated with Microsoft, Valve, Feral Interactive or Apple.
+>
+> **AI disclosure:** AgePad uses substantial AI assistance for code, tests, documentation, debugging and maintenance. There is no audited percentage of AI-generated code. Build, test and device records describe what was checked.
+
+## Downloads
+
+| Platform | Download | Setup |
+| --- | --- | --- |
+| iPad (8 GB+) | AgePad 0.1 preview · `AgePad-base.ipa` (release coming) | [Install](#install): add your own game with `inject`, then sideload |
+| Build it yourself | This repository | [Setup guide](docs/IPAD-SETUP.md) (Xcode, paid Apple Developer account) |
+
+**Need help, found a bug, or want to share a match?** [Join the Discord](https://discord.gg/xwHfUD2bxW), the same community as [KartPad](https://github.com/chrissotraidis/kartpad), or [open an issue](../../issues).
 
 ## What you need
 
