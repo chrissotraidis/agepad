@@ -2,6 +2,7 @@
 # AgePad on a physical iPad, run from the Mac that owns the Steam copy.
 #   scripts/agepad-ipad.sh check            what is ready and what is missing
 #   scripts/agepad-ipad.sh build            build, sign and install the app (in place, keeps saves)
+#   scripts/agepad-ipad.sh sync             copy the game files to the iPad over USB-C (after a game update: only what changed)
 #   scripts/agepad-ipad.sh pair             once, over USB: let the iPad reach this Mac's Steam over Wi-Fi
 #   scripts/agepad-ipad.sh install-helper   run the Mac helper automatically at login (tap-to-play)
 #   scripts/agepad-ipad.sh serve            run the Mac helper in this window instead
@@ -27,6 +28,35 @@ udid() {
   # listed too and are skipped; the tunnel itself opens on demand).
   python3 -c "import json;d=json.load(open('/tmp/agepad-devices.json'))['result']['devices'];print(next((x['hardwareProperties']['udid'] for x in d if x['hardwareProperties'].get('reality')=='physical' and x['hardwareProperties'].get('deviceType')=='iPad' and x['connectionProperties'].get('pairingState')=='paired' and x['connectionProperties'].get('transportType')),''))" 2>/dev/null
 }
+# The game version AgePad's program was made from, and the Mac's current one.
+built_version() { python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['stages']['steam']['bundle_version'])" $CANDIDATE/bootstrap.json 2>/dev/null; }
+mac_version() { defaults read "$STEAM_APP/Age Of Empires II.app/Contents/Info.plist" CFBundleVersion 2>/dev/null; }
+version_note() { # prints why the Mac's game and AgePad differ, if they do
+  local MAC=$(mac_version) BUILT=$(built_version)
+  [[ -n $MAC && -n $BUILT && $MAC != $BUILT ]] || return 1
+  print "Steam has updated Age of Empires II on this Mac (version $MAC), but AgePad is made for version $BUILT."
+  print "AgePad needs an update for the new game version before its files can be copied; until then the iPad keeps"
+  print "playing the version it has (offline and single player; online matches need the current version)."
+}
+sync_tool() {
+  local TOOL=generated/tools/agepad-sync
+  if [[ ! -x $TOOL || scripts/agepad-sync.c -nt $TOOL ]]; then
+    mkdir -p $TOOL:h
+    cc -O2 scripts/agepad-sync.c $(pkg-config --cflags --libs libimobiledevice-1.0 libplist-2.0 2>/dev/null) -o $TOOL 2>/dev/null \
+      || { print -u2 "Could not build the copy tool. Install its library with: brew install libimobiledevice"; return 1; }
+  fi
+  print $TOOL
+}
+sync() {
+  UDID=$(udid); [[ -z $UDID ]] && { print "Connect the iPad to this Mac with a USB-C cable, unlock it and tap Trust."; return 1; }
+  [[ -d "$STEAM_APP/AgeOfEmpires2Data" ]] || { print "Age of Empires II: DE is not installed in Steam on this Mac."; return 1; }
+  local ACF="$HOME/Library/Application Support/Steam/steamapps/appmanifest_813780.acf"
+  local STATE_FLAGS=$(awk -F'"' '/"StateFlags"/{print $4}' "$ACF") BUILDID=$(awk -F'"' '/"buildid"/{print $4}' "$ACF")
+  [[ $STATE_FLAGS == 4 ]] || { print "Steam is still downloading or updating the game on this Mac. Let it finish, then run this again."; return 1; }
+  version_note && return 1
+  local TOOL; TOOL=$(sync_tool) || return 1
+  $TOOL $UDID $BUNDLE "$STEAM_APP/AgeOfEmpires2Data" --build $BUILDID "$@"
+}
 afc() { # afcclient without hanging when the device stops answering
   local out=$(mktemp); ( afcclient -u $UDID --container $BUNDLE > $out 2>&1 ) & local pid=$!
   for i in {1..20}; do kill -0 $pid 2>/dev/null || break; sleep 0.5; done; kill $pid 2>/dev/null; cat $out; rm -f $out
@@ -35,6 +65,7 @@ check() {
   FAILED=0; print "AgePad setup check"
   [[ -d "$STEAM_APP/AgeOfEmpires2Data" ]] && ok "Mac Steam copy of AoE II: DE found" \
     || bad "Mac Steam copy of AoE II: DE not found" "Install Age of Empires II: DE in Steam for Mac (you must own it)."
+  if NOTE=$(version_note); then bad "Game version differs from AgePad's" "$NOTE"; fi
   pgrep -q steam_osx && ok "Steam is running on this Mac" || bad "Steam is not running" "Open Steam on this Mac and sign in. The iPad uses this Steam session."
   nc -z -G 2 127.0.0.1 57343 2>/dev/null && ok "Steam accepts local game connections" || bad "Steam is not accepting game connections" "Sign in to Steam and wait until the library loads."
   UDID=$(udid)
@@ -44,7 +75,7 @@ check() {
       && ok "AgePad app installed" || bad "AgePad app not installed" "Run: scripts/agepad-ipad.sh build"
     printf 'ls /Documents/AgeOfEmpires2Data/resources\nexit\n' | afc | grep -q _common \
       && ok "Game files copied to the iPad" \
-      || bad "Game files not on the iPad" "Copy your Mac game data (about 20 GB): see docs/IPAD-SETUP.md, step 3."
+      || bad "Game files not on the iPad" "Copy them over the USB-C cable (about 20 GB, keep 25 GB free): scripts/agepad-ipad.sh sync"
     if [[ -z \${USB_ONLY:-} ]]; then
       printf 'ls /Documents\nexit\n' | afc | grep -q AgePadSteamHost.env \
         && ok "iPad paired with this Mac (tap-to-play)" || bad "iPad not paired for tap-to-play" "Run: scripts/agepad-ipad.sh pair"
@@ -141,6 +172,7 @@ steam_client() { # Valve's Steam engine for the app: the Mac's current Steam, co
   local IDENTITY=${AGEPAD_IDENTITY:?Set AGEPAD_IDENTITY to your Apple Development signing identity hash (security find-identity -v -p codesigning)}
   local STAMP=$(date +%Y%m%d-%H%M%S) OUT=generated/ipad-build-$(date +%Y%m%d-%H%M%S)
   local CLIENT; CLIENT=$(steam_client) || return 1
+  version_note && print "Building anyway: this refreshes Steam inside AgePad; the game itself stays at the version above."
   print "Building the iPad compatibility layer…"
   python3 scripts/build-de-device-runtime.py --package $CANDIDATE/package --steam-client $CLIENT $OUT/runtime || return 1
   if [[ -z $IPC ]]; then # Steam's IPC helper: from the Mac's current Steam, in step with the engine
@@ -189,5 +221,5 @@ logs() {
   grep -E 'DE_MEMORY_LIMIT|DE_FAULT sig' $DEST/watchdog.log 2>/dev/null | head -3
   grep DE_WATCHDOG_TICK $DEST/watchdog.log 2>/dev/null | tail -1 | cut -c1-90
 }
-case ${1:-check} in check) check;; build) build;; pair) pair;; serve) serve;; install-helper) install_helper;;
+case ${1:-check} in check) check;; build) build;; sync) shift; sync "$@";; pair) pair;; serve) serve;; install-helper) install_helper;;
   play) shift; play "$@";; logs) logs;; *) sed -n 2,12p $0; exit 2;; esac
