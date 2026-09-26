@@ -199,6 +199,11 @@ steam_client() { # Valve's Steam engine for the app: the Mac's current Steam, co
   local STAMP=$(date +%Y%m%d-%H%M%S) OUT=generated/ipad-build-$(date +%Y%m%d-%H%M%S)
   local CLIENT; CLIENT=$(steam_client) || return 1
   version_note && print "Building anyway: this refreshes Steam inside AgePad; the game itself stays at the version above."
+  # Steam's install record for the game, kept at the version AgePad's program
+  # matches: refreshed from the Mac only while the Mac's game is that version.
+  local RECORD=$CANDIDATE/steam-appmanifest_813780.acf
+  if ! version_note >/dev/null; then cp "$HOME/Library/Application Support/Steam/steamapps/appmanifest_813780.acf" $RECORD; fi
+  [[ -f $RECORD ]] || { print "No Steam install record for AgePad's game version; build once while the Mac's game matches it."; return 1; }
   print "Building the iPad compatibility layer…"
   python3 scripts/build-de-device-runtime.py --package $CANDIDATE/package --steam-client $CLIENT $OUT/runtime || return 1
   if [[ -z $IPC ]]; then # Steam's IPC helper: from the Mac's current Steam, in step with the engine
@@ -214,7 +219,7 @@ steam_client() { # Valve's Steam engine for the app: the Mac's current Steam, co
   python3 scripts/prepare-de-device-probe.py --candidate-root $CANDIDATE --steam-client $CLIENT --boundary $OUT/runtime --ipc-load-probe $IPC \
     --launch-env $OUT.launch.env \
     --original-steam-module "$STEAM_APP/Age Of Empires II.app/Contents/Frameworks/libsteam_api.dylib" \
-    --steam-app-manifest "$HOME/Library/Application Support/Steam/steamapps/appmanifest_813780.acf" \
+    --steam-app-manifest $RECORD \
     --output $OUT/AgePadDeviceProbe.app --profile "$PROFILE" --increased-memory-limit --identity $IDENTITY \
     --bundle-id $BUNDLE > $OUT.log 2>&1 \
     || { tail -5 $OUT.log; return 1; }

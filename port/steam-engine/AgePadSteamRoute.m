@@ -70,9 +70,46 @@ static void InstallAppManifest(void) {
     [files createDirectoryAtPath:[library stringByAppendingPathComponent:@"common/AoE2DE"] withIntermediateDirectories:YES attributes:nil error:nil];
     NSString *destination=[library stringByAppendingPathComponent:@"appmanifest_813780.acf"];
     NSData *wanted=[NSData dataWithContentsOfFile:record];
+    // Test switch: record an older build, as after a game update AgePad does not have yet.
+    if (getenv("AGEPAD_TEST_OLD_BUILD")) {
+        NSString *text=[[NSString alloc] initWithData:wanted encoding:NSUTF8StringEncoding];
+        NSRegularExpression *build=[NSRegularExpression regularExpressionWithPattern:@"(\"(?:buildid|TargetBuildID)\"\\s+\")\\d+" options:0 error:nil];
+        text=[build stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0,text.length) withTemplate:@"$1"
+            @"25000000"];
+        wanted=[text dataUsingEncoding:NSUTF8StringEncoding];
+    }
     BOOL present=[[NSData dataWithContentsOfFile:destination] isEqualToData:wanted];
     if (!present) [wanted writeToFile:destination atomically:YES];
     fprintf(stderr,"AGEPAD_STEAM_APP_RECORD written=%d\n",!present);
+}
+// Steam's own view of the installed game, from the install record it maintains.
+static NSDictionary<NSString *,NSString *> *AppRecordState(void) {
+    NSString *path=[[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES).firstObject
+        stringByAppendingPathComponent:@"Steam/steamapps"] stringByAppendingPathComponent:@"appmanifest_813780.acf"];
+    NSString *text=[NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil]?:@"";
+    NSMutableDictionary *state=[NSMutableDictionary dictionary];
+    for (NSString *key in @[@"buildid",@"TargetBuildID",@"StateFlags",@"UpdateResult"]) {
+        NSRegularExpression *field=[NSRegularExpression regularExpressionWithPattern:
+            [NSString stringWithFormat:@"\"%@\"\\s+\"([^\"]*)\"",key] options:0 error:nil];
+        NSTextCheckingResult *match=[field firstMatchInString:text options:0 range:NSMakeRange(0,text.length)];
+        if (match) state[key]=[text substringWithRange:[match rangeAtIndex:1]];
+    }
+    return state;
+}
+static void LogAppRecordState(const char *when) {
+    NSDictionary *state=AppRecordState();
+    fprintf(stderr,"AGEPAD_STEAM_APP_STATE when=%s buildid=%s target=%s state_flags=%s update_result=%s\n",when,
+        [state[@"buildid"] UTF8String]?:"-",[state[@"TargetBuildID"] UTF8String]?:"-",
+        [state[@"StateFlags"] UTF8String]?:"-",[state[@"UpdateResult"] UTF8String]?:"-");
+    // Steam knows of a newer game build than the one on this iPad: remember it
+    // so the next launch can say so even if this one has already started.
+    long long have=[state[@"buildid"] longLongValue],latest=[state[@"TargetBuildID"] longLongValue];
+    if (have && latest>have) [NSUserDefaults.standardUserDefaults setObject:state[@"TargetBuildID"] forKey:@"AgePadNewerGameBuild"];
+    else if (have && latest==have) [NSUserDefaults.standardUserDefaults removeObjectForKey:@"AgePadNewerGameBuild"];
+}
+static NSString *GameUpdateNote(void) {
+    return [NSUserDefaults.standardUserDefaults stringForKey:@"AgePadNewerGameBuild"]?
+        @"Steam has a newer version of Age of Empires II than this iPad has. Single player and offline play work as usual; online matches need the update: let Steam update the game on your Mac, then run  scripts/agepad-ipad.sh setup  with the iPad connected (once AgePad supports that version).":nil;
 }
 
 static NSString *AccountFile(void) {
@@ -227,6 +264,12 @@ static NSString *LoadToken(NSString *account) {
         }
         kern_return_t registered=AgePadEngineRegister(clientPath.fileSystemRepresentation,lookUp);
         fprintf(stderr,"AGEPAD_ENGINE_REGISTERED status=%d\n",registered);
+        if (!offline) LogAppRecordState("registered");
+        NSString *updateNote=offline?nil:GameUpdateNote();
+        if (updateNote && registered==KERN_SUCCESS) { say(updateNote);fprintf(stderr,"AGEPAD_GAME_UPDATE_NOTE shown=1\n");sleep(8); }
+        if (!offline) for (int seconds=20;seconds<=120;seconds+=50)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)seconds*NSEC_PER_SEC),EngineQueue(),^{
+                LogAppRecordState(seconds==20?"20s":seconds==70?"70s":"120s"); });
         finish(registered==KERN_SUCCESS?nil:@"Steam started, but the game couldn't be connected to it.");
     });
 }
