@@ -7,6 +7,40 @@
 #include <dlfcn.h>
 #include <stdatomic.h>
 #include "ContextDispatchTrace.h"
+#include <mach-o/dyld.h>
+// Launch options for Home Screen launches, like Steam's per-game "launch
+// options" (AGEPAD_GAME_ARGUMENTS, e.g. "SKIPINTRO", which the game itself
+// documents as "Skip the intro movies"). A Home Screen launch has no command
+// line, and the game's main() has already copied argv into Feral's own list
+// by now, so that same copy routine is run again with the extra words. The
+// two routines are pinned to the imported build; unless their instructions
+// match exactly, nothing is called and the game starts unchanged.
+static void DEAddGameArguments(int argc,const char **argv) {
+    const char *extra=getenv("AGEPAD_GAME_ARGUMENTS");
+    if (!extra || !*extra) return;
+    static const uint32_t getterCode[]={0xf0029088,0x910be108,0x38bfc108,0x36000088};
+    static const uint32_t copyCode[]={0xd101c3ff,0xa90457f6,0xa9054ff4,0xa9067bfd,0x910183fd,0xaa0203f4,0xaa0103f5,0xaa0003f3};
+    uintptr_t base=(uintptr_t)_dyld_get_image_header(0);
+    const uint32_t *getter=(const uint32_t *)(base+0x94210),*copy=(const uint32_t *)(base+0x93278);
+    if (memcmp(getter,getterCode,sizeof getterCode) || memcmp(copy,copyCode,sizeof copyCode)) {
+        fprintf(stderr,"DE_GAME_ARGUMENTS skipped=build-mismatch\n");return;
+    }
+    static const char *combined[64];
+    int count=0;
+    for (int i=0;i<argc && count<48;i++) combined[count++]=argv[i];
+    static char words[512];
+    strlcpy(words,extra,sizeof words);
+    for (char *save=NULL,*word=strtok_r(words," ",&save);word && count<63;word=strtok_r(NULL," ",&save)) {
+        BOOL present=NO;
+        for (int i=1;i<argc;i++) if (strcmp(argv[i],word)==0) present=YES;
+        if (!present) combined[count++]=word;
+    }
+    combined[count]=NULL;
+    void *(*commandLine)(void)=(void *(*)(void))getter;
+    void (*setArguments)(void *,int,const char **)=(void (*)(void *,int,const char **))copy;
+    setArguments(commandLine(),count,combined);
+    fprintf(stderr,"DE_GAME_ARGUMENTS applied=%s count=%d\n",extra,count);fflush(stderr);
+}
 #include "EventQueueCompat.m"
 #include "TouchPointerCompat.m"
 extern void DEInstallNativeViewCompatibility(void) __attribute__((weak_import));
@@ -234,6 +268,7 @@ void DEInvokeOriginalLaunchAfterUIKitReady(void) {
 }
 
 int NSApplicationMain(int argc,const char **argv) {
+    DEAddGameArguments(argc,argv);
     NSApplication *application=DECreateOriginalApplication();
     NSDictionary *config=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:[NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"BoundaryDiagnostic.json"]] options:0 error:NULL];
     if ([NSProcessInfo.processInfo.arguments containsObject:@"--run-original"] || [config[@"engine_is_main_executable"] boolValue]) {
