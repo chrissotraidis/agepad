@@ -130,7 +130,7 @@ static NSString *LoadToken(NSString *account) {
         say([NSString stringWithFormat:@"Signing in to Steam as %@…",name]);
         // No network (airplane mode): Steam's own offline mode straight away.
         BOOL offline=!anonymous && !NetworkAvailable();
-        if (offline) say(@"No connection. Starting Steam in offline mode…");
+        if (offline) say(@"No Internet. Starting in Steam's offline mode (multiplayer is unavailable)…");
         // Steam's offline mode applies to a logon in progress (it names the
         // account), so the normal logon always starts first.
         int result=AgePadEngineLogOn(strtoull(account.UTF8String,NULL,10));
@@ -149,14 +149,14 @@ static NSString *LoadToken(NSString *account) {
             // Slow connections (15 s has been seen) stay online.
             if (tenth==450 && !offline && !AgePadEngineConnected()) {
                 offline=YES;result=AgePadEngineLogOnOffline();
-                say(@"No connection. Starting Steam in offline mode…");
+                say(@"Can't reach Steam. Starting in Steam's offline mode (multiplayer is unavailable)…");
             }
             usleep(100000);
         }
         BOOL loggedOn=AgePadEngineLoggedOn();
         fprintf(stderr,"AGEPAD_ENGINE_LOGON logged_on=%d offline=%d logon_state=%d ready=%d\n",loggedOn,offline,AgePadEngineLogonState(),ready());
         if (!ready()) {
-            finish(offline?@"Steam couldn't start offline. Connect to the Internet once, then try again.":
+            finish(offline?@"Steam couldn't start offline. Open AgePad once with Internet on this iPad; after that, offline mode works.":
                            @"Steam didn't finish signing in. Check the connection and try again.");return;
         }
         // The game may attach only once Steam has loaded this account's

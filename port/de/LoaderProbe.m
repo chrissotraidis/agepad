@@ -939,10 +939,12 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                     startEngine();
                 }];
                 [stack insertArrangedSubview:signInPanel atIndex:[stack.arrangedSubviews indexOfObject:engineState] + 1];
-                engineState.text = @"Play with your own Steam account. AgePad runs Steam's own software on this iPad, so after this one-time sign-in you can play without your Mac, and offline too.";
+                engineState.text = @"Sign in to Steam once. After that, tapping AgePad opens your own copy of the game on this iPad, with no Mac needed.";
             };
             [stack addArrangedSubview:engineState];
             [stack addArrangedSubview:actions];
+            addLine(@"Online: everything works, including multiplayer.\nOffline (for example on a flight): single player, skirmish and campaigns, through Steam's offline mode. Before you go offline, open AgePad once with Internet so Steam is up to date.",
+                    18, UIFontWeightRegular, muted);
             if (paired) [actions addArrangedSubview:button(@"Play with my Mac's Steam instead", ^{
                 engineState.text = @"Connecting to your Mac…";
                 DEPairedMacState = DEPairedMacSteamState();
@@ -959,10 +961,10 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                 DEPairedMacState==0 ? @"Steam isn't open on your Mac. Open Steam there, then reopen AgePad." :
                 @"Couldn't reach your Mac. Make sure it's awake and on the same Wi-Fi (or Tailscale), then reopen AgePad.",
                 23, UIFontWeightSemibold, UIColor.whiteColor);
-        addLine(inventoryChecked ? @"Game files · Imported inventory checked" :
-                hasData ? @"Game files · Import incomplete or unchecked" : @"Game files · Not imported",
+        addLine(inventoryChecked ? @"Game files · Ready on this iPad" :
+                hasData ? @"Game files · Copy incomplete or not checked" : @"Game files · Not on this iPad yet",
                 19, UIFontWeightMedium, UIColor.whiteColor);
-        addLine([NSString stringWithFormat:@"Available iPad storage · %@",freeSpace],
+        addLine([NSString stringWithFormat:@"Free space on this iPad · %@",freeSpace],
                 19, UIFontWeightMedium, UIColor.whiteColor);
         if (!engineRoute) addLine(paired ? [NSString stringWithFormat:@"Steam · Uses your Mac (%s). Check that the Mac is awake, Steam is open and signed in, and the iPad is on the same Wi-Fi (or Tailscale). Then close and reopen AgePad.", getenv("AGEPAD_STEAM_TUNNEL_HOST")] :
                 @"Steam · AgePad uses the Steam app on your Mac to confirm you own the game. Your login stays on the Mac.",
