@@ -19,6 +19,10 @@
 #include <malloc/malloc.h>
 #include <execinfo.h>
 #include <stdatomic.h>
+#if __has_include("AgePadSteamRoute.h")
+#import "AgePadSteamRoute.h"
+#define AGEPAD_ENGINE_ROUTE 1
+#endif
 
 // Opt-in, read-only main-thread watchdog for hardware runs. A main run-loop
 // timer advances a heartbeat; if it stops, a background thread briefly
@@ -653,6 +657,8 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         if (MACH_PORT_VALID(localPort)) mach_port_destroy(mach_task_self(), localPort);
         NSString *helperImage = [NSBundle.mainBundle.bundlePath
             stringByAppendingPathComponent:@"Frameworks/IPCHelperDevice.dylib"];
+        int (*ipcReady)(void) = NULL;
+        void *shimLookUp = NULL;
         if ([NSFileManager.defaultManager fileExistsAtPath:helperImage]) {
             setenv("AGEPAD_DEVICE_LOCAL_IPC_PROBE", "1", 1);
             dlerror();
@@ -666,6 +672,8 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                 void *shim = dlopen(shimImage.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
                 void (*markThread)(void) = shim ? dlsym(shim, "DEIPCMarkHelperThread") : NULL;
                 int (*ready)(void) = shim ? dlsym(shim, "DELocalServiceReady") : NULL;
+                ipcReady = ready;
+                shimLookUp = shim ? dlsym(shim, "bootstrap_look_up") : NULL;
                 const struct mach_header *header = NULL;
                 for (uint32_t i = 0; i < _dyld_image_count(); i++) {
                     if (strcmp(_dyld_get_image_name(i), helperImage.fileSystemRepresentation) == 0) {
@@ -703,7 +711,18 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         const char *clientError = dlerror();
         fprintf(stderr, "DE_DEVICE_STEAM_CLIENT_LOAD loaded=%d error=%s\n",
                 clientLoaded != NULL, clientError ?: "none");
-        if (skipPreflight) {
+        // Steam routes. Default: Valve's Steam engine inside AgePad, signed in
+        // once on this iPad. Fallbacks: the Mac's Steam over USB (engineering
+        // "play", automatic) or Wi-Fi (a button on the setup screen).
+        const char *macTunnel = getenv("AGEPAD_STEAM_TUNNEL_HOST");
+        BOOL usbPlay = macTunnel && getenv("AGEPAD_HOST_SESSION_PID");
+        BOOL engineRoute = NO;
+#if AGEPAD_ENGINE_ROUTE
+        engineRoute = !usbPlay && clientLoaded && ipcReady && ipcReady() && shimLookUp;
+        fprintf(stderr, "AGEPAD_STEAM_ROUTE engine=%d usb=%d paired=%d signed_in=%d\n",
+                engineRoute, usbPlay, macTunnel != NULL, [AgePadSteamRoute hasAccount]);
+#endif
+        if (skipPreflight && !engineRoute && macTunnel) {
             sessionLoggedOn = true;
             const char *pairingKey=getenv("AGEPAD_RELAY_TOKEN");
             if (pairingKey && *pairingKey) { DEPairedMacState=DEPairedMacSteamState();sessionLoggedOn=DEPairedMacState==1; }
@@ -792,7 +811,9 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         BOOL hasData = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:data error:NULL] count] > 0;
         // This opt-in is a launch diagnostic. A partial import may be enough
         // to reveal the next original-engine dependency, but is not gameplay.
-        if (getenv("AGEPAD_DEVICE_RUN_ORIGINAL") && steamInitialized && hasData) {
+        // Starts the original game once a Steam route is ready (now, or later
+        // from the engine route's sign-in). Returns NO if it cannot start.
+        BOOL (^startGame)(void) = ^BOOL {
             NSString *gameData=DEDeviceLinkFeralDataFolder(data);
             DEStartMainWatchdog();
             // The game spells its data root through the Feral link with the
@@ -809,13 +830,15 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
             void *appkit = dlopen(appkitPath.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
             void (*launch)(void) = appkit ? dlsym(appkit, "DEInvokeOriginalLaunchAfterUIKitReady") : NULL;
             fprintf(stderr, "DE_DEVICE_GAME_LAUNCH_READY steam=%d data_present=%d launch=%d\n",
-                    steamInitialized, hasData, launch != NULL);
+                    1, hasData, launch != NULL);
             fflush(stderr);
             if (launch) {
                 dispatch_async(dispatch_get_main_queue(), ^{ launch(); });
                 return YES;
             }
-        }
+            return NO;
+        };
+        if (getenv("AGEPAD_DEVICE_RUN_ORIGINAL") && steamInitialized && hasData && startGame()) return YES;
         UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:vc.view.bounds];
         scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         scroll.backgroundColor = [UIColor colorWithRed:.10 green:.14 blue:.17 alpha:1];
@@ -854,6 +877,56 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         addLine(@"AGEPAD", 20, UIFontWeightBold, gold);
         addLine(@"Age of Empires II: Definitive Edition", 34, UIFontWeightBold, UIColor.whiteColor);
         BOOL paired = getenv("AGEPAD_STEAM_TUNNEL_HOST") != NULL;
+#if AGEPAD_ENGINE_ROUTE
+        if (engineRoute) {
+            UILabel *engineState = [UILabel new];
+            engineState.font = [UIFont systemFontOfSize:23 weight:UIFontWeightSemibold];
+            engineState.textColor = UIColor.whiteColor;
+            engineState.numberOfLines = 0;
+            UIStackView *actions = [UIStackView new];
+            actions.spacing = 14;
+            UIButton *(^button)(NSString *, void (^)(void)) = ^UIButton *(NSString *title, void (^tap)(void)) {
+                UIButtonConfiguration *style = UIButtonConfiguration.filledButtonConfiguration;
+                style.baseBackgroundColor = gold;
+                style.baseForegroundColor = UIColor.blackColor;
+                style.title = title;
+                return [UIButton buttonWithConfiguration:style primaryAction:[UIAction actionWithHandler:^(UIAction *a) { tap(); }]];
+            };
+            __block UIView *signInPanel = nil;
+            __block void (^showSignIn)(void) = nil;
+            void (^startEngine)(void) = ^{
+                engineState.text = @"Starting Steam…";
+                [AgePadSteamRoute startWithClient:clientLoaded path:steamClient lookUp:(AgePadBootstrapLookUp)shimLookUp
+                    status:^(NSString *message) { engineState.text = message; }
+                    completion:^(NSString *error) {
+                        if (!error && !hasData) { engineState.text = @"Signed in to Steam. The game files still need copying to this iPad (see below)."; return; }
+                        if (!error && startGame()) { engineState.text = @"Starting Age of Empires II…"; return; }
+                        engineState.text = error ?: @"The game couldn't start.";
+                        for (UIView *old in actions.arrangedSubviews) [old removeFromSuperview];
+                        [actions addArrangedSubview:button(@"Sign in again", ^{ [AgePadSteamRoute forgetAccount]; showSignIn(); })];
+                    }];
+            };
+            showSignIn = ^{
+                [signInPanel removeFromSuperview];
+                signInPanel = [AgePadSteamRoute signInViewWithCompletion:^{
+                    [signInPanel removeFromSuperview];
+                    startEngine();
+                }];
+                [stack insertArrangedSubview:signInPanel atIndex:[stack.arrangedSubviews indexOfObject:engineState] + 1];
+                engineState.text = @"Play with your own Steam account. AgePad runs Steam's own software on this iPad, so after this one-time sign-in you can play without your Mac, and offline too.";
+            };
+            [stack addArrangedSubview:engineState];
+            [stack addArrangedSubview:actions];
+            if (paired) [actions addArrangedSubview:button(@"Play with my Mac's Steam instead", ^{
+                engineState.text = @"Connecting to your Mac…";
+                DEPairedMacState = DEPairedMacSteamState();
+                if (DEPairedMacState == 1 && hasData && startGame()) return;
+                engineState.text = DEPairedMacState == 0 ? @"Steam isn't open on your Mac. Open it there and try again." :
+                    @"Couldn't reach your Mac. Make sure it's awake and on the same Wi-Fi (or Tailscale).";
+            })];
+            if ([AgePadSteamRoute hasAccount]) startEngine(); else { [AgePadSteamRoute prepareWithClient:clientLoaded]; showSignIn(); }
+        } else
+#endif
         addLine(!paired ? @"Not paired with a Mac yet. Pair once over USB, then just tap AgePad to play." :
                 !hasData ? @"Paired with your Mac, but the game files are missing." :
                 DEPairedMacState==0 ? @"Steam isn't open on your Mac. Open Steam there, then reopen AgePad." :
@@ -864,10 +937,10 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                 19, UIFontWeightMedium, UIColor.whiteColor);
         addLine([NSString stringWithFormat:@"Available iPad storage · %@",freeSpace],
                 19, UIFontWeightMedium, UIColor.whiteColor);
-        addLine(paired ? [NSString stringWithFormat:@"Steam · Uses your Mac (%s). Check that the Mac is awake, Steam is open and signed in, and the iPad is on the same Wi-Fi (or Tailscale). Then close and reopen AgePad.", getenv("AGEPAD_STEAM_TUNNEL_HOST")] :
+        if (!engineRoute) addLine(paired ? [NSString stringWithFormat:@"Steam · Uses your Mac (%s). Check that the Mac is awake, Steam is open and signed in, and the iPad is on the same Wi-Fi (or Tailscale). Then close and reopen AgePad.", getenv("AGEPAD_STEAM_TUNNEL_HOST")] :
                 @"Steam · AgePad uses the Steam app on your Mac to confirm you own the game. Your login stays on the Mac.",
                 19, UIFontWeightMedium, UIColor.whiteColor);
-        addLine(inventoryChecked ?
+        if (!engineRoute || !inventoryChecked) addLine(inventoryChecked ?
                 (paired ? @"The AgePad helper runs on the Mac (scripts/agepad-ipad.sh install-helper starts it automatically at login)." :
                  @"To pair: connect the iPad by USB and run  scripts/agepad-ipad.sh pair  on the Mac. After that, tap AgePad whenever the Mac is on with Steam open.") :
                 @"Game files are missing. On your Mac run  scripts/agepad-ipad.sh check  in the AgePad folder; it explains how to copy your Steam copy of the game to this iPad.",

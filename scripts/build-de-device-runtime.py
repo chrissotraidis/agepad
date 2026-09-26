@@ -69,6 +69,12 @@ def link_fresh_boundaries(package, output, sdk):
             command += [str(ROOT / 'port/de/DeviceLocaleCompat.mm'), '-lc++']
             command.append(str(ROOT / 'port/de/DeviceCalendarCompat.m'))
             command += [str(ROOT / 'port/de/DeviceAudioHALTrace.m'), '-framework', 'CoreAudio']
+            # In-iPad Steam route: Valve's engine host, QR sign-in, saved sign-in.
+            command += ['-I', str(ROOT / 'port/steam-engine'),
+                        str(ROOT / 'port/steam-engine/SteamEngineHost.c'),
+                        str(ROOT / 'port/steam-engine/SteamQRSignIn.m'),
+                        str(ROOT / 'port/steam-engine/AgePadSteamRoute.m'),
+                        '-framework', 'CoreImage', '-framework', 'ImageIO', '-framework', 'Security']
             # The generated NSColor diagnostic class has a different ObjC name
             # because UIKit already owns NSColor internally on some runtimes.
             # Preserve the two aliases emitted by build-de-boundary-probe.py.
@@ -111,6 +117,40 @@ def link_fresh_boundaries(package, output, sdk):
     return bool(failed)
 
 
+# Steam client boundaries (used by Valve's engine inside AgePad) where the iPad
+# gives a real answer: this device's state, or "this macOS service does not
+# exist here" where Valve's caller handles that. Each source says which. All
+# other symbols keep their generated fail-fast stubs.
+CLIENT_REPLACEMENTS = {'DiskArbitration': 'DiskArbitrationUnavailable.m',
+                       'CoreGraphics': 'CoreGraphicsClient.m',
+                       'ApplicationServices': 'ApplicationServicesClient.m'}
+
+
+def link_client_replacements(package, output, sdk):
+    game_client = package / 'game-client'
+    for library, name in CLIENT_REPLACEMENTS.items():
+        source = ROOT / 'port/steam-engine' / name
+        defined = {'_' + symbol for symbol in re.findall(
+            r'^[A-Za-z][\w \t*]*?\b(\w+)\s*\([^;()]*\)\s*\{', source.read_text(), re.M)}
+        stub = re.compile(r'__attribute__\(\(noreturn\)\) void (Function\d+)\(void\) __asm__\("(_\w+)"\);\n'
+                          r'void \1\(void\) \{ DEUnsupported\("\2"\); \}\n')
+        stubs = stub.sub(lambda m: '' if m.group(2) in defined else m.group(0),
+                         (game_client / (library + '.m')).read_text())
+        generated = output / ('client-' + library + '.m')
+        generated.write_text(stubs)
+        name = 'DEClientBoundary_' + library + '.dylib'
+        command = ['xcrun', 'clang', '-target', 'arm64-apple-ios15.0', '-isysroot', sdk, '-fobjc-arc',
+                   '-dynamiclib', '-I', str(ROOT / 'port/de'), '-I', str(ROOT / 'port/steam-engine'),
+                   str(generated), str(source), '-framework', 'Foundation', '-framework', 'UIKit',
+                   '-Wl,-install_name,@loader_path/' + name, '-Wl,-compatibility_version,1000.0',
+                   '-o', str(output / name)]
+        loads = subprocess.check_output(['otool', '-l', str(game_client / name)], text=True)
+        for path in re.findall(r'cmd LC_REEXPORT_DYLIB\n\s+cmdsize \d+\n\s+name (\S+)', loads):
+            command.append('-Wl,-reexport_framework,' + Path(path).name)
+        subprocess.run(command, check=True)
+    print(f'Device Steam client replacements: {len(CLIENT_REPLACEMENTS)}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
@@ -128,6 +168,7 @@ def main():
             raise SystemExit(1)
         if link_fresh_boundaries(args.package.resolve(), output, sdk):
             raise SystemExit(1)
+        link_client_replacements(args.package.resolve(), output, sdk)
         return
     results = {}
     for name, library in [('appkit', 'AppKit'), ('display', 'CoreGraphics'), ('metal', 'Metal')]:

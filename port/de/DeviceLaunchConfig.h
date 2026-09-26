@@ -1,9 +1,13 @@
 // Tap-to-play launch settings (physical iPad). A launch from the Home Screen
 // has no Mac-supplied environment, so the compatibility settings come from:
 //   <app>/AgePadLaunch.env                 play settings, baked in at build time
+//   Documents/AgePadSteamAccount.env       written by AgePad after the one-time Steam
+//                                          sign-in (account ID and name; the sign-in
+//                                          itself is in the iPad Keychain)
 //   Documents/AgePadSteamHost.env          written once by "agepad-ipad.sh pair":
 //                                          Mac helper address(es) and pairing key
-// The original game starts only when the pairing file exists; otherwise the
+// A saved Steam sign-in takes precedence over the Mac pairing. The original game
+// starts only once a Steam route is ready (LoaderProbe.m decides); otherwise the
 // setup screen explains what to do. Values passed by a Mac launch always win
 // (setenv never overwrites), and only AGEPAD_* keys are accepted. Included by
 // every image whose constructors read settings; the first one to run applies it.
@@ -34,12 +38,16 @@ __attribute__((constructor(101))) static void DEApplyLaunchConfig(void) {
     setenv("AGEPAD_LAUNCH_CONFIG_APPLIED","1",1);
     const char *home=getenv("HOME");
     char path[PATH_MAX];
-    int paired=0;
+    int paired=0,signedIn=0;
     if (home) {
+        snprintf(path,sizeof path,"%s/Documents/AgePadSteamAccount.env",home);
+        signedIn=DEApplyLaunchEnvFile(path)>0;
         snprintf(path,sizeof path,"%s/Documents/AgePadSteamHost.env",home);
-        paired=DEApplyLaunchEnvFile(path)>0 || getenv("AGEPAD_STEAM_TUNNEL_HOST")!=NULL;
+        if (!signedIn) DEApplyLaunchEnvFile(path);
+        paired=getenv("AGEPAD_STEAM_TUNNEL_HOST")!=NULL;
     }
-    if (!paired && !getenv("AGEPAD_DEVICE_RUN_ORIGINAL")) return; // setup screen only
+    // Play settings are always applied: the Steam sign-in can happen on the
+    // setup screen and start the game in the same session.
     char executable[PATH_MAX];uint32_t size=sizeof executable;
     if (_NSGetExecutablePath(executable,&size)==0) {
         char *slash=strrchr(executable,'/');

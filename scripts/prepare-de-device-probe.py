@@ -67,7 +67,7 @@ def platform(path):
 
 def stage(source, destination):
     device_boundary = boundary / destination.name
-    if destination.name.startswith('DEBoundary_') and device_boundary.is_file():
+    if destination.name.startswith(('DEBoundary_', 'DEClientBoundary_')) and device_boundary.is_file():
         shutil.copy2(device_boundary, destination)
         action = 'device-boundary-link'
     else:
