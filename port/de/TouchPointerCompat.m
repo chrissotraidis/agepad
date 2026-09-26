@@ -5,6 +5,7 @@
 #include "OrderedPointerOwnership.h"
 @interface DEPointerTracker : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic) CGPoint position;
+@property(nonatomic) NSTimeInterval pinnedUntil;
 @property(nonatomic,weak) UIWindow *window;
 @end
 @implementation DEPointerTracker
@@ -17,6 +18,9 @@
     CGPoint local=[gesture locationInView:self.window];
     if([gesture isKindOfClass:UILongPressGestureRecognizer.class] && (gesture.state!=UIGestureRecognizerStateChanged || getenv("AGEPAD_INPUT_VERBOSE"))){UIView *hit=[self.window hitTest:local withEvent:nil];fprintf(stderr,"DE_TOUCH_HIT state=%ld view=%s super=%s\n",(long)gesture.state,object_getClassName(hit),object_getClassName(hit.superview));}
     CGPoint global=[self.window convertPoint:local toCoordinateSpace:self.window.screen.coordinateSpace];
+    // A tap's click is sent just after the tip lifts; Pencil hover from that
+    // moment on must not move the pointer away from where the tap landed.
+    if(NSProcessInfo.processInfo.systemUptime<self.pinnedUntil)return;
     if(DEOrderedMousePointerIsHeld()) {
         if(getenv("AGEPAD_INPUT_TIMING"))fprintf(stderr,"DE_POINTER_UIKIT_DEFERRED x=%g y=%g ordered_button_active=1\n",global.x,global.y);
         return;
@@ -53,4 +57,10 @@ void DEUIKitSetPointerPosition(CGPoint point) {
         DEUnsupported("warp requires initialized UIKit pointer");
     @synchronized(DEPointer) { DEPointer.position=point; }
     fprintf(stderr,"DE_POINTER_WARP x=%g y=%g domain=app\n",point.x,point.y);
+}
+// Hold the pointer at a window point for a short time (a Pencil tap's click).
+void DEUIKitPinPointer(CGPoint windowPoint,NSTimeInterval seconds) {
+    if (!DEPointer) return;
+    CGPoint global=[DEPointer.window convertPoint:windowPoint toCoordinateSpace:DEPointer.window.screen.coordinateSpace];
+    @synchronized(DEPointer) { DEPointer.position=global;DEPointer.pinnedUntil=NSProcessInfo.processInfo.systemUptime+seconds; }
 }

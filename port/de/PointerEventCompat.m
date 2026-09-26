@@ -3,6 +3,7 @@
 #import <GameController/GameController.h>
 #include "UnsupportedBoundary.h"
 #include "HardwareKeyMapping.h"
+#include <dlfcn.h>
 extern CGPoint DEUIKitPointerPosition(void);
 // App-owned input domain: iOS has no macOS login-session event stream.
 @interface DEAppEventSource : NSObject
@@ -45,6 +46,9 @@ CGPoint CGEventGetLocation(const void *event) {
 }
 bool CGEventSourceKeyState(int32_t source,uint16_t key) {
     if (!getenv("AGEPAD_POINTER_STATE") || (source!=0 && source!=1)) DEUnsupported("keyboard source state");
+    static bool (*virtualHeld)(uint16_t);
+    if (!virtualHeld) virtualHeld=dlsym(RTLD_DEFAULT,"DEVirtualKeyIsHeld");
+    if (virtualHeld && virtualHeld(key)) return true;
     GCKeyboardInput *keyboard=GCKeyboard.coalescedKeyboard.keyboardInput;
     if(getenv("AGEPAD_KEY_DELIVERY_TRACE"))fprintf(stderr,"DE_KEY_STATE source=%d mac_key=%u hardware_keyboard=%d\n",source,key,keyboard!=nil);
     if (!keyboard) return false;

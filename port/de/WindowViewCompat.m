@@ -42,9 +42,18 @@ extern id DEUIKitScreenObject(UIScreen *screen);
 @property(nonatomic) NSTimeInterval pencilStartTime,lastDragSent;
 @property(nonatomic,strong) NSTimer *zoomTimer;
 @property(nonatomic,weak) UIGestureRecognizer *orderTap,*zoomPinch;
+// Two-finger tap (right click), recognised here rather than by a UIKit tap
+// recognizer, which gave up on slow or slightly moving taps.
+@property(nonatomic) BOOL twoFingerCandidate,twoFingerFailed;
+@property(nonatomic) CGPoint twoFingerPoint;
+@property(nonatomic) NSTimeInterval twoFingerStart;
+@property(nonatomic) NSUInteger twoFingerCount;
+@property(nonatomic,strong) NSMutableDictionary<NSValue *,NSValue *> *twoFingerStarts;
 - (void)refreshTouchCommandButton;
 - (void)installNativeGestures;
 - (void)startTestInput;
+- (void)pencilDeselect:(const char *)how;
+- (void)nativeMapScrollPhase:(NSInteger)phase point:(CGPoint)point;
 - (void)nativeMouse:(NSUInteger)type point:(CGPoint)point wheel:(CGFloat)wheel;
 @end
 static void DEPostGameKey(unsigned short macKey, NSString *characters, BOOL pressed);
@@ -244,7 +253,25 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  DEPostOrderedMouseEvent((id)e,self.gameLayer,post);
 }
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
- if(self.gameTouch)return;self.gameTouch=touches.anyObject;
+ // Second finger on the map soon after the first (and neither a Pencil): a
+ // two-finger tap candidate. Undo anything the first finger started.
+ UITouch *first=self.gameTouch?:touches.anyObject;
+ BOOL fingers=YES;for(UITouch *t in event.allTouches)if(t.type!=UITouchTypeDirect)fingers=NO;
+ if(fingers && event.allTouches.count>=2 && !self.twoFingerCandidate &&
+    event.timestamp-(self.gameTouch?self.pencilStartTime:event.timestamp)<0.5) {
+     self.twoFingerCandidate=YES;self.twoFingerFailed=NO;self.twoFingerCount=event.allTouches.count;
+     self.twoFingerStart=self.gameTouch?self.pencilStartTime:event.timestamp;
+     self.twoFingerPoint=[first locationInView:self.window];
+     self.twoFingerStarts=[NSMutableDictionary dictionary];
+     for(UITouch *t in event.allTouches)self.twoFingerStarts[[NSValue valueWithNonretainedObject:t]]=[NSValue valueWithCGPoint:[t locationInView:self.window]];
+     if(self.gameTouch && self.pencilPending){self.pencilPending=NO;}
+     else if(self.gameTouch){[self sendGameMouse:6 touch:self.gameTouch cancelled:YES];[self sendGameMouse:2 touch:self.gameTouch cancelled:YES];}
+     self.pencilDragging=NO;self.gameTouch=nil;
+     fprintf(stderr,"DE_TWO_FINGER begin touches=%lu\n",(unsigned long)event.allTouches.count);
+     return;
+ }
+ if(self.twoFingerCandidate){self.twoFingerCount=MAX(self.twoFingerCount,event.allTouches.count);return;}
+ if(self.gameTouch)return;self.gameTouch=touches.anyObject;self.pencilStartTime=self.gameTouch.timestamp;
  // Simulator mouse-backed touches can report tapCount=0 on release after
  // reporting 1 on press. Preserve the click identity across the mouse pair.
  self.gameClickCount=MAX((NSInteger)self.gameTouch.tapCount,1);
@@ -288,6 +315,8 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
 // repeated taps) was not handled as a plain click by the engine.
 - (void)sendPendingClick:(BOOL)secondary {
  UITouch *touch=self.gameTouch;CGPoint point=self.pencilStart;
+ extern void DEUIKitPinPointer(CGPoint windowPoint,NSTimeInterval seconds);
+ DEUIKitPinPointer(point,0.25);
  self.gameClickCount=1;self.overrideActive=YES;self.overridePoint=point;self.forceSecondary=secondary;
  [self sendGameMouse:5 touch:touch cancelled:NO];[self sendGameMouse:1 touch:touch cancelled:NO];
  self.overrideActive=NO;self.forceSecondary=NO;
@@ -298,6 +327,13 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  });
 }
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ if(self.twoFingerCandidate) {
+     // A pinch or scroll moves the fingers; a tap barely does.
+     for(UITouch *t in touches){NSValue *s=self.twoFingerStarts[[NSValue valueWithNonretainedObject:t]];
+         CGPoint a=s.CGPointValue,b=[t locationInView:self.window];
+         if(s && hypot(b.x-a.x,b.y-a.y)>30)self.twoFingerFailed=YES;}
+     return;
+ }
  if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {
      CGPoint now=[self.gameTouch locationInView:self.window];
      if(hypot(now.x-self.pencilStart.x,now.y-self.pencilStart.y)<8){[self sendGameMouse:5 touch:self.gameTouch cancelled:NO];return;}
@@ -314,6 +350,17 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  [self sendGameMouse:6 touch:self.gameTouch cancelled:NO];
 }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ if(self.twoFingerCandidate) {
+     BOOL allUp=YES;for(UITouch *t in event.allTouches)if(t.phase!=UITouchPhaseEnded && t.phase!=UITouchPhaseCancelled)allUp=NO;
+     if(!allUp)return;
+     NSTimeInterval held=event.timestamp-self.twoFingerStart;
+     BOOL order=!self.twoFingerFailed && self.twoFingerCount==2 && held<1.0;
+     fprintf(stderr,"DE_TWO_FINGER end order=%d held=%.2f touches=%lu moved=%d\n",order,held,(unsigned long)self.twoFingerCount,self.twoFingerFailed);
+     self.twoFingerCandidate=NO;self.twoFingerStarts=nil;
+     if(order){DEMenuOpen=NO;DEPencilOrderArmed=YES;self.pencilStart=self.twoFingerPoint;self.gameTouch=touches.anyObject;[self sendPendingClick:YES];self.gameTouch=nil;
+         DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();}
+     return;
+ }
  if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {
      BOOL hud=[self pencilPointInHUD:self.pencilStart];
      NSTimeInterval held=self.gameTouch.timestamp-self.pencilStartTime;
@@ -351,6 +398,11 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      [self sendGameMouse:2 touch:self.gameTouch cancelled:NO];self.gameTouch=nil;if(DEGlobalTouchCommandMode){DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();fprintf(stderr,"DE_TOUCH_COMMAND_MODE mode=select reason=target-complete\n");}}
 }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ if(self.twoFingerCandidate){ // a pinch or map scroll took over
+     BOOL allUp=YES;for(UITouch *t in event.allTouches)if(t.phase!=UITouchPhaseEnded && t.phase!=UITouchPhaseCancelled)allUp=NO;
+     if(allUp){self.twoFingerCandidate=NO;self.twoFingerStarts=nil;}
+     return;
+ }
  if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {
      self.pencilPending=NO;self.gameTouch=nil; // No button was pressed yet.
      fprintf(stderr,"DE_TOUCH_DEFERRED_CANCELLED\n");return;
@@ -502,8 +554,14 @@ static void DEPostGameKeyWithModifiers(unsigned short macKey,NSString *character
     });
 }
 static void DEPostGameKey(unsigned short macKey, NSString *characters, BOOL pressed) {
+    // Keys AgePad itself holds (map scrolling), so polled key state agrees.
+    extern _Atomic unsigned char DEVirtualKeyHeld[128];
+    if(macKey<128)DEVirtualKeyHeld[macKey]=pressed;
     DEPostGameKeyWithModifiers(macKey,characters,characters,0,pressed);
 }
+_Atomic unsigned char DEVirtualKeyHeld[128];
+bool DEVirtualKeyIsHeld(uint16_t key) __attribute__((visibility("default")));
+bool DEVirtualKeyIsHeld(uint16_t key) { return key<128 && DEVirtualKeyHeld[key]; }
 static void DEConnectGameKeyboard(void) {
     GCKeyboardInput *keyboard=GCKeyboard.coalescedKeyboard.keyboardInput;
     if(!keyboard)return;

@@ -10,12 +10,16 @@
     UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(nativeMapPan:)];
     // Three fingers scroll the map; two fingers are reserved for the
     // right-click tap and pinch zoom so they never compete with a scroll.
-    pan.minimumNumberOfTouches=3;pan.maximumNumberOfTouches=3;
+    // Three or four fingers (fingers rarely land together; a fourth is fine).
+    pan.minimumNumberOfTouches=3;pan.maximumNumberOfTouches=4;
     UIPinchGestureRecognizer *pinch=[[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(nativeZoom:)];
     // The order tap no longer waits for pinch/pan to fail: two fingers landing
     // a few ms apart register a small scale change, which previously made the
     // pinch win and silently swallowed the right-click. A real pinch moves the
     // fingers beyond the tap's allowable movement, so the tap fails by itself.
+    // Two-finger taps are recognised by the game view itself (touchesBegan);
+    // this recognizer remains only as the object pinch coordinates with.
+    order.enabled=NO;
     for(UIGestureRecognizer *gesture in @[order,pan,pinch]) {
         gesture.delegate=self;gesture.cancelsTouchesInView=YES;[self addGestureRecognizer:gesture];
     }
@@ -34,8 +38,18 @@
     }
 }
 - (void)pencilInteractionDidTap:(UIPencilInteraction *)interaction API_AVAILABLE(ios(12.1)) {
+    [self pencilDeselect:"double-tap"];
+}
+// iPadOS 17.5+ delivers the double-tap here, and Apple Pencil Pro's squeeze.
+- (void)pencilInteraction:(UIPencilInteraction *)interaction didReceiveTap:(UIPencilInteractionTap *)tap API_AVAILABLE(ios(17.5)) {
+    [self pencilDeselect:"double-tap"];
+}
+- (void)pencilInteraction:(UIPencilInteraction *)interaction didReceiveSqueeze:(UIPencilInteractionSqueeze *)squeeze API_AVAILABLE(ios(17.5)) {
+    if(squeeze.phase==UIPencilInteractionPhaseEnded)[self pencilDeselect:"squeeze"];
+}
+- (void)pencilDeselect:(const char *)how {
     DEPencilOrderArmed=NO;DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
-    fprintf(stderr,"DE_PENCIL_DOUBLE_TAP action=deselect key=escape\n");
+    fprintf(stderr,"DE_PENCIL_DOUBLE_TAP gesture=%s action=deselect key=escape\n",how);
     DEPostGameKey(53,@"\e",YES);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{DEPostGameKey(53,@"\e",NO);});
 }
@@ -73,21 +87,36 @@
     DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
 }
 - (void)nativeMapPan:(UIPanGestureRecognizer *)gesture {
-    // DE scrolls when the map is dragged with its click-drag-scroll mouse
-    // button (Options → Controls, middle button by default on Mac) while the
-    // CLICK_DRAG_SCROLL hotkey (slash) may also be held. Send both: a middle
-    // (other) button drag with slash down, so either setting scrolls.
     CGPoint point=[gesture locationInView:self];
-    if(gesture.state==UIGestureRecognizerStateBegan) {
-        fprintf(stderr,"DE_GESTURE_SCROLL state=began x=%g y=%g\n",point.x,point.y);
-        DEMenuOpen=NO;
-        [self nativeMouse:5 point:point wheel:0];DEPostGameKey(44,@"/",YES);[self nativeMouse:25 point:point wheel:0];
-    } else if(gesture.state==UIGestureRecognizerStateChanged) {
-        [self nativeMouse:27 point:point wheel:0];
-    } else if(gesture.state==UIGestureRecognizerStateEnded || gesture.state==UIGestureRecognizerStateCancelled || gesture.state==UIGestureRecognizerStateFailed) {
-        fprintf(stderr,"DE_GESTURE_SCROLL state=end x=%g y=%g\n",point.x,point.y);
-        [self nativeMouse:26 point:point wheel:0];DEPostGameKey(44,@"/",NO);
+    UIGestureRecognizerState state=gesture.state;
+    [self nativeMapScrollPhase:state==UIGestureRecognizerStateBegan?0:state==UIGestureRecognizerStateChanged?1:
+        (state==UIGestureRecognizerStateEnded || state==UIGestureRecognizerStateCancelled || state==UIGestureRecognizerStateFailed)?2:-1 point:point];
+}
+// DE scrolls when the map is dragged with its click-drag-scroll mouse button
+// (Options → Controls, middle button by default on Mac) while the
+// CLICK_DRAG_SCROLL hotkey (slash) may also be held. Send both: a middle
+// (other) button drag with slash down, so either setting scrolls.
+// Phase 0 begin, 1 move, 2 end.
+// Three fingers move the map like a joystick: the arrow keys DE scrolls with
+// by default are held in the direction the fingers moved from where they
+// landed (content follows the fingers: dragging left shows what is to the
+// right), and released when the fingers lift. A dead zone stops jitter.
+- (void)nativeMapScrollPhase:(NSInteger)phase point:(CGPoint)point {
+    static CGPoint start;
+    static BOOL held[4]; // left, right, down, up
+    static const unsigned short keys[4]={123,124,125,126};
+    static NSString *chars[4];
+    if(!chars[0]){chars[0]=@"\uF702";chars[1]=@"\uF703";chars[2]=@"\uF701";chars[3]=@"\uF700";}
+    BOOL want[4]={NO,NO,NO,NO};
+    if(phase==0){start=point;DEMenuOpen=NO;fprintf(stderr,"DE_GESTURE_SCROLL state=began x=%g y=%g\n",point.x,point.y);}
+    if(phase==1) {
+        CGFloat dx=point.x-start.x,dy=point.y-start.y,dead=18;
+        want[0]=dx>dead;want[1]=dx<-dead;want[2]=dy<-dead;want[3]=dy>dead;
     }
+    for(int i=0;i<4;i++) if(want[i]!=held[i]) {
+        held[i]=want[i];DEPostGameKey(keys[i],chars[i],want[i]);
+    }
+    if(phase==2)fprintf(stderr,"DE_GESTURE_SCROLL state=end x=%g y=%g\n",point.x,point.y);
 }
 - (void)nativeZoom:(UIPinchGestureRecognizer *)gesture {
     if(gesture.state!=UIGestureRecognizerStateChanged)return;
@@ -108,7 +137,8 @@
 // Documents/agepad-test-input.txt from the Mac are played through the same
 // mouse/key paths as touches, in screen points, on the largest visible game
 // view, then the file is removed:
-//   click X Y | rclick X Y | key MACKEYCODE | text lowercaseletters0to9 | wait MS
+//   click X Y | rclick X Y | key MACKEYCODE | text lowercase0to9 | wait MS
+//   mdrag X1 Y1 X2 Y2 (three-finger map scroll) | pdtap (Pencil double-tap)| rclick X Y | key MACKEYCODE | text lowercaseletters0to9 | wait MS
 - (void)startTestInput {
     if (!getenv("AGEPAD_TEST_INPUT")) return;
     static NSHashTable<DEGameViewHost *> *hosts;
@@ -138,7 +168,17 @@
             if ([word[0] isEqualToString:@"wait"] && word.count>1) { at+=word[1].doubleValue/1000;continue; }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(at*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
                 fprintf(stderr,"DE_TEST_INPUT %s view=%gx%g\n",line.UTF8String,host.bounds.size.width,host.bounds.size.height);
-                if (word.count>2 && ([word[0] isEqualToString:@"click"] || [word[0] isEqualToString:@"rclick"])) {
+                if ([word[0] isEqualToString:@"pdtap"]) {
+                    [host pencilDeselect:"test"];
+                } else if (word.count>4 && [word[0] isEqualToString:@"mdrag"]) {
+                    // The three-finger scroll's own event sequence, from X1 Y1 to X2 Y2.
+                    CGPoint from=CGPointMake(word[1].doubleValue,word[2].doubleValue),to=CGPointMake(word[3].doubleValue,word[4].doubleValue);
+                    [host nativeMapScrollPhase:0 point:from];
+                    for (int step=1;step<=12;step++)
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,step*25*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+                            [host nativeMapScrollPhase:1 point:CGPointMake(from.x+(to.x-from.x)*step/12,from.y+(to.y-from.y)*step/12)]; });
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,350*NSEC_PER_MSEC),dispatch_get_main_queue(),^{ [host nativeMapScrollPhase:2 point:to]; });
+                } else if (word.count>2 && ([word[0] isEqualToString:@"click"] || [word[0] isEqualToString:@"rclick"])) {
                     BOOL right=[word[0] isEqualToString:@"rclick"];
                     CGPoint point=CGPointMake(word[1].doubleValue,word[2].doubleValue);
                     [host nativeMouse:5 point:point wheel:0];[host nativeMouse:right?3:1 point:point wheel:0];
