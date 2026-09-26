@@ -1,30 +1,72 @@
+<p align="center"><img src="docs/images/agepad-icon-256.png" width="128" alt="AgePad icon"></p>
+
 # AgePad
 
-Age of Empires II: Definitive Edition on iPad, using your own Steam copy of the original ARM64 Mac game and an iPad compatibility layer. This is a development project, not yet a downloadable IPA.
+**Your own Steam copy of Age of Empires II: Definitive Edition, running natively on an iPad.** Not a stream, not a remake: the real Mac game, with touch, Apple Pencil, mouse and keyboard controls, and Steam signed in on the iPad itself. Once it's set up, tap the icon and play, with no computer involved, online or offline.
 
-**Start here: [Playing AgePad on your iPad](docs/IPAD-SETUP.md)** — what you need, how Steam is used, setup steps and controls. On the Mac, `scripts/agepad-ipad.sh check` tells you what is ready and what is missing.
+![A skirmish on an iPad Pro](docs/images/ipad-skirmish-20260926.jpg)
 
-**26 September 2026, physical iPad Pro 12.9-inch (M2, 8 GB):** the game now runs with no Mac at play time. AgePad carries Valve's own Steam client engine and signs in to Steam on the iPad itself. Tapping the icon reaches the main menu in about 30–60 seconds. With Internet blocked, Steam's offline mode starts the game to the menu. Earlier (25 September) the game played a skirmish with touch and Apple Pencil, with audio, using Apple's increased memory limit (a loaded skirmish needs about 5.1 GB). Not yet verified: a real airplane-mode flight, offline skirmish save/resume, a real online match, and a one-hour session. Details: [Steam engine loop](docs/STEAM-ENGINE-LOOP.md), [device route log](docs/DEVICE-ROUTE-20260924.md). The older Simulator notes below are kept for history.
+> **Status (26 September 2026):** working on an iPad Pro 12.9-inch (M2, 8 GB). Menu in about 30 seconds, skirmishes at about 120 fps, save and resume, offline play through Steam's offline mode. There is no download: you build it on your Mac from your own copy of the game (below). This is an unofficial fan project, not affiliated with Microsoft, Valve, Feral Interactive or Apple.
 
-## How Steam works on the iPad
+## What you need
 
-You play your own Steam copy; AgePad doesn't sell, unlock or fake anything. Steam itself decides whether your account owns the game.
+- **The game on Steam.** Age of Empires II: Definitive Edition, installed through Steam on a Mac (the Mac version comes with the Steam purchase).
+- **A Mac with Apple silicon** and Xcode (free from the App Store).
+- **An iPad with 8 GB of memory or more** (for example an iPad Pro with M1/M2/M4, or an iPad Air with M2 or later) and about 25 GB free.
+- **A USB-C cable** for setup.
+- **An Apple Developer account** to install apps on your own iPad. A paid account (99 USD a year) is recommended; a free account's apps stop opening after 7 days.
+- **The Steam app on your phone**, to sign in by scanning a code (or use your Steam password).
 
-1. **Sign in once.** The first time you open AgePad it shows a QR code. On your phone, open the Steam app, tap the Steam Guard shield and scan it. No phone app? Use *Sign in with your password instead*; Steam may ask for a Steam Guard code or an approval in the Steam app. AgePad keeps the sign-in in this iPad's Keychain and never stores your password. Your Steam account lists the iPad as "AgePad (iPad)".
-2. **Then just tap the icon.** AgePad signs in to Steam in the background and starts the game. No Mac, Steam window or second scan is needed. The saved sign-in lasts about a year, or until you sign out or revoke it in Steam.
-3. **Online:** everything works, including multiplayer (a real online match is still to be tested).
-4. **Offline** (for example on a flight): with no Internet, AgePad starts Steam's own offline mode, as on a PC. Single player, skirmish and campaigns work; multiplayer is greyed out. It needs at least one earlier online sign-in on this iPad. Before you go offline, open AgePad once with Internet so Steam's copy of your library is up to date.
+## Set up in four steps
 
-Things to know:
+1. **Prepare signing once in Xcode** (the app needs Apple's larger-memory permission). Step 1 of the [setup guide](docs/IPAD-SETUP.md) walks through it.
+2. **Connect the iPad with the USB-C cable** and, in this folder on the Mac, run:
+   ```
+   scripts/agepad-ipad.sh setup
+   ```
+   It checks everything (✓ or ✗ with a fix for each ✗), builds AgePad from your game, installs it, and copies the game files (about 20 GB the first time).
+3. **Open AgePad on the iPad and sign in to Steam once:** scan the code with the Steam app on your phone.
+4. **Play.** From now on, just tap the icon.
 
-- The Steam app for iPhone/iPad is only needed to scan the code. It can't run PC or Mac games, and neither can Steam Link without a computer switched on.
-- The game files (about 20 GB) come from the Mac edition in your Mac's Steam library and are copied to the iPad over a USB-C cable. See [the setup guide](docs/IPAD-SETUP.md).
-- When Steam updates itself on your Mac, rerun `scripts/agepad-ipad.sh setup` with the iPad connected; AgePad takes Valve's Steam software from your Mac each build. If Valve's servers ever stop accepting the copy inside AgePad, the iPad says so and keeps working offline.
-- When Steam updates the game on your Mac, the iPad keeps the version it has. Offline play is unaffected, but online matches need the current version. AgePad itself has to be updated for each new game version first; then `sync` copies only the changed files. `check` tells you when this applies.
-- To sign out or switch accounts: iPad Settings → AgePad DE Probe → *Sign out of Steam*.
-- Playing through your Mac's Steam (USB or Wi-Fi/Tailscale) is still available as a fallback: *Play with my Mac's Steam instead*.
+The [setup guide](docs/IPAD-SETUP.md) has the details, the full controls, and what to do when Steam or the game updates.
 
-## What works today
+## Playing
+
+- **Touch:** tap to select, two-finger tap to give orders (right click), three-finger drag to move the map, pinch to zoom. Side buttons: R-CLICK, IDLE villager, TOWN center, ZOOM, MENU.
+- **Apple Pencil:** tap a unit, then each tap on the map is an order; hold ½ second (or double-tap the Pencil) to stop.
+- **Mouse, trackpad and keyboard:** click, right click, drag-select and all the game's hotkeys work as on a computer.
+- **Online:** multiplayer and everything else work as usual.
+- **Offline (on a flight):** AgePad uses Steam's own offline mode, so single player, skirmishes and campaigns work. Open AgePad once with Internet before you go.
+- **HUD size:** starts at 125% on a new install; change it in the game's Options → Interface.
+- **Signing out:** iPad Settings → AgePad → *Sign out of Steam*.
+
+## How Steam works here
+
+AgePad runs Valve's own Steam software (taken from your Mac's Steam) inside the app, so the iPad signs in to Steam like any computer. Steam decides whether your account owns the game; AgePad doesn't sell, unlock, share or fake anything, and never sees or stores your password. The iPad appears in your Steam account as "AgePad (iPad)". The Steam app for iPhone/iPad can't run games, and Steam Link needs a computer switched on, so neither replaces this.
+
+## Why there's no download
+
+A ready-made IPA would have to contain Microsoft's game program and Valve's Steam software, which aren't ours to distribute, and iPadOS only runs code that is signed into the app itself. So an App Store, TestFlight or public IPA release isn't possible. Instead, this repository contains only AgePad's own code, and the setup command assembles and signs the app on your Mac from **your** copy. `scripts/agepad-ipad.sh ipa` saves that personal build as an .ipa for reinstalling on your registered iPads; it's for you only, so don't share it.
+
+## Keeping it up to date
+
+- **Steam updated on your Mac:** run `scripts/agepad-ipad.sh setup` again with the iPad connected.
+- **The game updated:** the iPad tells you. It keeps playing the version it has (single player and offline are fine); online matches need AgePad to support the new version first. Then `setup` copies only the files that changed.
+
+## Known limits
+
+- Needs 8 GB of memory: iPhones and smaller iPads are not supported.
+- Loading a skirmish takes about a minute.
+- Xbox Network sign-in (used by some online features) doesn't open yet.
+- Tested on one iPad so far. Reports from other iPads are welcome.
+
+---
+
+## For developers
+
+The rest of this file is the engineering history (Simulator runs, repairs and measurements). Current device work is logged in [Steam engine loop](docs/STEAM-ENGINE-LOOP.md) and the [device route log](docs/DEVICE-ROUTE-20260924.md); building from scratch is in [DE-BOOTSTRAP](docs/DE-BOOTSTRAP-20260919.md).
+
+### What works today (Simulator history)
 
 September 19: simulation speed is now 1.62x on Normal (DE's target is 1.7x); the
 run-loop pump in our GPU-wait shim was costing the simulation up to 15% of
@@ -57,7 +99,7 @@ runs. No physical-device acceptance is claimed.
 
 The September 14 Simulator repair restores missing villagers and animals by preserving source resource filename casing and resolving case-insensitive reads within the imported game-data tree. The latest candidate has demonstrated selection, a completed house, ground movement, sheep gathering, villager production and a named save/reload. Repeated movement and scout exploration also passed after a fresh launch. A 30-second run averaged 26.3 observed compositions per second, with stalls that still require investigation. Physical iPad gameplay remains unverified.
 
-## What happens if I download an IPA?
+### Installing (developer summary)
 
 There is no downloadable IPA yet. Today the app is built on a Mac from this repository and your own Steam install, then signed with your Apple developer account and installed over USB. A free Apple account's signature expires after 7 days; a paid developer account lasts a year. The Steam client engine and the game are copied from your Mac, never bundled.
 
@@ -72,7 +114,7 @@ On a new Mac, the first build also needs a one-time build package made from your
 
 Game files, Steam credentials and another person's saves must not be bundled in a public IPA or repository.
 
-## Touch controls being implemented
+### Touch controls (history)
 
 - One-finger tap: select / left click.
 - Two-finger tap: order / right click.
@@ -85,7 +127,7 @@ These are the requested controls, not a claim that all gestures have passed devi
 
 See the [September 14 repair findings](docs/DE-REPAIR-20260914.md) for root causes, tested fixes and remaining acceptance failures.
 
-## Engineering reproduction
+### Engineering reproduction
 
 ### From a clean machine
 

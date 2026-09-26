@@ -57,7 +57,7 @@ Open AgePad on the iPad. The first time, it shows **Sign in to Steam** with a QR
 
 - **Online:** everything works, including multiplayer (a real online match is still being tested).
 - **Offline, e.g. on a flight:** AgePad uses Steam's own offline mode. Single player, skirmish and campaigns work; multiplayer is greyed out. Open AgePad once with Internet before you go offline.
-- **Signing out or switching accounts:** iPad Settings → AgePad DE Probe → *Sign out of Steam*; it applies the next time you open AgePad. To also remove the iPad from your Steam account, revoke "AgePad (iPad)" in Steam's security settings.
+- **Signing out or switching accounts:** iPad Settings → AgePad → *Sign out of Steam*; it applies the next time you open AgePad. To also remove the iPad from your Steam account, revoke "AgePad (iPad)" in Steam's security settings.
 
 ## Keeping it up to date
 
