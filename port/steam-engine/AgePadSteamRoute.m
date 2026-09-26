@@ -131,10 +131,19 @@ static NSString *LoadToken(NSString *account) {
         // No network (airplane mode): Steam's own offline mode straight away.
         BOOL offline=!anonymous && !NetworkAvailable();
         if (offline) say(@"No connection. Starting Steam in offline mode…");
-        int result=offline?AgePadEngineLogOnOffline():AgePadEngineLogOn(strtoull(account.UTF8String,NULL,10));
-        for (int tenth=0;tenth<600 && !AgePadEngineLoggedOn();tenth++) {
-            if (tenth%20==0) fprintf(stderr,"AGEPAD_ENGINE_STATE t=%d result=%d connected=%d logged_on=0 logon_state=%d offline=%d\n",
-                tenth/10,result,AgePadEngineConnected(),AgePadEngineLogonState(),offline);
+        // Steam's offline mode applies to a logon in progress (it names the
+        // account), so the normal logon always starts first.
+        int result=AgePadEngineLogOn(strtoull(account.UTF8String,NULL,10));
+        if (offline) { usleep(500000);result=AgePadEngineLogOnOffline(); }
+        // In Steam's offline mode the account is never "logged on" (the real
+        // client behaves the same); it is ready once Steam knows the account
+        // and its cached licenses answer for the game.
+        BOOL (^ready)(void)=^BOOL{
+            return AgePadEngineLoggedOn() || (offline && AgePadEngineSteamID()!=0 && AgePadEngineOwnsApp(813780));
+        };
+        for (int tenth=0;tenth<600 && !ready();tenth++) {
+            if (tenth%20==0) fprintf(stderr,"AGEPAD_ENGINE_STATE t=%d result=%d connected=%d logged_on=0 logon_state=%d offline=%d steam_id=%d owned=%d\n",
+                tenth/10,result,AgePadEngineConnected(),AgePadEngineLogonState(),offline,AgePadEngineSteamID()!=0,AgePadEngineOwnsApp(813780));
             // The iPad has a network but Steam's servers cannot be reached for
             // 45 s: Steam's own offline mode (needs one earlier online sign-in).
             // Slow connections (15 s has been seen) stay online.
@@ -145,8 +154,8 @@ static NSString *LoadToken(NSString *account) {
             usleep(100000);
         }
         BOOL loggedOn=AgePadEngineLoggedOn();
-        fprintf(stderr,"AGEPAD_ENGINE_LOGON logged_on=%d offline=%d logon_state=%d\n",loggedOn,offline,AgePadEngineLogonState());
-        if (!loggedOn) {
+        fprintf(stderr,"AGEPAD_ENGINE_LOGON logged_on=%d offline=%d logon_state=%d ready=%d\n",loggedOn,offline,AgePadEngineLogonState(),ready());
+        if (!ready()) {
             finish(offline?@"Steam couldn't start offline. Connect to the Internet once, then try again.":
                            @"Steam didn't finish signing in. Check the connection and try again.");return;
         }
