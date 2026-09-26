@@ -17,7 +17,7 @@ AgePad runs your own copy of **Age of Empires II: Definitive Edition** (the Stea
 
 Status (26 September): on the tested iPad the QR sign-in works, the sign-in is remembered, Steam confirms ownership, and tapping the icon reaches the main menu with no Mac (about a minute; intro videos are skipped by default, which is still being timed). With the network blocked, Steam's offline mode starts the game to its main menu (multiplayer greyed out, as on a PC); a real airplane-mode launch, save/resume and online play are being verified. The Mac routes remain available: **Play with my Mac's Steam instead** on the sign-in screen (after pairing, Step 5), or `play` over USB.
 
-![Main menu through Steam on the iPad](images/device-engine-menu-20260926.png)
+![Main menu through Steam on the iPad](images/device-engine-menu-20260926.jpg)
 
 ## What you need
 

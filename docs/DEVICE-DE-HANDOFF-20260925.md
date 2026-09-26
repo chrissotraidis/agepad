@@ -4,7 +4,7 @@
 
 ## Current state and verified evidence
 
-- Checkout: `/Users/chrissotraidis/GitHub/agepad`, `main` at `bacfd5a` before this handoff. The stable signed setup probe is `generated/de-device-candidate-20260925d/AgePadDeviceProbe.app` (ignored/private). Normal launch shows a diagnostic setup screen, not Play.
+- Checkout: `the AgePad checkout`, `main` at `bacfd5a` before this handoff. The stable signed setup probe is `generated/de-device-candidate-20260925d/AgePadDeviceProbe.app` (ignored/private). Normal launch shows a diagnostic setup screen, not Play.
 - Physical device: paired iPad Pro 12.9-inch (6th generation). Rediscover its UDID with `xcrun devicectl list devices`; do not hard-code it into tracked files. The stable probe was reinstalled **in place** and launched normally after the last crash experiment.
 - The user's Mac Steam DE `AgeOfEmpires2Data` tree is already in this app's iPad `Documents`. A fresh post-restore inventory found **24,886 files, 1,223 directories, 20,372,303,243 bytes, zero path/type/size differences** from the Mac source. Four representative files had matching SHA-256 readbacks earlier. Do not clear the app container, uninstall the app, or retransfer the 19 GB tree without a specific need and backup.
 - The original vendor `SteamAPI_Init()` succeeds on iPad through a temporary paired-Mac CoreDevice TCP/path relay. It sees a real Steam pipe, user and logged-on status; no Steam response or ownership result is fabricated. This is an **engineering Mac dependency**, not standalone iPad Steam integration.
