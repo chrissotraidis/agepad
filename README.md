@@ -18,8 +18,10 @@ You play your own Steam copy; AgePad doesn't sell, unlock or fake anything. Stea
 Things to know:
 
 - The Steam app for iPhone/iPad is only needed to scan the code. It can't run PC or Mac games, and neither can Steam Link without a computer switched on.
-- The game files (about 20 GB) come from the Mac edition in your Mac's Steam library and are copied to the iPad once. See [the setup guide](docs/IPAD-SETUP.md).
-- When Steam updates the game on your Mac, the iPad keeps the version it has. Offline play is unaffected, but online matches need the same version as other players, so copy the update to the iPad before playing online.
+- The game files (about 20 GB) come from the Mac edition in your Mac's Steam library and are copied to the iPad over a USB-C cable. See [the setup guide](docs/IPAD-SETUP.md).
+- When Steam updates itself on your Mac, rerun `scripts/agepad-ipad.sh setup` with the iPad connected; AgePad takes Valve's Steam software from your Mac each build. If Valve's servers ever stop accepting the copy inside AgePad, the iPad says so and keeps working offline.
+- When Steam updates the game on your Mac, the iPad keeps the version it has. Offline play is unaffected, but online matches need the current version. AgePad itself has to be updated for each new game version first; then `sync` copies only the changed files. `check` tells you when this applies.
+- To sign out or switch accounts: iPad Settings → AgePad DE Probe → *Sign out of Steam*.
 - Playing through your Mac's Steam (USB or Wi-Fi/Tailscale) is still available as a fallback: *Play with my Mac's Steam instead*.
 
 ## What works today
@@ -62,9 +64,11 @@ There is no downloadable IPA yet. Today the app is built on a Mac from this repo
 The setup, all described in [the setup guide](docs/IPAD-SETUP.md):
 
 1. On your Mac, install your owned **Mac edition** of AoE II DE through desktop Steam. Windows and Mac executables are not interchangeable.
-2. `scripts/agepad-ipad.sh check` verifies the version and files; `scripts/agepad-ipad.sh build` builds, signs and installs AgePad in place.
-3. Copy the game files to the iPad once (about 20 GB). This currently uses engineering transfer tools; a one-command copy is still to be built.
+2. Set up signing once in Xcode (the app needs Apple's larger memory limit).
+3. Connect the iPad with a USB-C cable and run `scripts/agepad-ipad.sh setup`. It checks everything, builds and installs AgePad in place, and copies your game files (about 20 GB the first time; later `scripts/agepad-ipad.sh sync` copies only what a game update changed).
 4. Open AgePad on the iPad and sign in to Steam once (above). From then on, tap the icon to play, online or offline.
+
+On a new Mac, the first build also needs a one-time build package made from your game with the iPad Simulator (`check` explains; not yet re-verified from scratch for the current build).
 
 Game files, Steam credentials and another person's saves must not be bundled in a public IPA or repository.
 

@@ -2,7 +2,7 @@
 
 AgePad runs your own copy of **Age of Empires II: Definitive Edition** (the Steam Mac version) natively on an iPad. It is the original game, not a stream or a remake. This guide covers what you need and what happens at each step.
 
-**Current status (25 September 2026):** engineering preview. On an iPad Pro 12.9-inch (M2, 8 GB), the game reaches the menu, plays audio, loads a skirmish, and accepts touch and Apple Pencil. Long matches, save/resume and in-match frame rate are still being tested. There is no App Store or public download.
+**Current status (26 September 2026):** engineering preview. On an iPad Pro 12.9-inch (M2, 8 GB) the game signs in to Steam on the iPad itself, reaches the menu with no Mac, starts in Steam's offline mode without Internet, plays audio, loads a skirmish, and accepts touch and Apple Pencil. A real flight, save/resume, online matches and long sessions are still being tested. There is no App Store or public download: you build it yourself from your own Steam copy (below).
 
 ## How it works
 
@@ -21,57 +21,59 @@ Status (26 September): on the tested iPad the QR sign-in works, the sign-in is r
 
 ## What you need
 
-- A Mac with Apple silicon, Xcode, and Steam with **Age of Empires II: DE** installed (you must own it).
-- An iPad with **8 GB of memory or more** (tested: iPad Pro 12.9-inch, M2) and about **25 GB free**.
-- An Apple Developer account (free or paid) signed in to Xcode, to sign the app for your own iPad.
-- A USB cable for the first setup. Later sessions can use the same network once the iPad is paired.
+- A Mac with Apple silicon and Xcode, and Steam for Mac with **Age of Empires II: DE** installed (you must own it; it is the Mac edition of the same Steam purchase).
+- Homebrew's USB file library: `brew install libimobiledevice`.
+- An iPad with **8 GB of memory or more** (tested: iPad Pro 12.9-inch, M2) and about **25 GB free**, with Developer Mode on (Settings → Privacy & Security → Developer Mode; iPadOS asks for it the first time an app from your Mac is installed).
+- A USB-C cable between the iPad and the Mac, for setup and for later game updates. Playing needs no cable and no Mac.
+- An Apple Developer account signed in to Xcode, to sign AgePad for your own iPad. A paid account is recommended: with a free account the app stops opening after 7 days until you run setup again, and whether a free account can grant the larger memory limit (below) has not been tested.
+- A phone with the Steam app, for the one-time sign-in (or your Steam password).
 
-## Step 1 — Check what is ready
+Nothing is downloaded: AgePad is built on your Mac from this repository plus your own Steam install, and your game files go from your Mac to your iPad over the cable. No game files, Steam software or sign-in are ever published with AgePad.
 
-```
-scripts/agepad-ipad.sh check
-```
+## Step 1 — Signing with the larger memory limit (once)
 
-This lists each requirement with ✓ or ✗ and tells you how to fix the ✗ items. Run it again after each fix.
+A loaded skirmish uses about 5.1 GB, right at iPadOS's default per-app limit, so AgePad requests Apple's **increased memory limit** capability (on the tested iPad the limit rises from 5.1 GB to 8 GB). Xcode creates the matching provisioning profile once:
 
-## Step 2 — Signing profile with the larger memory limit (once)
+1. Open Xcode → Settings → Accounts, and make sure your team is listed. Connect the iPad once so Xcode registers it.
+2. Let Xcode register the app ID `local.agepad.device-de-probe` with the *Increased Memory Limit* capability: build any small iOS app target with that bundle ID, automatic signing, and an entitlements file containing `com.apple.developer.kernel.increased-memory-limit = YES`. (That bundle ID belongs to one developer team; on another team pick your own, for example `com.yourname.agepad`, and set `AGEPAD_BUNDLE_ID` to it when you run the commands below.)
 
-A loaded skirmish uses about 5.1 GB, right at iPadOS's default per-app limit, and iPadOS closes the app. AgePad therefore requests Apple's **increased memory limit** capability (on the tested iPad the limit rises from 5.1 GB to 8 GB). Xcode creates the matching profile once:
+AgePad finds the profile and signing certificate itself. `check` says what is missing if it can't.
 
-1. Open Xcode → Settings → Accounts, and make sure your team is listed.
-2. Let Xcode register the app ID `local.agepad.device-de-probe` with the *Increased Memory Limit* capability. The quickest way: build any small iOS app target with that bundle ID, automatic signing and an entitlements file containing `com.apple.developer.kernel.increased-memory-limit = YES` (this is what was done for the tested iPad). Xcode stores the profile under `~/Library/Developer/Xcode/UserData/Provisioning Profiles/`.
-3. Note the profile path and your signing identity (`security find-identity -v -p codesigning`).
+## Step 2 — Set up
 
-The build step refuses a profile that lacks the capability.
-
-## Step 3 — Build and install the app
+Connect the iPad with the USB-C cable, unlock it, then on the Mac, in this folder:
 
 ```
-AGEPAD_PROFILE="/path/to/profile.mobileprovision" \
-AGEPAD_IDENTITY=<signing identity hash> \
-scripts/agepad-ipad.sh build
+scripts/agepad-ipad.sh setup
 ```
 
-This builds the compatibility layer from this repository plus the original game program from your Mac Steam copy, signs it for your iPad and installs it **in place**: game files and saves already on the iPad are kept. The build needs the engineering candidate package (`AGEPAD_CANDIDATE`); see [DE-BOOTSTRAP-20260919.md](DE-BOOTSTRAP-20260919.md) to create one on a new Mac.
+It checks everything first (✓ or ✗ with how to fix each ✗), then builds AgePad, installs it on the iPad **in place** (saves and game files already there are kept), and copies your game files: about 20 GB and 25,000 files the first time. If the copy is interrupted, run it again and it continues. `scripts/agepad-ipad.sh check` shows the same checks without changing anything.
 
-## Step 4 — Copy your game files to the iPad (once, about 20 GB)
+The first time on a new Mac, the build needs a one-time **build package** made from your game (`check` says so): `python3 scripts/bootstrap-de-simulator.py generated/de-candidate-YYYYMMDD`, then point `AGEPAD_CANDIDATE` at it; see [DE-BOOTSTRAP-20260919.md](DE-BOOTSTRAP-20260919.md). It uses the iPad Simulator in Xcode. This step has not yet been rerun from scratch for the current iPad build.
 
-The game data (`AgeOfEmpires2Data`, ~24,900 files) is copied from your Mac Steam install into the AgePad app's own storage on the iPad (`Documents/AgeOfEmpires2Data`). It is private to your iPad and is never bundled with the app. Keep at least 25 GB free before starting; a copy that runs out of space fails partway.
+## Step 3 — Sign in to Steam and play
 
-On the tested iPad the copy was made with the engineering transfer tools and then checked file by file with `scripts/verify-de-device-import.c` (24,886 files, 20.37 GB, zero differences). A guided in-app import does not exist yet; `check` reports whether the files are present.
+Open AgePad on the iPad. The first time, it shows **Sign in to Steam** with a QR code: in the Steam app on your phone tap the Steam Guard shield and scan it (or use *Sign in with your password instead*). After that, tapping AgePad signs in by itself and opens the game in about half a minute to a minute.
 
-## Step 5 — Play
+- **Online:** everything works, including multiplayer (a real online match is still being tested).
+- **Offline, e.g. on a flight:** AgePad uses Steam's own offline mode. Single player, skirmish and campaigns work; multiplayer is greyed out. Open AgePad once with Internet before you go offline.
+- **Signing out or switching accounts:** iPad Settings → AgePad DE Probe → *Sign out of Steam*; it applies the next time you open AgePad. To also remove the iPad from your Steam account, revoke "AgePad (iPad)" in Steam's security settings.
 
-1. Open Steam on the Mac and stay signed in.
-2. Connect and unlock the iPad.
-3. Run:
+## Keeping it up to date
 
-```
-scripts/agepad-ipad.sh play          # up to 4 hours; e.g. "play 60" for one hour
-```
+- **When Steam updates itself on your Mac,** run `scripts/agepad-ipad.sh setup` (or `build`) with the iPad connected. AgePad takes Valve's Steam software from your Mac each time it is built. If Valve's servers ever stop accepting the copy inside AgePad, the iPad says so, tells you to do this, and keeps working offline in the meantime.
+- **When Steam updates Age of Empires II on your Mac,** the iPad keeps the version it has. That is fine for single player and offline play, but online matches need the current version. AgePad itself must first be updated for each new game version (its program is matched to one game version). `check` and `sync` tell you when that is the case and refuse to copy mismatched files. Once AgePad supports the new version, `sync` copies only the files the update changed.
+- `scripts/agepad-ipad.sh logs` copies the iPad's logs to `generated/ipad-logs/` for a bug report.
 
-The Xbox intro and the menu take about two minutes to appear. Keep the Mac window open; closing it (or quitting Steam) ends the game. After a session, `scripts/agepad-ipad.sh logs` copies the game's logs to `generated/ipad-logs/`. For a bug report, run with `AGEPAD_DIAGNOSTICS=1` to add memory and thread diagnostics.
+## Other ways to play
 
+The Mac routes remain as fallbacks: **Play with my Mac's Steam instead** on the sign-in screen (after `scripts/agepad-ipad.sh pair` and `install-helper`), or the engineering `scripts/agepad-ipad.sh play` over USB, which needs Steam open on the Mac for the whole session.
+
+In menus, taps are always plain clicks.
+
+**Tip:** the in-game HUD looks small on the iPad. In the game's **Options → Interface**, raise **HUD scale** and confirm; the setting is kept in your profile.
+
+**Steam:** the name at the top right of the main menu is your Steam account.
 ## Controls in a match
 
 | Gesture | Action |
