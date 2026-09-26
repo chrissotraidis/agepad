@@ -10,25 +10,25 @@
 
 ## What you need
 
-- **The game on Steam.** Age of Empires II: Definitive Edition, installed through Steam on a Mac (the Mac version comes with the Steam purchase).
-- **A Mac with Apple silicon** and Xcode (free from the App Store).
-- **An iPad with 8 GB of memory or more** (for example an iPad Pro with M1/M2/M4, or an iPad Air with M2 or later) and about 25 GB free.
-- **A USB-C cable** for setup.
-- **An Apple Developer account** to install apps on your own iPad. A paid account (99 USD a year) is recommended; a free account's apps stop opening after 7 days.
+- **The game on Steam:** Age of Empires II: Definitive Edition, installed through Steam on a Mac (the Mac version comes with the Steam purchase).
+- **A Mac** (Apple silicon) for the one-time setup.
+- **An iPad with 8 GB of memory or more** (for example an iPad Pro with M1/M2/M4, or an iPad Air with M2 or later) and about 25 GB free, plus a USB-C cable.
+- **A way to sign apps for your iPad.** Recommended: a paid Apple Developer account (99 USD a year), which gives the app the larger memory limit a full match needs and lasts a year. A free Apple ID (with AltStore or Sideloadly) also works but only for short matches, and needs re-signing every 7 days: see [memory](docs/IPA-ROUTE.md#memory-the-one-real-limit).
 - **The Steam app on your phone**, to sign in by scanning a code (or use your Steam password).
 
-## Set up in four steps
+## Install
 
-1. **Prepare signing once in Xcode** (the app needs Apple's larger-memory permission). Step 1 of the [setup guide](docs/IPAD-SETUP.md) walks through it.
-2. **Connect the iPad with the USB-C cable** and, in this folder on the Mac, run:
-   ```
-   scripts/agepad-ipad.sh setup
-   ```
-   It checks everything (✓ or ✗ with a fix for each ✗), builds AgePad from your game, installs it, and copies the game files (about 20 GB the first time).
-3. **Open AgePad on the iPad and sign in to Steam once:** scan the code with the Steam app on your phone.
-4. **Play.** From now on, just tap the icon.
+**Option A: from the release (no Xcode).**
 
-The [setup guide](docs/IPAD-SETUP.md) has the details, the full controls, and what to do when Steam or the game updates.
+1. Download `AgePad-base.ipa` from the [releases](../../releases) and this repository.
+2. On your Mac, in this folder: `scripts/agepad-ipad.sh inject `/Downloads/AgePad-base.ipa`. In a few seconds it adds your own game and Steam files and writes `generated/AgePad-mine.ipa`. It's yours only, so don't share it.
+3. Install `AgePad-mine.ipa` with your signing tool (Sideloadly, AltStore, or Xcode with a paid account).
+4. Connect the iPad, open it in **Finder → Files**, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto **AgePad**. About 20 GB.
+5. Open AgePad and sign in to Steam once by scanning the code with the Steam app on your phone. Then just tap the icon to play.
+
+**Option B: build it yourself (Xcode, paid account).** Prepare signing once (step 1 of the [setup guide](docs/IPAD-SETUP.md)), connect the iPad and run `scripts/agepad-ipad.sh setup`. It checks everything, builds, installs and copies the game files; then sign in on the iPad.
+
+The [setup guide](docs/IPAD-SETUP.md) has the details, full controls and updates; [the IPA route](docs/IPA-ROUTE.md) explains how the release works.
 
 ## Playing
 
@@ -44,11 +44,9 @@ The [setup guide](docs/IPAD-SETUP.md) has the details, the full controls, and wh
 
 AgePad runs Valve's own Steam software (taken from your Mac's Steam) inside the app, so the iPad signs in to Steam like any computer. Steam decides whether your account owns the game; AgePad doesn't sell, unlock, share or fake anything, and never sees or stores your password. The iPad appears in your Steam account as "AgePad (iPad)". The Steam app for iPhone/iPad can't run games, and Steam Link needs a computer switched on, so neither replaces this.
 
-## Why there's no download
+## Why the release is only 1 MB
 
-A ready-made IPA would have to contain Microsoft's game program and Valve's Steam software, which aren't ours to distribute, and iPadOS only runs code that is signed into the app itself. So an App Store, TestFlight or full public IPA isn't possible.
-
-What works instead is a **1 MB base app with only AgePad's own code**, plus a Mac command that adds your own game and Steam files to it in a few seconds (`scripts/agepad-ipad.sh inject AgePad-base.ipa`). You then install the result with any sideloading tool (Xcode, Sideloadly, AltStore). Details, tests and limits are in [the IPA route](docs/IPA-ROUTE.md). Whether a free Apple ID can get the larger memory limit the game needs hasn't been tested yet.
+A complete app would contain Microsoft's game program and Valve's Steam software, which aren't ours to distribute, and iPadOS only runs code that is signed into the app itself. So there's no App Store, TestFlight or full IPA. The release holds only AgePad's own code plus a list of which of your files go where (names, hashes and small header changes, no game or Steam content); `inject` assembles your app from your own copy. The release is checked to contain no game or Steam files.
 
 ## Keeping it up to date
 
@@ -57,7 +55,7 @@ What works instead is a **1 MB base app with only AgePad's own code**, plus a Ma
 
 ## Known limits
 
-- Needs 8 GB of memory: iPhones and smaller iPads are not supported.
+- Needs an iPad with 8 GB of memory; iPhones and smaller iPads are not supported. With a free Apple ID, keep matches short (see memory above).
 - Loading a skirmish takes about a minute.
 - Xbox Network sign-in (used by some online features) doesn't open yet.
 - Tested on one iPad so far. Reports from other iPads are welcome.
