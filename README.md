@@ -1,10 +1,26 @@
 # AgePad
 
-Age of Empires II: Definitive Edition on iPad, using the original ARM64 Mac game and an iPad compatibility layer. This is a development project, not yet a downloadable, standalone playable IPA.
+Age of Empires II: Definitive Edition on iPad, using your own Steam copy of the original ARM64 Mac game and an iPad compatibility layer. This is a development project, not yet a downloadable IPA.
 
 **Start here: [Playing AgePad on your iPad](docs/IPAD-SETUP.md)** — what you need, how Steam is used, setup steps and controls. On the Mac, `scripts/agepad-ipad.sh check` tells you what is ready and what is missing.
 
-**25 September 2026, physical iPad Pro 12.9-inch (M2, 8 GB):** the original Steam Mac game boots to the menu, plays audio, loads and plays a skirmish, and accepts touch and Apple Pencil. The Mac's Steam app stays the owner check: the game on the iPad reaches it over the USB/Wi-Fi link while `scripts/agepad-ipad.sh play` runs. Two iPadOS leaks were fixed (calendar objects and Apple's Bluetooth audio plug-in), and the app now requests Apple's increased memory limit (8 GB instead of 5.1 GB) because a loaded skirmish needs about 5.1 GB. Save/resume, long matches and in-match frame rate are still being verified. Details: [device route log](docs/DEVICE-ROUTE-20260924.md). The older Simulator notes below are kept for history.
+**26 September 2026, physical iPad Pro 12.9-inch (M2, 8 GB):** the game now runs with no Mac at play time. AgePad carries Valve's own Steam client engine and signs in to Steam on the iPad itself. Tapping the icon reaches the main menu in about 30–60 seconds. With Internet blocked, Steam's offline mode starts the game to the menu. Earlier (25 September) the game played a skirmish with touch and Apple Pencil, with audio, using Apple's increased memory limit (a loaded skirmish needs about 5.1 GB). Not yet verified: a real airplane-mode flight, offline skirmish save/resume, a real online match, and a one-hour session. Details: [Steam engine loop](docs/STEAM-ENGINE-LOOP.md), [device route log](docs/DEVICE-ROUTE-20260924.md). The older Simulator notes below are kept for history.
+
+## How Steam works on the iPad
+
+You play your own Steam copy; AgePad doesn't sell, unlock or fake anything. Steam itself decides whether your account owns the game.
+
+1. **Sign in once.** The first time you open AgePad it shows a QR code. On your phone, open the Steam app, tap the Steam Guard shield and scan it. No phone app? Use *Sign in with your password instead*; Steam may ask for a Steam Guard code or an approval in the Steam app. AgePad keeps the sign-in in this iPad's Keychain and never stores your password. Your Steam account lists the iPad as "AgePad (iPad)".
+2. **Then just tap the icon.** AgePad signs in to Steam in the background and starts the game. No Mac, Steam window or second scan is needed. The saved sign-in lasts about a year, or until you sign out or revoke it in Steam.
+3. **Online:** everything works, including multiplayer (a real online match is still to be tested).
+4. **Offline** (for example on a flight): with no Internet, AgePad starts Steam's own offline mode, as on a PC. Single player, skirmish and campaigns work; multiplayer is greyed out. It needs at least one earlier online sign-in on this iPad. Before you go offline, open AgePad once with Internet so Steam's copy of your library is up to date.
+
+Things to know:
+
+- The Steam app for iPhone/iPad is only needed to scan the code. It can't run PC or Mac games, and neither can Steam Link without a computer switched on.
+- The game files (about 20 GB) come from the Mac edition in your Mac's Steam library and are copied to the iPad once. See [the setup guide](docs/IPAD-SETUP.md).
+- When Steam updates the game on your Mac, the iPad keeps the version it has. Offline play is unaffected, but online matches need the same version as other players, so copy the update to the iPad before playing online.
+- Playing through your Mac's Steam (USB or Wi-Fi/Tailscale) is still available as a fallback: *Play with my Mac's Steam instead*.
 
 ## What works today
 
@@ -41,18 +57,16 @@ The September 14 Simulator repair restores missing villagers and animals by pres
 
 ## What happens if I download an IPA?
 
-There is currently no verified end-user IPA installation flow. A Simulator build cannot be installed on a physical iPad. Do not install the iPhone Steam app expecting it to supply the desktop game runtime: that is not the service used by this build.
+There is no downloadable IPA yet. Today the app is built on a Mac from this repository and your own Steam install, then signed with your Apple developer account and installed over USB. A free Apple account's signature expires after 7 days; a paid developer account lasts a year. The Steam client engine and the game are copied from your Mac, never bundled.
 
-The intended setup is:
+The setup, all described in [the setup guide](docs/IPAD-SETUP.md):
 
-1. On your Mac, install your owned **Mac edition** of AoE II DE through desktop Steam. Windows and Mac executables are not interchangeable for this route.
-2. Run an AgePad preparation/import tool against that installation. It must verify the version and required files, preserve the source, and prepare your private game copy. An end-user importer is still to be built; current staging scripts are engineering tools.
-3. Install a device-built, signed AgePad IPA on your iPad. A hardware scout and an original-engine startup probe now install, but no playable device IPA has passed launch.
-4. Transfer the prepared game data to AgePad's persistent storage. This Mac's full private transfer passed an inventory check, but it used engineering tools. The app should show import progress, available space, edition/version and any missing files. This app flow is not implemented yet.
-5. Resolve Steam services before enabling Play. Current Simulator launches depend on a Mac-assisted discovery relay and a live helper. Copying files, or merely having Steam on the Mac, does not establish a self-contained iPad Steam session. This dependency must be solved or explicitly included in the supported setup.
-6. Play locally on iPad. Touch controls, complete rendering, save/load, lifecycle and sustained speed must pass before this is a release feature.
+1. On your Mac, install your owned **Mac edition** of AoE II DE through desktop Steam. Windows and Mac executables are not interchangeable.
+2. `scripts/agepad-ipad.sh check` verifies the version and files; `scripts/agepad-ipad.sh build` builds, signs and installs AgePad in place.
+3. Copy the game files to the iPad once (about 20 GB). This currently uses engineering transfer tools; a one-command copy is still to be built.
+4. Open AgePad on the iPad and sign in to Steam once (above). From then on, tap the icon to play, online or offline.
 
-Game files, Steam credentials and another person's saves must not be bundled in a public IPA or repository. Multiplayer is not verified.
+Game files, Steam credentials and another person's saves must not be bundled in a public IPA or repository.
 
 ## Touch controls being implemented
 
@@ -61,7 +75,7 @@ Game files, Steam credentials and another person's saves must not be bundled in 
 - Three-finger drag: move the map (sent as a middle-button drag).
 - Pinch: zoom.
 - Apple Pencil: tap a unit to select, then each tap on the map is an order until a ½-second hold.
-- Side shortcuts: Order, idle villager, town center, zoom and menu.
+- Side shortcuts: R-click (right-click the next tap), idle villager, town center, zoom and menu.
 
 These are the requested controls, not a claim that all gestures have passed device testing. Current validation details are in [execution status](docs/STATUS.md) and the [reorientation journal](docs/MADEIRA-REORIENTATION.md).
 
@@ -180,12 +194,11 @@ and reports `DE_HOST_PATH_RELAY_READY` exactly as the shipped one does.
 
 ### Test on a physical iPad
 
-An in-place signed diagnostic build is installed on Chris's physical iPad. Its
-full private game-data tree passed the path/type/size inventory check. The real
-DE executable still crashes before the menu, so this is not a playable IPA or
-an end-user installation flow. Steam currently needs the paired Mac test relay;
-real multi-touch gameplay acceptance remains open. A Simulator build cannot be
-installed on the physical iPad, and there is no verified IPA to download.
+`scripts/agepad-ipad.sh build` builds, signs and installs AgePad in place on a
+paired iPad (game files and saves are kept); `scripts/agepad-ipad.sh logs`
+fetches the on-device logs. On Chris's iPad the original game reaches its menu
+through the in-app Steam engine with no Mac, and has played skirmishes. A
+Simulator build cannot be installed on a physical iPad.
 
 Use [DE reproduction notes](docs/DE-REPRODUCE.md), [installation and service requirements](docs/DE-INSTALL-AND-ONLINE-PLAN.md), and [Mac lock diagnosis](docs/MAC-LOCK-DIAGNOSIS.md). Keep only the existing AgePad G5 iPad Simulator booted. Generated packages, logs and game data are private development artifacts.
 
