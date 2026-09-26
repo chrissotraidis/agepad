@@ -109,6 +109,6 @@ In menus, taps are always plain clicks.
 
 - The iPad-only Steam route is new and still being verified (menu, offline mode, online play). The Mac routes keep working as a fallback.
 - Loading a skirmish takes about a minute. The first launch after install is slower.
-- Save, relaunch and resume on the iPad, sustained in-match frame rate, and multiplayer are not yet verified. The menu holds 120 fps.
+- Save, relaunch and resume work on the iPad (also offline); a match holds about 120 fps at about 4.6–4.8 GB. Online matches have not been played end to end.
 - iPads with less than 8 GB of memory are not expected to fit a match; iPhones are out of scope for the same reason.
 - The player score list can overlap the top of the minimap at the default HUD scale; under investigation.
