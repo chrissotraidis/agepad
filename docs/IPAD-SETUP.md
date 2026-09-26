@@ -87,7 +87,8 @@ In menus, taps are always plain clicks.
 | Apple Pencil hold (½ s) | …plain left click, which stops giving orders |
 | Apple Pencil double-tap (on the Pencil's side, 2nd gen / Pro) | Deselect and stop giving orders |
 | Pencil tap on the top bar or bottom panel | Normal button press |
-| A Mac-style mouse or trackpad | Works as on the Mac (click, right click, scroll) |
+| A mouse or trackpad (Bluetooth or USB-C) | Click, right click (secondary button or two-finger click), drag-box select. The wheel or a two-finger trackpad scroll zooms, as on the Mac (added 26 Sep, not yet tried with a real mouse); move the map with the keyboard arrows or the minimap |
+| A hardware keyboard | All the game's own hotkeys (F10 menu, Enter chat, letter shortcuts) |
 
 Side buttons:
 

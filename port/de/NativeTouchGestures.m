@@ -20,6 +20,11 @@
         gesture.delegate=self;gesture.cancelsTouchesInView=YES;[self addGestureRecognizer:gesture];
     }
     self.orderTap=order;self.zoomPinch=pinch;
+    // A mouse wheel or two-finger trackpad scroll arrives as a scroll-only
+    // pan (no touches); send it as the Mac mouse wheel, which zooms in DE.
+    UIPanGestureRecognizer *wheel=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(nativeWheel:)];
+    wheel.allowedScrollTypesMask=UIScrollTypeMaskAll;wheel.allowedTouchTypes=@[];
+    wheel.delegate=self;[self addGestureRecognizer:wheel];
     [self startTestInput];
     // Apple Pencil (2nd gen / Pro) barrel double-tap: deselect and stop
     // Pencil orders. Sent as Escape plus a disarm of sticky orders.
@@ -90,6 +95,14 @@
     if(fabs(amount)<0.2)return;
     fprintf(stderr,"DE_GESTURE_ZOOM amount=%g\n",amount);
     [self nativeMouse:22 point:[gesture locationInView:self] wheel:amount];gesture.scale=1;
+}
+- (void)nativeWheel:(UIPanGestureRecognizer *)gesture {
+    if(gesture.state!=UIGestureRecognizerStateChanged)return;
+    CGFloat amount=[gesture translationInView:self].y/12.0;
+    if(fabs(amount)<0.5)return;
+    fprintf(stderr,"DE_WHEEL amount=%g\n",amount);
+    [self nativeMouse:22 point:[gesture locationInView:self] wheel:amount];
+    [gesture setTranslation:CGPointZero inView:self];
 }
 // Test-only input (AGEPAD_TEST_INPUT=1): lines written to
 // Documents/agepad-test-input.txt from the Mac are played through the same
