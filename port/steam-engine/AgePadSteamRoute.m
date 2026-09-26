@@ -48,6 +48,18 @@ static NSString *LoadToken(NSString *account) {
         char error[160]={0};
         bool started=AgePadEngineStart(client,error,sizeof error);
         fprintf(stderr,"AGEPAD_ENGINE_PREPARED started=%d error=%s\n",started,started?"none":error);fflush(stderr);
+        // Opt-in diagnostic: an anonymous Steam logon exercises the server
+        // connection and logon message without any account.
+        if (started && getenv("AGEPAD_ENGINE_ANON_TEST")) {
+            int result=AgePadEngineLogOn(0x01A0000000000000ULL);
+            for (int second=0;second<30;second+=2) {
+                fprintf(stderr,"AGEPAD_ENGINE_ANON t=%d result=%d connected=%d logged_on=%d logon_state=%d\n",second,result,
+                    AgePadEngineConnected(),AgePadEngineLoggedOn(),AgePadEngineLogonState());fflush(stderr);
+                if (AgePadEngineLoggedOn()) break;
+                sleep(2);
+            }
+            AgePadEngineLogOff();
+        }
     });
 }
 + (void)saveSignIn:(NSDictionary *)signIn {
@@ -71,12 +83,16 @@ static NSString *LoadToken(NSString *account) {
             fprintf(stderr,"AGEPAD_ENGINE_START_FAILED %s\n",error);
             finish([NSString stringWithFormat:@"Steam couldn't start inside AgePad (%s).",error]);return;
         }
-        NSString *token=LoadToken(steamID);
-        fprintf(stderr,"AGEPAD_ENGINE_STARTED saved_sign_in=%d\n",token!=nil);
-        if (!token) { finish(@"Your Steam sign-in is missing on this iPad. Sign in again.");return; }
-        AgePadEngineSetLoginToken(token.UTF8String,name.UTF8String);
+        NSString *account=steamID,*token=LoadToken(account);
+        // Opt-in diagnostic: attach the game to an anonymous engine session
+        // (tests the ipcserver/game plumbing; the game is not licensed there).
+        BOOL anonymous=getenv("AGEPAD_ENGINE_ANON_GAME")!=NULL;
+        fprintf(stderr,"AGEPAD_ENGINE_STARTED saved_sign_in=%d anonymous_test=%d\n",token!=nil,anonymous);
+        if (anonymous) { account=@"117093590311632896";token=nil; } // 0x01A0000000000000
+        if (!token && !anonymous) { finish(@"Your Steam sign-in is missing on this iPad. Sign in again.");return; }
+        if (token) AgePadEngineSetLoginToken(token.UTF8String,name.UTF8String);
         say([NSString stringWithFormat:@"Signing in to Steam as %@…",name]);
-        int result=AgePadEngineLogOn(strtoull(steamID.UTF8String,NULL,10));
+        int result=AgePadEngineLogOn(strtoull(account.UTF8String,NULL,10));
         BOOL offline=NO;
         for (int tenth=0;tenth<600 && !AgePadEngineLoggedOn();tenth++) {
             if (tenth%20==0) fprintf(stderr,"AGEPAD_ENGINE_STATE t=%d result=%d connected=%d logged_on=0 logon_state=%d offline=%d\n",

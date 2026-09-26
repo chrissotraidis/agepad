@@ -924,7 +924,8 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                 engineState.text = DEPairedMacState == 0 ? @"Steam isn't open on your Mac. Open it there and try again." :
                     @"Couldn't reach your Mac. Make sure it's awake and on the same Wi-Fi (or Tailscale).";
             })];
-            if ([AgePadSteamRoute hasAccount]) startEngine(); else { [AgePadSteamRoute prepareWithClient:clientLoaded]; showSignIn(); }
+            if ([AgePadSteamRoute hasAccount] || getenv("AGEPAD_ENGINE_ANON_GAME")) startEngine();
+            else { [AgePadSteamRoute prepareWithClient:clientLoaded]; showSignIn(); }
         } else
 #endif
         addLine(!paired ? @"Not paired with a Mac yet. Pair once over USB, then just tap AgePad to play." :
