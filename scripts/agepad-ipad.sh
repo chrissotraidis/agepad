@@ -130,6 +130,7 @@ build() {
   python3 scripts/prepare-de-device-probe.py --candidate-root $CANDIDATE --boundary $OUT/runtime --ipc-load-probe $IPC \
     --launch-env $OUT.launch.env \
     --original-steam-module "$STEAM_APP/Age Of Empires II.app/Contents/Frameworks/libsteam_api.dylib" \
+    --steam-app-manifest "$HOME/Library/Application Support/Steam/steamapps/appmanifest_813780.acf" \
     --output $OUT/AgePadDeviceProbe.app --profile "$PROFILE" --increased-memory-limit --identity $IDENTITY > $OUT.log 2>&1 \
     || { tail -5 $OUT.log; return 1; }
   codesign --verify --deep --strict $OUT/AgePadDeviceProbe.app || return 1

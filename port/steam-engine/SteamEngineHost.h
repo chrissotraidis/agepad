@@ -21,6 +21,9 @@ bool AgePadEngineLoggedOn(void);
 bool AgePadEngineConnected(void);
 int AgePadEngineLogonState(void);
 uint64_t AgePadEngineSteamID(void);
+// Steam's own ownership answer for the signed-in account (known once the
+// engine has loaded the account's licenses after logon).
+bool AgePadEngineOwnsApp(uint32_t appID);
 // Tells Valve's ipcserver that this process runs Steam (operation 13), as
 // steam_osx does, so a game's libsteam_api loads steamclient from clientPath
 // and connects to this engine. lookUp is the bootstrap_look_up to use.

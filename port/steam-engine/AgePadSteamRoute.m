@@ -9,6 +9,23 @@ static dispatch_queue_t EngineQueue(void) {
     dispatch_once(&once,^{ queue=dispatch_queue_create("agepad.steam-engine",DISPATCH_QUEUE_SERIAL); });
     return queue;
 }
+// Tells the in-app Steam engine that AoE II: DE is installed on this iPad (the
+// build the imported files match; record baked in at build time), as Steam on
+// the Mac knows. The install folder is a separate empty folder, never the game
+// files, and updates are left to "launch through Steam", which AgePad never does.
+static void InstallAppManifest(void) {
+    NSString *record=[NSBundle.mainBundle pathForResource:@"SteamAppManifest_813780" ofType:@"acf"];
+    if (!record) return;
+    NSString *library=[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES).firstObject
+        stringByAppendingPathComponent:@"Steam/steamapps"];
+    NSFileManager *files=NSFileManager.defaultManager;
+    [files createDirectoryAtPath:[library stringByAppendingPathComponent:@"common/AoE2DE"] withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *destination=[library stringByAppendingPathComponent:@"appmanifest_813780.acf"];
+    NSData *wanted=[NSData dataWithContentsOfFile:record];
+    BOOL present=[[NSData dataWithContentsOfFile:destination] isEqualToData:wanted];
+    if (!present) [wanted writeToFile:destination atomically:YES];
+    fprintf(stderr,"AGEPAD_STEAM_APP_RECORD written=%d\n",!present);
+}
 
 static NSString *AccountFile(void) {
     return [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject
@@ -45,6 +62,7 @@ static NSString *LoadToken(NSString *account) {
 }
 + (void)prepareWithClient:(void *)client {
     dispatch_async(EngineQueue(),^{
+        InstallAppManifest();
         char error[160]={0};
         bool started=AgePadEngineStart(client,error,sizeof error);
         fprintf(stderr,"AGEPAD_ENGINE_PREPARED started=%d error=%s\n",started,started?"none":error);fflush(stderr);
@@ -79,6 +97,7 @@ static NSString *LoadToken(NSString *account) {
         for (NSString *key in @[@"AGEPAD_STEAM_TUNNEL_HOST",@"AGEPAD_HOST_PATH_RELAY_TCP_HOST",@"AGEPAD_STEAM_TUNNEL_PORT",
                 @"AGEPAD_HOST_PATH_RELAY_TCP_PORT",@"AGEPAD_STEAM_LOOPBACK_PORT",@"AGEPAD_RELAY_TOKEN"]) unsetenv(key.UTF8String);
         char error[160]={0};
+        InstallAppManifest();
         if (!AgePadEngineStart(client,error,sizeof error)) {
             fprintf(stderr,"AGEPAD_ENGINE_START_FAILED %s\n",error);
             finish([NSString stringWithFormat:@"Steam couldn't start inside AgePad (%s).",error]);return;
@@ -109,6 +128,17 @@ static NSString *LoadToken(NSString *account) {
         if (!loggedOn) {
             finish(offline?@"Steam couldn't start offline. Connect to the Internet once, then try again.":
                            @"Steam didn't finish signing in. Check the connection and try again.");return;
+        }
+        // The game may attach only once Steam has loaded this account's
+        // licenses; wait for Steam's own ownership answer for AoE II: DE.
+        BOOL owns=NO;
+        for (int tenth=0;tenth<300 && !(owns=AgePadEngineOwnsApp(813780));tenth++) {
+            if (tenth==10) say(@"Checking your Steam library…");
+            usleep(100000);
+        }
+        fprintf(stderr,"AGEPAD_ENGINE_OWNERSHIP app=813780 owned=%d anonymous_test=%d\n",owns,anonymous);
+        if (!owns && !anonymous) {
+            finish(@"Steam says this account doesn't own Age of Empires II: Definitive Edition (or couldn't confirm it yet). Check the account, then try again.");return;
         }
         kern_return_t registered=AgePadEngineRegister(clientPath.fileSystemRepresentation,lookUp);
         fprintf(stderr,"AGEPAD_ENGINE_REGISTERED status=%d\n",registered);

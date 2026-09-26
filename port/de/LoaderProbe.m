@@ -893,6 +893,13 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                 return [UIButton buttonWithConfiguration:style primaryAction:[UIAction actionWithHandler:^(UIAction *a) { tap(); }]];
             };
             __block UIView *signInPanel = nil;
+            // The game's splash is a small window; show it on plain black, as
+            // on the Mac routes, instead of over this setup screen.
+            BOOL (^play)(void) = ^BOOL {
+                if (!startGame()) return NO;
+                [scroll removeFromSuperview];
+                return YES;
+            };
             __block void (^showSignIn)(void) = nil;
             void (^startEngine)(void) = ^{
                 engineState.text = @"Starting Steam…";
@@ -900,7 +907,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                     status:^(NSString *message) { engineState.text = message; }
                     completion:^(NSString *error) {
                         if (!error && !hasData) { engineState.text = @"Signed in to Steam. The game files still need copying to this iPad (see below)."; return; }
-                        if (!error && startGame()) { engineState.text = @"Starting Age of Empires II…"; return; }
+                        if (!error && play()) return;
                         engineState.text = error ?: @"The game couldn't start.";
                         for (UIView *old in actions.arrangedSubviews) [old removeFromSuperview];
                         [actions addArrangedSubview:button(@"Sign in again", ^{ [AgePadSteamRoute forgetAccount]; showSignIn(); })];
@@ -920,7 +927,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
             if (paired) [actions addArrangedSubview:button(@"Play with my Mac's Steam instead", ^{
                 engineState.text = @"Connecting to your Mac…";
                 DEPairedMacState = DEPairedMacSteamState();
-                if (DEPairedMacState == 1 && hasData && startGame()) return;
+                if (DEPairedMacState == 1 && hasData && play()) return;
                 engineState.text = DEPairedMacState == 0 ? @"Steam isn't open on your Mac. Open it there and try again." :
                     @"Couldn't reach your Mac. Make sure it's awake and on the same Wi-Fi (or Tailscale).";
             })];

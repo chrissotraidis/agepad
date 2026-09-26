@@ -24,6 +24,8 @@ parser.add_argument('--ipc-load-probe', type=Path, help='Output of build-de-devi
 parser.add_argument('--original-steam-module', type=Path,
                     help='Owned unmodified Mac libsteam_api.dylib; staged as inert data for exact module validation')
 parser.add_argument('--bundle-id', default='local.agepad.device-de-probe')
+parser.add_argument('--steam-app-manifest', type=Path,
+                    help="Mac Steam's appmanifest_813780.acf (read only): the installed build the imported files match")
 parser.add_argument('--increased-memory-limit', action='store_true',
                     help='Request com.apple.developer.kernel.increased-memory-limit; the profile must grant it')
 parser.add_argument('--launch-env', type=Path,
@@ -121,6 +123,17 @@ if args.original_steam_module:
         parser.error('Owned original Steam module does not match the pinned build')
     shutil.copy2(original, output / 'OriginalSteamModule.data')
 info_path = output / 'Info.plist'
+if args.steam_app_manifest:
+    # The in-app Steam engine's install record for the imported game: same build
+    # and depots as the Mac install the files were copied (and verified) from.
+    # Personal fields are dropped; "update only when launched through Steam"
+    # (AgePad never does) keeps the engine from downloading on its own.
+    lines = [line for line in args.steam_app_manifest.read_text().splitlines()
+             if not re.search(r'"(LastOwner|LastPlayed|LastUpdated)"', line)]
+    text = re.sub(r'("AutoUpdateBehavior"\s+)"\d+"', r'\1"1"', '\n'.join(lines) + '\n')
+    if '"buildid"' not in text or '"813780"' not in text:
+        parser.error('Not the AoE II: DE app manifest: ' + str(args.steam_app_manifest))
+    (output / 'SteamAppManifest_813780.acf').write_text(text)
 info = plistlib.loads(info_path.read_bytes())
 info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad DE Probe',
              'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True})

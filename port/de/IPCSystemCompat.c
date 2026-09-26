@@ -24,6 +24,9 @@
 #include <limits.h>
 #define DE_PATH_RELAY_CLIENT 1
 #include "SteamPathRelay.h"
+#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+#include "SysVSemaphoreCompat.h"
+#endif
 // Device-only, opt-in experiment: keep the original helper's Mach service
 // inside this app process. No Steam reply, identity or ownership state is
 // synthesized here; the original helper still handles every request.
