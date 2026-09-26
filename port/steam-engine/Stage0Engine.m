@@ -18,6 +18,11 @@ static void GameSide(const char *path) {
     if (!ok) return;
     void *user=((void *(*)(void))dlsym(api,"SteamAPI_SteamUser_v021"))();
     void *apps=((void *(*)(void))dlsym(api,"SteamAPI_SteamApps_v008"))();
+    // Round-trip cost of one Steam call from the game to the engine.
+    bool (*loggedOnCall)(void *)=(bool (*)(void *))dlsym(api,"SteamAPI_ISteamUser_BLoggedOn");
+    NSDate *start=[NSDate date];
+    for (int i=0;i<2000;i++) loggedOnCall(user);
+    printf("GAME_CALL_LATENCY calls=2000 microseconds_each=%.1f\n",-start.timeIntervalSinceNow*1e6/2000);fflush(stdout);
     for (int i=0;i<5;i++) {
         ((void (*)(void))dlsym(api,"SteamAPI_RunCallbacks"))();
         printf("GAME_STATE logged_on=%d owns_aoe2de=%d\n",
