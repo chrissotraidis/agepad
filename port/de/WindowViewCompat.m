@@ -44,6 +44,7 @@ extern id DEUIKitScreenObject(UIScreen *screen);
 @property(nonatomic,weak) UIGestureRecognizer *orderTap,*zoomPinch;
 - (void)refreshTouchCommandButton;
 - (void)installNativeGestures;
+- (void)startTestInput;
 - (void)nativeMouse:(NSUInteger)type point:(CGPoint)point wheel:(CGFloat)wheel;
 @end
 static void DEPostGameKey(unsigned short macKey, NSString *characters, BOOL pressed);

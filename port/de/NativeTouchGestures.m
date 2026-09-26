@@ -20,6 +20,7 @@
         gesture.delegate=self;gesture.cancelsTouchesInView=YES;[self addGestureRecognizer:gesture];
     }
     self.orderTap=order;self.zoomPinch=pinch;
+    [self startTestInput];
     // Apple Pencil (2nd gen / Pro) barrel double-tap: deselect and stop
     // Pencil orders. Sent as Escape plus a disarm of sticky orders.
     if (@available(iOS 12.1,*)) {
@@ -89,5 +90,76 @@
     if(fabs(amount)<0.2)return;
     fprintf(stderr,"DE_GESTURE_ZOOM amount=%g\n",amount);
     [self nativeMouse:22 point:[gesture locationInView:self] wheel:amount];gesture.scale=1;
+}
+// Test-only input (AGEPAD_TEST_INPUT=1): lines written to
+// Documents/agepad-test-input.txt from the Mac are played through the same
+// mouse/key paths as touches, in screen points, on the largest visible game
+// view, then the file is removed:
+//   click X Y | rclick X Y | key MACKEYCODE | text lowercaseletters0to9 | wait MS
+- (void)startTestInput {
+    if (!getenv("AGEPAD_TEST_INPUT")) return;
+    static NSHashTable<DEGameViewHost *> *hosts;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{ hosts=[NSHashTable weakObjectsHashTable]; });
+    [hosts addObject:self];
+    static BOOL started;
+    if (started) return;
+    started=YES;
+    NSString *path=[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject
+        stringByAppendingPathComponent:@"agepad-test-input.txt"];
+    __block BOOL busy=NO;
+    [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) {
+        NSString *text=busy?nil:[NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+        if (!text) return;
+        DEGameViewHost *host=nil;
+        for (DEGameViewHost *candidate in hosts)
+            if (candidate.window && !candidate.hidden && candidate.bounds.size.width*candidate.bounds.size.height>host.bounds.size.width*host.bounds.size.height)
+                host=candidate;
+        if (!host) return;
+        [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        busy=YES;
+        double at=0;
+        for (NSString *line in [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
+            NSArray<NSString *> *word=[line componentsSeparatedByString:@" "];
+            if (!line.length) continue;
+            if ([word[0] isEqualToString:@"wait"] && word.count>1) { at+=word[1].doubleValue/1000;continue; }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(at*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+                fprintf(stderr,"DE_TEST_INPUT %s view=%gx%g\n",line.UTF8String,host.bounds.size.width,host.bounds.size.height);
+                if (word.count>2 && ([word[0] isEqualToString:@"click"] || [word[0] isEqualToString:@"rclick"])) {
+                    BOOL right=[word[0] isEqualToString:@"rclick"];
+                    CGPoint point=CGPointMake(word[1].doubleValue,word[2].doubleValue);
+                    [host nativeMouse:5 point:point wheel:0];[host nativeMouse:right?3:1 point:point wheel:0];
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,80*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+                        [host nativeMouse:right?4:2 point:point wheel:0]; });
+                } else if ([word[0] isEqualToString:@"text"] && word.count>1) {
+                    // Mac key codes for a–z and 0–9.
+                    static const char *letters="asdfhgzxcv?bqweryt123465=97-80]ou[ip?lj'k;?,/nm";
+                    double delay=0;
+                    for (NSUInteger i=0;i<word[1].length;i++) {
+                        unichar c=[word[1] characterAtIndex:i];
+                        const char *found=c<128?strchr(letters,(char)c):NULL;
+                        if (!found || c=='?') continue;
+                        unsigned short code=(unsigned short)(found-letters);
+                        NSString *chars=[NSString stringWithFormat:@"%C",c];
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),dispatch_get_main_queue(),^{ DEPostGameKey(code,chars,YES); });
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)((delay+0.06)*NSEC_PER_SEC)),dispatch_get_main_queue(),^{ DEPostGameKey(code,chars,NO); });
+                        delay+=0.15;
+                    }
+                } else if ([word[0] isEqualToString:@"key"] && word.count>1) {
+                    unsigned short code=(unsigned short)word[1].intValue;
+                    // Return, Escape, or F1–F12 (their AppKit function-key characters).
+                    static const unsigned short functionKeys[12]={122,120,99,118,96,97,98,100,101,109,103,111};
+                    NSString *chars=code==36?@"\r":code==53?@"\e":nil;
+                    for (int f=0;f<12 && !chars;f++) if (functionKeys[f]==code) chars=[NSString stringWithFormat:@"%C",(unichar)(0xF704+f)];
+                    if (!chars) { fprintf(stderr,"DE_TEST_INPUT unsupported key %u\n",code);return; }
+                    DEPostGameKey(code,chars,YES);
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,80*NSEC_PER_MSEC),dispatch_get_main_queue(),^{ DEPostGameKey(code,chars,NO); });
+                }
+            });
+            at+=0.25;
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(at*NSEC_PER_SEC)),dispatch_get_main_queue(),^{ busy=NO; });
+    }];
+    fprintf(stderr,"DE_TEST_INPUT ready file=%s\n",path.UTF8String);
 }
 @end
