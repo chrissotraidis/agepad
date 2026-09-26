@@ -49,7 +49,7 @@ scripts/agepad-ipad.sh setup
 
 It checks everything first (✓ or ✗ with how to fix each ✗), then builds AgePad, installs it on the iPad **in place** (saves and game files already there are kept), and copies your game files: about 20 GB and 25,000 files the first time. If the copy is interrupted, run it again and it continues. `scripts/agepad-ipad.sh check` shows the same checks without changing anything.
 
-The first time on a new Mac, the build needs a one-time **build package** made from your game (`check` says so): `python3 scripts/bootstrap-de-simulator.py generated/de-candidate-YYYYMMDD`, then point `AGEPAD_CANDIDATE` at it; see [DE-BOOTSTRAP-20260919.md](DE-BOOTSTRAP-20260919.md). It uses the iPad Simulator in Xcode. This step has not yet been rerun from scratch for the current iPad build.
+The first time on a new Mac, the build needs a one-time **build package** made from your game (`check` says so): `python3 scripts/bootstrap-de-simulator.py generated/de-candidate-YYYYMMDD`, then point `AGEPAD_CANDIDATE` at it; see [DE-BOOTSTRAP-20260919.md](DE-BOOTSTRAP-20260919.md). It uses the iPad Simulator in Xcode for two survey steps (which Apple functions exist on iOS). On 26 September a from-scratch package reached the main menu on the tested iPad; the two survey results were reused from an earlier run (`--survey`, `--client-survey`) because other work had the Simulator busy.
 
 ## Step 3 — Sign in to Steam and play
 

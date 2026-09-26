@@ -68,7 +68,7 @@ The setup, all described in [the setup guide](docs/IPAD-SETUP.md):
 3. Connect the iPad with a USB-C cable and run `scripts/agepad-ipad.sh setup`. It checks everything, builds and installs AgePad in place, and copies your game files (about 20 GB the first time; later `scripts/agepad-ipad.sh sync` copies only what a game update changed).
 4. Open AgePad on the iPad and sign in to Steam once (above). From then on, tap the icon to play, online or offline.
 
-On a new Mac, the first build also needs a one-time build package made from your game with the iPad Simulator (`check` explains; not yet re-verified from scratch for the current build).
+On a new Mac, the first build also needs a one-time build package made from your game with the iPad Simulator (`check` explains; verified from scratch on 26 September, reusing the two Simulator survey results).
 
 Game files, Steam credentials and another person's saves must not be bundled in a public IPA or repository.
 

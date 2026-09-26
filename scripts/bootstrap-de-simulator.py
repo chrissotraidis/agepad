@@ -145,6 +145,9 @@ def main():
     parser.add_argument('--device', default=os.environ.get('AGEPAD_SIMULATOR_UDID', DEFAULT_DEVICE))
     parser.add_argument('--survey', type=Path,
                         help='Reuse an existing survey JSON instead of running the loader probe')
+    parser.add_argument('--client-survey', type=Path,
+                        help='Reuse an existing Steam client survey JSON (same Steam and iOS versions) '
+                             'instead of running LibrarySymbolSurvey in the Simulator')
     parser.add_argument('--only', action='append', default=[],
                         help='Run only these stages (repeatable); later stages still need their inputs')
     parser.add_argument('--skip', action='append', default=[], help='Skip these stages (repeatable)')
@@ -429,12 +432,15 @@ def main():
         survey_input.write_text(json.dumps([
             {'path': re.sub(r'(\.framework)/Versions/[^/]+/', r'\1/', path),
              'symbols': sorted(symbols)} for path, symbols in sorted(wanted.items())], indent=1) + '\n')
-        measured = subprocess.run(['xcrun', 'simctl', 'spawn', device, str(survey_tool),
-                                   str(survey_input)], capture_output=True, text=True, check=True)
+        if args.client_survey:
+            measured_text = args.client_survey.read_text()
+        else:
+            measured_text = subprocess.run(['xcrun', 'simctl', 'spawn', device, str(survey_tool),
+                                            str(survey_input)], capture_output=True, text=True, check=True).stdout
         client_survey = art / 'steam-client-survey.json'
-        client_survey.write_text(measured.stdout)
+        client_survey.write_text(measured_text)
         survey_missing = sum(len(entry['missing_symbols'])
-                             for entry in json.loads(measured.stdout))
+                             for entry in json.loads(measured_text))
         print('   client dependencies surveyed: %d, missing symbols: %d'
               % (len(wanted), survey_missing))
         destination = package / 'game-client'

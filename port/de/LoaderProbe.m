@@ -93,7 +93,9 @@ static void DEDumpThread(mach_port_t thread,const char *label) {
 
 }
 static void DEDumpMainThread(void) { DEDumpThread(DEMainThreadPort,"main"); }
-extern unsigned long long DEFileStatCounter(int which) __attribute__((weak_import));
+// Device startup counters (SteamModuleCompat, iPad builds only): looked up at
+// run time so builds without that library still link.
+static unsigned long long (*DEStatCounter)(int which);
 // Opt-in startup profile: sample the game's own main loop thread ("WinMain").
 static void DEDumpNamedThread(const char *wanted) {
     thread_act_array_t threads=NULL;mach_msg_type_number_t count=0;
@@ -486,8 +488,9 @@ static void *DEMainWatchdogLoop(void *unused) {
             if ((tick==10 || tick==120) && getenv("AGEPAD_DEVICE_THREAD_DUMP")) DEDumpAllThreads();
             if (tick<=60 && getenv("AGEPAD_DEVICE_STARTUP_PROFILE")) {
                 DEWatchdogLog("DE_PROFILE_TICK seconds=%u\n",tick*2);
-                if (DEFileStatCounter) DEWatchdogLog("DE_PROFILE_STAT seconds=%u index_answers=%llu calls=%llu misses=%llu case_resolved=%llu stat_ms=%llu retry_ms=%llu\n",tick*2,
-                    DEFileStatCounter(5),DEFileStatCounter(0),DEFileStatCounter(1),DEFileStatCounter(2),DEFileStatCounter(3)/1000000,DEFileStatCounter(4)/1000000);
+                if (!DEStatCounter) DEStatCounter=dlsym(RTLD_DEFAULT,"DEFileStatCounter");
+                if (DEStatCounter) DEWatchdogLog("DE_PROFILE_STAT seconds=%u index_answers=%llu calls=%llu misses=%llu case_resolved=%llu stat_ms=%llu retry_ms=%llu\n",tick*2,
+                    DEStatCounter(5),DEStatCounter(0),DEStatCounter(1),DEStatCounter(2),DEStatCounter(3)/1000000,DEStatCounter(4)/1000000);
                 DEDumpNamedThread("WinMain");
             }
             if (tick%15==0) DELogMemoryByTag(tick*2);
