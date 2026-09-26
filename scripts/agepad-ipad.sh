@@ -14,7 +14,7 @@ ROOT=${0:A:h:h}; cd $ROOT
 BUNDLE=local.agepad.device-de-probe
 STEAM_APP="$HOME/Library/Application Support/Steam/steamapps/common/AoE2DE"
 CANDIDATE=${AGEPAD_CANDIDATE:-generated/de-candidate-20260924-responder}
-IPC=${AGEPAD_IPC:-generated/de-device-ipc-20260926off}
+IPC=${AGEPAD_IPC:-}
 STATE="$HOME/Library/Application Support/AgePad"
 HELPER_PORT=61343
 AGENT="$HOME/Library/LaunchAgents/local.agepad.helper.plist"
@@ -143,6 +143,14 @@ steam_client() { # Valve's Steam engine for the app: the Mac's current Steam, co
   local CLIENT; CLIENT=$(steam_client) || return 1
   print "Building the iPad compatibility layer…"
   python3 scripts/build-de-device-runtime.py --package $CANDIDATE/package --steam-client $CLIENT $OUT/runtime || return 1
+  if [[ -z $IPC ]]; then # Steam's IPC helper: from the Mac's current Steam, in step with the engine
+    local IPCSRC=$CANDIDATE/package/ipc-helper-relay/ipcserver.arm64
+    local MACIPC="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/ipcserver"
+    mkdir -p $OUT
+    [[ -f $MACIPC ]] && { lipo "$MACIPC" -thin arm64 -output $OUT/ipcserver.arm64 2>/dev/null || cp "$MACIPC" $OUT/ipcserver.arm64; IPCSRC=$OUT/ipcserver.arm64; }
+    python3 scripts/build-de-device-ipc-probe.py --source $IPCSRC --output $OUT/ipc > $OUT/ipc.log 2>&1 || { tail -5 $OUT/ipc.log; return 1; }
+    IPC=$OUT/ipc
+  fi
   print "Packaging and signing…"
   python3 -c "import json;c=json.load(open('scripts/ipad-launch-env.json'))['play'];skip={'AGEPAD_STEAM_TUNNEL_HOST','AGEPAD_HOST_PATH_RELAY_TCP_HOST','AGEPAD_STEAM_TUNNEL_PORT','AGEPAD_HOST_PATH_RELAY_TCP_PORT','AGEPAD_STEAM_LOOPBACK_PORT'};print('\n'.join(k+'='+v for k,v in c.items() if k not in skip))" > $OUT.launch.env
   python3 scripts/prepare-de-device-probe.py --candidate-root $CANDIDATE --steam-client $CLIENT --boundary $OUT/runtime --ipc-load-probe $IPC \

@@ -26,6 +26,37 @@ static BOOL NetworkAvailable(void) {
     nw_path_monitor_cancel(monitor);
     return available;
 }
+// Steam's own answer to this launch's sign-in, as its connection log records
+// it ('OK', 'Revoked', 'Invalid Protocol', …), reading only what was written
+// after `from`. Test switch: AGEPAD_TEST_LOGON_VERDICT (with Steam's Internet
+// connections blocked by IPCSystemCompat) stands in for the server's answer.
+static NSString *ConnectionLog(void) {
+    return [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES).firstObject
+        stringByAppendingPathComponent:@"Steam/logs/connection_log.txt"];
+}
+static unsigned long long ConnectionLogSize(void) {
+    return [[NSFileManager.defaultManager attributesOfItemAtPath:ConnectionLog() error:nil] fileSize];
+}
+static NSString *LogOnVerdict(unsigned long long from) {
+    if (getenv("AGEPAD_TEST_LOGON_VERDICT")) return @(getenv("AGEPAD_TEST_LOGON_VERDICT"));
+    NSFileHandle *log=[NSFileHandle fileHandleForReadingAtPath:ConnectionLog()];
+    if (!log) return nil;
+    if (ConnectionLogSize()<from) from=0; // Steam started a new log
+    [log seekToFileOffset:from];
+    NSString *text=[[NSString alloc] initWithData:[log readDataToEndOfFile] encoding:NSUTF8StringEncoding]?:@"";
+    [log closeFile];
+    if ([text containsString:@"newer protocol version"]) return @"Invalid Protocol";
+    NSString *verdict=nil;
+    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+        NSRange response=[line rangeOfString:@"RecvMsgClientLogOnResponse() : ["];
+        if (response.location==NSNotFound) continue;
+        NSRange open=[line rangeOfString:@"'" options:0 range:NSMakeRange(response.location,line.length-response.location)];
+        NSRange close=[line rangeOfString:@"'" options:NSBackwardsSearch];
+        if (open.location!=NSNotFound && close.location>open.location)
+            verdict=[line substringWithRange:NSMakeRange(open.location+1,close.location-open.location-1)];
+    }
+    return verdict;
+}
 // Tells the in-app Steam engine that AoE II: DE is installed on this iPad (the
 // build the imported files match; record baked in at build time), as Steam on
 // the Mac knows. The install folder is a separate empty folder, never the game
@@ -129,8 +160,10 @@ static NSString *LoadToken(NSString *account) {
         if (token) AgePadEngineSetLoginToken(token.UTF8String,name.UTF8String);
         say([NSString stringWithFormat:@"Signing in to Steam as %@…",name]);
         // No network (airplane mode): Steam's own offline mode straight away.
-        BOOL offline=!anonymous && !NetworkAvailable();
+        __block BOOL offline=!anonymous && !NetworkAvailable();
         if (offline) say(@"No Internet. Starting in Steam's offline mode (multiplayer is unavailable)…");
+        unsigned long long logStart=ConnectionLogSize();
+        NSString *verdict=nil;
         // Steam's offline mode applies to a logon in progress (it names the
         // account), so the normal logon always starts first.
         int result=AgePadEngineLogOn(strtoull(account.UTF8String,NULL,10));
@@ -151,7 +184,26 @@ static NSString *LoadToken(NSString *account) {
                 offline=YES;result=AgePadEngineLogOnOffline();
                 say(@"Can't reach Steam. Starting in Steam's offline mode (multiplayer is unavailable)…");
             }
+            // Steam answered the sign-in with something other than OK: stop waiting.
+            if (!offline && tenth%10==5 && (verdict=LogOnVerdict(logStart)) && ![verdict isEqualToString:@"OK"]) break;
             usleep(100000);
+        }
+        // Steam turned the sign-in down. A withdrawn sign-in needs a new one; an
+        // outdated Steam engine (or any other refusal) still plays offline.
+        BOOL signInRefused=[@[@"Invalid Password",@"Access Denied",@"Expired",@"Revoked",@"Account Logon Denied",
+                               @"Invalid Login Auth Code"] containsObject:verdict?:@""];
+        BOOL outdated=[verdict isEqualToString:@"Invalid Protocol"];
+        if (verdict && ![verdict isEqualToString:@"OK"]) fprintf(stderr,"AGEPAD_ENGINE_LOGON_REFUSED verdict=%s outdated=%d sign_in_refused=%d\n",
+            verdict.UTF8String,outdated,signInRefused);
+        if (signInRefused && !ready()) {
+            finish(@"Steam no longer accepts this iPad's sign-in (it was signed out, expired or revoked). Sign in again.");return;
+        }
+        if (!ready() && !offline && !anonymous) {
+            say(outdated?@"Steam has retired the version of Steam inside AgePad, so online play is off. To fix it, update Steam on your Mac and run  scripts/agepad-ipad.sh build  again. Starting offline now…":
+                [NSString stringWithFormat:@"Steam didn't accept the sign-in (%@). Starting in Steam's offline mode…",verdict?:@"no answer"]);
+            offline=YES;result=AgePadEngineLogOnOffline();
+            for (int tenth=0;tenth<150 && !ready();tenth++) usleep(100000);
+            if (ready()) sleep(outdated?8:3); // leave the explanation on screen
         }
         BOOL loggedOn=AgePadEngineLoggedOn();
         fprintf(stderr,"AGEPAD_ENGINE_LOGON logged_on=%d offline=%d logon_state=%d ready=%d\n",loggedOn,offline,AgePadEngineLogonState(),ready());

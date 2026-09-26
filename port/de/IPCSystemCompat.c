@@ -260,7 +260,7 @@ int connect(int fd,const struct sockaddr *address,socklen_t length) {
     // Test switch for Steam's offline mode without airplane mode: Steam's own
     // Internet connections fail as they would with no network; loopback
     // (the game talking to the in-app Steam) is unaffected.
-    if (getenv("AGEPAD_TEST_OFFLINE") && address &&
+    if ((getenv("AGEPAD_TEST_OFFLINE") || getenv("AGEPAD_TEST_LOGON_VERDICT")) && address &&
         ((address->sa_family==AF_INET && length>=sizeof(struct sockaddr_in) &&
           ((const struct sockaddr_in *)address)->sin_addr.s_addr!=htonl(INADDR_LOOPBACK)) ||
          (address->sa_family==AF_INET6 && length>=sizeof(struct sockaddr_in6) &&
