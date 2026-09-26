@@ -12,7 +12,7 @@
 # AGEPAD_IPC (IPC build), AGEPAD_PROFILE, AGEPAD_IDENTITY, AGEPAD_DIAGNOSTICS=1.
 set -u
 ROOT=${0:A:h:h}; cd $ROOT
-BUNDLE=local.agepad.device-de-probe
+BUNDLE=${AGEPAD_BUNDLE_ID:-local.agepad.device-de-probe}
 STEAM_APP="$HOME/Library/Application Support/Steam/steamapps/common/AoE2DE"
 CANDIDATE=${AGEPAD_CANDIDATE:-generated/de-candidate-20260924-responder}
 IPC=${AGEPAD_IPC:-}
@@ -61,32 +61,55 @@ afc() { # afcclient without hanging when the device stops answering
   local out=$(mktemp); ( afcclient -u $UDID --container $BUNDLE > $out 2>&1 ) & local pid=$!
   for i in {1..20}; do kill -0 $pid 2>/dev/null || break; sleep 0.5; done; kill $pid 2>/dev/null; cat $out; rm -f $out
 }
+todo() { print -P "  %F{yellow}○%f $1"; }
+info() { print "  · $1"; }
+# SETUP=1: missing app/game files are what setup does next, not failures.
+# USB_ONLY=1 (engineering 'play'): the Mac's Steam must be running.
 check() {
   FAILED=0; print "AgePad setup check"
-  [[ -d "$STEAM_APP/AgeOfEmpires2Data" ]] && ok "Mac Steam copy of AoE II: DE found" \
-    || bad "Mac Steam copy of AoE II: DE not found" "Install Age of Empires II: DE in Steam for Mac (you must own it)."
+  xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1 && ok "Xcode with iPad support" \
+    || bad "Xcode not found" "Install Xcode from the App Store, open it once and let it finish installing components."
+  pkg-config --exists libimobiledevice-1.0 2>/dev/null && ok "USB copy library (libimobiledevice)" \
+    || bad "USB copy library missing" "Install Homebrew (https://brew.sh), then run: brew install libimobiledevice"
+  [[ -d "$STEAM_APP/AgeOfEmpires2Data" ]] && ok "Your Steam copy of AoE II: DE (Mac edition) found" \
+    || bad "AoE II: DE not found in Steam on this Mac" "Install Age of Empires II: Definitive Edition in Steam for Mac (you must own it)."
   if NOTE=$(version_note); then bad "Game version differs from AgePad's" "$NOTE"; fi
-  pgrep -q steam_osx && ok "Steam is running on this Mac" || bad "Steam is not running" "Open Steam on this Mac and sign in. The iPad uses this Steam session."
-  nc -z -G 2 127.0.0.1 57343 2>/dev/null && ok "Steam accepts local game connections" || bad "Steam is not accepting game connections" "Sign in to Steam and wait until the library loads."
+  [[ -f $CANDIDATE/candidate.app/DEOriginalGame ]] && ok "AgePad build package" \
+    || bad "AgePad build package missing ($CANDIDATE)" "Make it once from your game: python3 scripts/bootstrap-de-simulator.py $CANDIDATE (docs/DE-BOOTSTRAP-20260919.md)"
   UDID=$(udid)
-  [[ -n $UDID ]] && ok "iPad connected ($UDID)" || bad "No connected iPad" "Connect the iPad by USB (or pair it in Xcode's Devices window), unlock it and trust this Mac."
+  [[ -n $UDID ]] && ok "iPad connected ($UDID)" \
+    || bad "No iPad connected" "Connect the iPad with a USB-C cable, unlock it and tap Trust. First time: turn on Settings > Privacy & Security > Developer Mode."
   if [[ -n $UDID ]]; then
-    xcrun devicectl device info apps --device $UDID --bundle-id $BUNDLE 2>/dev/null | grep -q $BUNDLE \
-      && ok "AgePad app installed" || bad "AgePad app not installed" "Run: scripts/agepad-ipad.sh build"
-    printf 'ls /Documents/AgeOfEmpires2Data/resources\nexit\n' | afc | grep -q _common \
-      && ok "Game files copied to the iPad" \
-      || bad "Game files not on the iPad" "Copy them over the USB-C cable (about 20 GB, keep 25 GB free): scripts/agepad-ipad.sh sync"
-    if [[ -z \${USB_ONLY:-} ]]; then
-      printf 'ls /Documents\nexit\n' | afc | grep -q AgePadSteamHost.env \
-        && ok "iPad paired with this Mac (tap-to-play)" || bad "iPad not paired for tap-to-play" "Run: scripts/agepad-ipad.sh pair"
-    fi
+    local SIGNING; SIGNING=$(python3 scripts/find-signing.py $BUNDLE $UDID 2>&1) && ok "Signing set up for this iPad" \
+      || bad "Signing not set up" "$SIGNING"
+    if xcrun devicectl device info apps --device $UDID --bundle-id $BUNDLE 2>/dev/null | grep -q $BUNDLE; then ok "AgePad installed on the iPad"
+    elif (( ${SETUP:-0} )); then todo "AgePad not installed yet (setup installs it)"
+    else bad "AgePad not installed" "Run: scripts/agepad-ipad.sh setup"; fi
+    local DATA=$(printf 'ls /Documents/AgeOfEmpires2Data\nexit\n' | afc)
+    if [[ $DATA == *.agepad-import-inventory-checked* ]]; then ok "Game files on the iPad"
+    elif (( ${SETUP:-0} )); then todo "Game files not copied yet (setup copies them, about 20 GB)"
+    else bad "Game files missing or incomplete on the iPad" "Run: scripts/agepad-ipad.sh sync (about 20 GB the first time; keep 25 GB free)"; fi
   fi
-  if [[ -z \${USB_ONLY:-} ]]; then
-    nc -z -G 2 127.0.0.1 $HELPER_PORT 2>/dev/null && ok "AgePad helper is running on this Mac" \
-      || bad "AgePad helper is not running" "Run: scripts/agepad-ipad.sh install-helper (starts it now and at every login)"
+  if (( ${USB_ONLY:-0} )); then
+    pgrep -q steam_osx && ok "Steam is running on this Mac" || bad "Steam is not running" "Open Steam on this Mac and sign in."
+    nc -z -G 2 127.0.0.1 57343 2>/dev/null && ok "Steam accepts local game connections" || bad "Steam is not accepting game connections" "Sign in to Steam and wait until the library loads."
+  elif (( ! ${SETUP:-0} )); then
+    print "Optional: playing through this Mac's Steam instead of Steam inside AgePad"
+    [[ -n $UDID ]] && printf 'ls /Documents\nexit\n' | afc | grep -q AgePadSteamHost.env && info "iPad paired with this Mac" || info "Not paired (scripts/agepad-ipad.sh pair)"
+    nc -z -G 2 127.0.0.1 $HELPER_PORT 2>/dev/null && info "Mac helper running" || info "Mac helper not running (scripts/agepad-ipad.sh install-helper)"
   fi
-  (( FAILED )) && { print "\nFix the items marked ✗, then run this check again."; return 1; }
-  print "\nReady. Tap AgePad on the iPad to play."
+  (( FAILED )) && { print "\nFix the items marked ✗, then run this again."; return 1; }
+  (( ${SETUP:-0} )) || print "\nReady. Open AgePad on the iPad (sign in to Steam the first time), then just tap it to play."
+}
+setup() {
+  print "AgePad setup: builds AgePad from your own Steam copy and installs it on the iPad over USB-C.\n"
+  SETUP=1 check || return 1
+  print "\n1/2 Building and installing AgePad (about 2 minutes)…"
+  build || return 1
+  print "\n2/2 Copying the game files (the first time about 20 GB; later only what changed)…"
+  sync || return 1
+  print "\nDone. On the iPad: open AgePad and sign in to Steam once by scanning the QR code with the Steam app on your"
+  print "phone (or use your password). After that, tap AgePad to play, online or offline."
 }
 helper_binary() { # Mac Steam path helper, built from this repository
   local BIN=$STATE/HostSteamPathRelay
@@ -168,8 +191,11 @@ steam_client() { # Valve's Steam engine for the app: the Mac's current Steam, co
   print $DIR
 }
   local UDID=$(udid); [[ -z $UDID ]] && { print "No connected iPad. Run: scripts/agepad-ipad.sh check"; return 1; }
-  local PROFILE=${AGEPAD_PROFILE:?Set AGEPAD_PROFILE to a development profile for $BUNDLE with the increased-memory-limit capability (docs/IPAD-SETUP.md, step 2)}
-  local IDENTITY=${AGEPAD_IDENTITY:?Set AGEPAD_IDENTITY to your Apple Development signing identity hash (security find-identity -v -p codesigning)}
+  local PROFILE=${AGEPAD_PROFILE:-} IDENTITY=${AGEPAD_IDENTITY:-} FOUND
+  if [[ -z $PROFILE || -z $IDENTITY ]]; then # the profile Xcode downloaded for this app and iPad
+    FOUND=$(python3 scripts/find-signing.py $BUNDLE $UDID) || return 1
+    PROFILE=${FOUND%%$'\n'*} IDENTITY=${FOUND##*$'\n'}
+  fi
   local STAMP=$(date +%Y%m%d-%H%M%S) OUT=generated/ipad-build-$(date +%Y%m%d-%H%M%S)
   local CLIENT; CLIENT=$(steam_client) || return 1
   version_note && print "Building anyway: this refreshes Steam inside AgePad; the game itself stays at the version above."
@@ -189,7 +215,8 @@ steam_client() { # Valve's Steam engine for the app: the Mac's current Steam, co
     --launch-env $OUT.launch.env \
     --original-steam-module "$STEAM_APP/Age Of Empires II.app/Contents/Frameworks/libsteam_api.dylib" \
     --steam-app-manifest "$HOME/Library/Application Support/Steam/steamapps/appmanifest_813780.acf" \
-    --output $OUT/AgePadDeviceProbe.app --profile "$PROFILE" --increased-memory-limit --identity $IDENTITY > $OUT.log 2>&1 \
+    --output $OUT/AgePadDeviceProbe.app --profile "$PROFILE" --increased-memory-limit --identity $IDENTITY \
+    --bundle-id $BUNDLE > $OUT.log 2>&1 \
     || { tail -5 $OUT.log; return 1; }
   codesign --verify --deep --strict $OUT/AgePadDeviceProbe.app || return 1
   print "Installing on the iPad (in place; saves and game files are kept)…"
@@ -221,5 +248,5 @@ logs() {
   grep -E 'DE_MEMORY_LIMIT|DE_FAULT sig' $DEST/watchdog.log 2>/dev/null | head -3
   grep DE_WATCHDOG_TICK $DEST/watchdog.log 2>/dev/null | tail -1 | cut -c1-90
 }
-case ${1:-check} in check) check;; build) build;; sync) shift; sync "$@";; pair) pair;; serve) serve;; install-helper) install_helper;;
+case ${1:-check} in check) check;; setup) setup;; build) build;; sync) shift; sync "$@";; pair) pair;; serve) serve;; install-helper) install_helper;;
   play) shift; play "$@";; logs) logs;; *) sed -n 2,12p $0; exit 2;; esac

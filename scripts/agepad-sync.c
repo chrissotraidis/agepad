@@ -152,7 +152,10 @@ static void remove_stale(const char *relative) {
         size_t n=strlen(name);
         int part=n>13 && !strcmp(name+n-13,".agepad-part");
         if (!part && !lstat(local,&value)) { if (S_ISDIR(value.st_mode)) remove_stale(child);continue; }
-        printf("  remove %s\n",child);removed++;forget(child);
+        // Steam's engine drops this cache file wherever the game's working
+        // folder is; it is not game data. Remove it without a report.
+        if (strcmp(name,"update_hosts_cached.vdf")) { printf("  remove %s\n",child);removed++; }
+        forget(child);
         if (!dry_run) afc_remove_path_and_contents(afc,target);
     }
     afc_dictionary_free(names);
