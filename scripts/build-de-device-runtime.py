@@ -74,7 +74,8 @@ def link_fresh_boundaries(package, output, sdk):
                         str(ROOT / 'port/steam-engine/SteamEngineHost.c'),
                         str(ROOT / 'port/steam-engine/SteamQRSignIn.m'),
                         str(ROOT / 'port/steam-engine/AgePadSteamRoute.m'),
-                        '-framework', 'CoreImage', '-framework', 'ImageIO', '-framework', 'Security']
+                        '-framework', 'CoreImage', '-framework', 'ImageIO', '-framework', 'Security',
+                        '-framework', 'Network']
             # The generated NSColor diagnostic class has a different ObjC name
             # because UIKit already owns NSColor internally on some runtimes.
             # Preserve the two aliases emitted by build-de-boundary-probe.py.

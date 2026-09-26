@@ -257,6 +257,17 @@ int getsockname(int fd,struct sockaddr *address,socklen_t *length) {
 int connect(int fd,const struct sockaddr *address,socklen_t length) {
     int (*real)(int,const struct sockaddr *,socklen_t)=dlsym(RTLD_NEXT,"connect");
     int result=-1;
+    // Test switch for Steam's offline mode without airplane mode: Steam's own
+    // Internet connections fail as they would with no network; loopback
+    // (the game talking to the in-app Steam) is unaffected.
+    if (getenv("AGEPAD_TEST_OFFLINE") && address &&
+        ((address->sa_family==AF_INET && length>=sizeof(struct sockaddr_in) &&
+          ((const struct sockaddr_in *)address)->sin_addr.s_addr!=htonl(INADDR_LOOPBACK)) ||
+         (address->sa_family==AF_INET6 && length>=sizeof(struct sockaddr_in6) &&
+          !IN6_IS_ADDR_LOOPBACK(&((const struct sockaddr_in6 *)address)->sin6_addr)))) {
+        errno=ENETUNREACH;
+        return -1;
+    }
     const char *host=getenv("AGEPAD_STEAM_TUNNEL_HOST");
     const char *fromText=getenv("AGEPAD_STEAM_LOOPBACK_PORT");
     const char *toText=getenv("AGEPAD_STEAM_TUNNEL_PORT");

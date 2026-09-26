@@ -1,5 +1,6 @@
 #import "AgePadSteamRoute.h"
 #import <Security/Security.h>
+#import <Network/Network.h>
 #include "SteamEngineHost.h"
 #import "SteamQRSignIn.h"
 
@@ -8,6 +9,22 @@ static dispatch_queue_t EngineQueue(void) {
     static dispatch_queue_t queue;static dispatch_once_t once;
     dispatch_once(&once,^{ queue=dispatch_queue_create("agepad.steam-engine",DISPATCH_QUEUE_SERIAL); });
     return queue;
+}
+// Whether the iPad has any usable network path right now (airplane mode: no).
+static BOOL NetworkAvailable(void) {
+    if (getenv("AGEPAD_TEST_OFFLINE")) return NO;
+    __block BOOL available=YES;
+    dispatch_semaphore_t known=dispatch_semaphore_create(0);
+    nw_path_monitor_t monitor=nw_path_monitor_create();
+    nw_path_monitor_set_queue(monitor,dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0));
+    nw_path_monitor_set_update_handler(monitor,^(nw_path_t path) {
+        available=nw_path_get_status(path)==nw_path_status_satisfied;
+        dispatch_semaphore_signal(known);
+    });
+    nw_path_monitor_start(monitor);
+    dispatch_semaphore_wait(known,dispatch_time(DISPATCH_TIME_NOW,NSEC_PER_SEC));
+    nw_path_monitor_cancel(monitor);
+    return available;
 }
 // Tells the in-app Steam engine that AoE II: DE is installed on this iPad (the
 // build the imported files match; record baked in at build time), as Steam on
@@ -111,13 +128,15 @@ static NSString *LoadToken(NSString *account) {
         if (!token && !anonymous) { finish(@"Your Steam sign-in is missing on this iPad. Sign in again.");return; }
         if (token) AgePadEngineSetLoginToken(token.UTF8String,name.UTF8String);
         say([NSString stringWithFormat:@"Signing in to Steam as %@…",name]);
-        int result=AgePadEngineLogOn(strtoull(account.UTF8String,NULL,10));
-        BOOL offline=NO;
+        // No network (airplane mode): Steam's own offline mode straight away.
+        BOOL offline=!anonymous && !NetworkAvailable();
+        if (offline) say(@"No connection. Starting Steam in offline mode…");
+        int result=offline?AgePadEngineLogOnOffline():AgePadEngineLogOn(strtoull(account.UTF8String,NULL,10));
         for (int tenth=0;tenth<600 && !AgePadEngineLoggedOn();tenth++) {
             if (tenth%20==0) fprintf(stderr,"AGEPAD_ENGINE_STATE t=%d result=%d connected=%d logged_on=0 logon_state=%d offline=%d\n",
                 tenth/10,result,AgePadEngineConnected(),AgePadEngineLogonState(),offline);
             // No connection after 10 s: Steam's own offline mode (needs one earlier online sign-in).
-            if (tenth==100 && !AgePadEngineConnected()) {
+            if (tenth==100 && !offline && !AgePadEngineConnected()) {
                 offline=YES;result=AgePadEngineLogOnOffline();
                 say(@"No connection. Starting Steam in offline mode…");
             }
