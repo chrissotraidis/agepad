@@ -136,7 +136,8 @@ static NSString *LoadToken(NSString *account) {
             if (tenth==10) say(@"Checking your Steam library…");
             usleep(100000);
         }
-        fprintf(stderr,"AGEPAD_ENGINE_OWNERSHIP app=813780 owned=%d anonymous_test=%d\n",owns,anonymous);
+        fprintf(stderr,"AGEPAD_ENGINE_OWNERSHIP app=813780 owned=%d anonymous_test=%d can_logon_offline=%d\n",
+            owns,anonymous,AgePadEngineCanLogOnOffline());
         if (!owns && !anonymous) {
             finish(@"Steam says this account doesn't own Age of Empires II: Definitive Edition (or couldn't confirm it yet). Check the account, then try again.");return;
         }

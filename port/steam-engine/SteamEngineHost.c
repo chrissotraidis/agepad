@@ -9,7 +9,7 @@ typedef int32_t HSteamPipe,HSteamUser;
 static void *Engine,*User;
 static HSteamPipe Pipe;
 static HSteamUser GlobalUser;
-static struct { int logOn,logOff,loggedOn,logonState,connected,steamID,setLoginToken,logOnOffline,subscribed; } Method;
+static struct { int logOn,logOff,loggedOn,logonState,connected,steamID,setLoginToken,logOnOffline,subscribed,canOffline; } Method;
 
 static void *Slot(void *object,int slot) { return (*(void ***)object)[slot]; }
 static const char *TypeName(void *object) {
@@ -63,7 +63,8 @@ bool AgePadEngineStart(void *image,char *error,unsigned long errorSize) {
     struct { const char *name;int *slot; } wanted[]={
         {"LogOn",&Method.logOn},{"LogOff",&Method.logOff},{"BLoggedOn",&Method.loggedOn},
         {"GetLogonState",&Method.logonState},{"BConnected",&Method.connected},{"GetSteamID",&Method.steamID},
-        {"SetLoginToken",&Method.setLoginToken},{"LogOnOffline",&Method.logOnOffline},{"BIsSubscribedApp",&Method.subscribed}};
+        {"SetLoginToken",&Method.setLoginToken},{"LogOnOffline",&Method.logOnOffline},{"BIsSubscribedApp",&Method.subscribed},
+        {"CanLogonOffline",&Method.canOffline}};
     for (unsigned i=0;i<sizeof(wanted)/sizeof(*wanted);i++) {
         *wanted[i].slot=FindMethod(wanted[i].name,(void *)create);
         if (*wanted[i].slot<0) { snprintf(error,errorSize,"IClientUser::%s not found",wanted[i].name);return false; }
@@ -82,6 +83,7 @@ bool AgePadEngineConnected(void) { return User && ((bool (*)(void *))Slot(User,M
 int AgePadEngineLogonState(void) { return User?((int (*)(void *))Slot(User,Method.logonState))(User):-1; }
 uint64_t AgePadEngineSteamID(void) { return User?((uint64_t (*)(void *))Slot(User,Method.steamID))(User):0; }
 bool AgePadEngineOwnsApp(uint32_t appID) { return User && ((bool (*)(void *,uint32_t))Slot(User,Method.subscribed))(User,appID); }
+int AgePadEngineCanLogOnOffline(void) { return User?((int (*)(void *))Slot(User,Method.canOffline))(User):-1; }
 kern_return_t AgePadEngineRegister(const char *clientPath,kern_return_t (*lookUp)(mach_port_t,const char *,mach_port_t *)) {
     mach_port_t service=MACH_PORT_NULL;
     kern_return_t status=lookUp(bootstrap_port,"com.valvesoftware.steam.ipctool",&service);
