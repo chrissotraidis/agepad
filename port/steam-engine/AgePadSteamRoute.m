@@ -135,8 +135,10 @@ static NSString *LoadToken(NSString *account) {
         for (int tenth=0;tenth<600 && !AgePadEngineLoggedOn();tenth++) {
             if (tenth%20==0) fprintf(stderr,"AGEPAD_ENGINE_STATE t=%d result=%d connected=%d logged_on=0 logon_state=%d offline=%d\n",
                 tenth/10,result,AgePadEngineConnected(),AgePadEngineLogonState(),offline);
-            // No connection after 10 s: Steam's own offline mode (needs one earlier online sign-in).
-            if (tenth==100 && !offline && !AgePadEngineConnected()) {
+            // The iPad has a network but Steam's servers cannot be reached for
+            // 45 s: Steam's own offline mode (needs one earlier online sign-in).
+            // Slow connections (15 s has been seen) stay online.
+            if (tenth==450 && !offline && !AgePadEngineConnected()) {
                 offline=YES;result=AgePadEngineLogOnOffline();
                 say(@"No connection. Starting Steam in offline mode…");
             }
