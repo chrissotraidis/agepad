@@ -20,9 +20,17 @@ from importlib import import_module
 _sim = import_module('build-de-simulator-runtime')
 import de_device
 
+# Steam client chain (Valve's engine plus its generated boundary sources);
+# --steam-client points at a copy refreshed from the Mac's current Steam.
+CLIENT_DIR = None
+
+
+def client_dir(package):
+    return CLIENT_DIR or package / 'game-client'
+
 
 def check_fresh_sources(package, output, sdk):
-    roots = [package.parent / 'artifacts/candidate.app-art', package / 'game-client']
+    roots = [package.parent / 'artifacts/candidate.app-art', client_dir(package)]
     sources = [source for root in roots for source in sorted(root.glob('*.m'))]
     if not sources or not (roots[0] / 'AppKit.m').is_file():
         raise SystemExit('Fresh package has no generated engine boundary sources')
@@ -128,7 +136,7 @@ CLIENT_REPLACEMENTS = {'DiskArbitration': 'DiskArbitrationUnavailable.m',
 
 
 def link_client_replacements(package, output, sdk):
-    game_client = package / 'game-client'
+    game_client = client_dir(package)
     for library, name in CLIENT_REPLACEMENTS.items():
         source = ROOT / 'port/steam-engine' / name
         defined = {'_' + symbol for symbol in re.findall(
@@ -156,7 +164,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--package', type=Path, default=de_device.package_dir())
+    parser.add_argument('--steam-client', type=Path, help='Steam client chain folder (default: PACKAGE/game-client)')
     args = parser.parse_args()
+    global CLIENT_DIR
+    CLIENT_DIR = args.steam_client.resolve(strict=True) if args.steam_client else None
     output = args.output.resolve()
     if output.exists():
         parser.error('Use a fresh output directory')

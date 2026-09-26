@@ -16,6 +16,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--candidate-root', type=Path, required=True)
+parser.add_argument('--steam-client', type=Path, help='Steam client chain folder (default: CANDIDATE/package/game-client)')
 parser.add_argument('--boundary', type=Path, required=True, help='Output of build-de-device-runtime.py')
 parser.add_argument('--output', type=Path, required=True, help='Fresh .app path')
 parser.add_argument('--profile', type=Path, required=True)
@@ -53,7 +54,7 @@ spec = importlib.util.spec_from_file_location('de_adapter', ROOT / 'scripts/prep
 adapter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(adapter)
 app_source = root / 'candidate.app'
-client_source = root / 'package/game-client'
+client_source = args.steam_client.resolve(strict=True) if args.steam_client else root / 'package/game-client'
 if not (app_source / 'DEOriginalGame').is_file() or not client_source.is_dir():
     parser.error('Candidate root has no complete Simulator game/client package')
 shutil.copytree(app_source, output)

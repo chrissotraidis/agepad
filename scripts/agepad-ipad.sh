@@ -119,15 +119,33 @@ EOF
     || { print "Helper did not start; see $STATE/helper.log"; return 1; }
 }
 build() {
+steam_client() { # Valve's Steam engine for the app: the Mac's current Steam, converted once per Steam version
+  local PACKAGED=$CANDIDATE/package/game-client MAC="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents"
+  [[ -f "$MAC/MacOS/steamclient.dylib" ]] || { print -u2 "Steam for Mac not found; using the Steam engine from the build package."; print $PACKAGED; return; }
+  local SLICE=$(mktemp); lipo "$MAC/MacOS/steamclient.dylib" -thin arm64 -output $SLICE 2>/dev/null || cp "$MAC/MacOS/steamclient.dylib" $SLICE
+  local NOW=$(shasum -a 256 $SLICE | cut -c1-12); rm -f $SLICE
+  [[ $(shasum -a 256 $PACKAGED/original-steamclient.dylib | cut -c1-12) == $NOW ]] && { print $PACKAGED; return; }
+  local DIR=generated/steam-client-$NOW
+  if [[ ! -f $DIR/steamclient.dylib ]]; then
+    print -u2 "Steam on this Mac has updated; converting its engine for the iPad (once per Steam version)…"
+    rm -rf $DIR.partial
+    python3 scripts/build-de-steam-client-boundary.py "$MAC" $CANDIDATE/artifacts/steam-client-audit.json \
+      $CANDIDATE/artifacts/public-constants.json $DIR.partial --survey $CANDIDATE/artifacts/steam-client-survey.json \
+      > generated/steam-client-$NOW.log 2>&1 || { print -u2 "Converting Steam failed (generated/steam-client-$NOW.log)."; return 1; }
+    cp $PACKAGED/DEBoundary_*.dylib $DIR.partial/ && mv $DIR.partial $DIR
+  fi
+  print $DIR
+}
   local UDID=$(udid); [[ -z $UDID ]] && { print "No connected iPad. Run: scripts/agepad-ipad.sh check"; return 1; }
   local PROFILE=${AGEPAD_PROFILE:?Set AGEPAD_PROFILE to a development profile for $BUNDLE with the increased-memory-limit capability (docs/IPAD-SETUP.md, step 2)}
   local IDENTITY=${AGEPAD_IDENTITY:?Set AGEPAD_IDENTITY to your Apple Development signing identity hash (security find-identity -v -p codesigning)}
   local STAMP=$(date +%Y%m%d-%H%M%S) OUT=generated/ipad-build-$(date +%Y%m%d-%H%M%S)
+  local CLIENT; CLIENT=$(steam_client) || return 1
   print "Building the iPad compatibility layer…"
-  python3 scripts/build-de-device-runtime.py --package $CANDIDATE/package $OUT/runtime || return 1
+  python3 scripts/build-de-device-runtime.py --package $CANDIDATE/package --steam-client $CLIENT $OUT/runtime || return 1
   print "Packaging and signing…"
   python3 -c "import json;c=json.load(open('scripts/ipad-launch-env.json'))['play'];skip={'AGEPAD_STEAM_TUNNEL_HOST','AGEPAD_HOST_PATH_RELAY_TCP_HOST','AGEPAD_STEAM_TUNNEL_PORT','AGEPAD_HOST_PATH_RELAY_TCP_PORT','AGEPAD_STEAM_LOOPBACK_PORT'};print('\n'.join(k+'='+v for k,v in c.items() if k not in skip))" > $OUT.launch.env
-  python3 scripts/prepare-de-device-probe.py --candidate-root $CANDIDATE --boundary $OUT/runtime --ipc-load-probe $IPC \
+  python3 scripts/prepare-de-device-probe.py --candidate-root $CANDIDATE --steam-client $CLIENT --boundary $OUT/runtime --ipc-load-probe $IPC \
     --launch-env $OUT.launch.env \
     --original-steam-module "$STEAM_APP/Age Of Empires II.app/Contents/Frameworks/libsteam_api.dylib" \
     --steam-app-manifest "$HOME/Library/Application Support/Steam/steamapps/appmanifest_813780.acf" \
