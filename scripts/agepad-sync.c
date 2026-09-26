@@ -21,7 +21,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MANIFEST "/Documents/.agepad-sync-manifest.tsv"
+// The record for the game folder; any other --remote folder (tests) keeps its
+// own record beside it, named after the folder.
+static char manifest[PATH_MAX]="/Documents/.agepad-sync-manifest.tsv";
+#define MANIFEST manifest
 #define MARKER ".agepad-import-inventory-checked"
 #define TABLE (1u<<17)
 
@@ -81,7 +84,7 @@ static int write_remote(const char *path,const char *data,size_t length) {
     return afc_rename_path(afc,part,path)==AFC_E_SUCCESS?0:-1;
 }
 static int save_manifest(void) {
-    if (dry_run || strcmp(remote_root,"/Documents/AgeOfEmpires2Data")) return 0; // test folders keep no record
+    if (dry_run) return 0;
     size_t capacity=4<<20,length=0;char *text=malloc(capacity);
     length+=snprintf(text,capacity,"#agepad-sync 1\tbuild=%s\n",build);
     for (unsigned i=0;i<TABLE;i++) if (table[i].path && table[i].used) {
@@ -220,8 +223,8 @@ int main(int argc,char **argv) {
     if (!status || strcmp(status,"Complete") || afc_client_new_from_house_arrest_client(house,&afc)!=AFC_E_SUCCESS) {
         fprintf(stderr,"The iPad refused access to AgePad's storage.\n");return 2;
     }
-    int had_manifest=strcmp(remote_root,"/Documents/AgeOfEmpires2Data")?0:load_manifest();
-    if (strcmp(remote_root,"/Documents/AgeOfEmpires2Data")) verify_all=1; // test folders: no saved record
+    if (strcmp(remote_root,"/Documents/AgeOfEmpires2Data")) snprintf(manifest,sizeof manifest,"%s.agepad-sync-manifest.tsv",remote_root);
+    int had_manifest=load_manifest();
     printf("Comparing your Mac's game files with the iPad%s…\n",had_manifest?"":" (first run: checking every file on the iPad)");
     fflush(stdout);
     plan("",!had_manifest);
