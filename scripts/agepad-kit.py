@@ -35,6 +35,7 @@ GAME = HOME / 'Library/Application Support/Steam/steamapps/common/AoE2DE/Age Of 
 STEAM = HOME / 'Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS'
 STEAMAPPS = HOME / 'Library/Application Support/Steam/steamapps'
 DYLIB_COMMANDS = (0xc, 0x80000018, 0x8000001f, 0x80000023, 0xd)
+WRAP = b'AGEPAD-MODULE-1\n'  # a vendor file stored behind this header (see SteamModuleCompat.m)
 
 
 def install_record(text):
@@ -188,6 +189,12 @@ def recipe(app, out, game, steam):
         if rel in derived:
             continue
         data = p.read_bytes()
+        if data.startswith(WRAP):
+            key = by_hash.get(sha(data[len(WRAP):]))
+            if not key:
+                sys.exit('Wrapped file with unknown contents: ' + rel)
+            entries.append({'path': rel, 'source': key, 'source_sha256': sha(data[len(WRAP):]), 'op': 'wrap'})
+            continue
         key = by_hash.get(sha(data))
         if key:
             entries.append({'path': rel, 'source': key, 'source_sha256': sha(data), 'op': 'copy'})
@@ -260,7 +267,7 @@ def inject(base_ipa, out, game, steam, steamapps=STEAMAPPS):
             z.extractall(tmp)
         app = next((Path(tmp) / 'Payload').glob('*.app'))
         plan = json.loads((app / 'AgePadKit.json').read_text())
-        missing = [e['source'] for e in plan['files'] if e['op'] in ('copy', 'header') and e['source'] not in table]
+        missing = [e['source'] for e in plan['files'] if e['op'] in ('copy', 'header', 'wrap') and e['source'] not in table]
         if missing:
             sys.exit('Not found in your game/Steam folders: %s. Is Age of Empires II: DE (Mac) installed through Steam?'
                      % ', '.join(sorted(set(missing))[:5]))
@@ -288,6 +295,8 @@ def inject(base_ipa, out, game, steam, steamapps=STEAMAPPS):
                 continue
             if entry['op'] == 'header':
                 data = transform(thin(data), entry['edits'])
+            if entry['op'] == 'wrap':
+                data = WRAP + data
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             if entry['op'] == 'header':

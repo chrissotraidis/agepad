@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import plistlib
 import re
@@ -128,13 +129,28 @@ if args.original_steam_module:
     original = args.original_steam_module.resolve(strict=True)
     if hashlib.sha256(original.read_bytes()).hexdigest() != config['original_sha256']:
         parser.error('Owned original Steam module does not match the pinned build')
-    shutil.copy2(original, output / 'OriginalSteamModule.data')
+    # Wrapped so signing tools don't sign (and so change) it; see SteamModuleCompat.m.
+    (output / 'OriginalSteamModule.wrapped').write_bytes(b'AGEPAD-MODULE-1\n' + original.read_bytes())
     # The game's own Metal shader library runs unchanged on the iPad (verified on
     # hardware, 26 Sep), so ship the owned file itself rather than a rebuild.
     shader = original.parents[1] / 'Resources/feral.metallib'  # Contents/Frameworks/libsteam_api.dylib -> Contents
     if shader.is_file():
         for name in ('feral.metallib', 'feral-retargeted.metallib'):
             shutil.copy2(shader, output / name)
+    # What a complete copy of the game data holds (file count and bytes, not
+    # names or contents), so the app can tell a finished Finder copy from a
+    # partial one. Hidden files are skipped, as the app does.
+    game_data = original.parents[3] / 'AgeOfEmpires2Data'
+    if game_data.is_dir():
+        count = size = 0
+        for folder, dirs, names in os.walk(game_data):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for name in names:
+                path = Path(folder) / name
+                if not name.startswith('.') and path.is_file() and not path.is_symlink():
+                    count += 1
+                    size += path.stat().st_size
+        (output / 'GameDataInventory.json').write_text(json.dumps({'files': count, 'bytes': size}) + '\n')
 info_path = output / 'Info.plist'
 if args.steam_app_manifest:
     # The in-app Steam engine's install record for the imported game: same build
@@ -158,6 +174,9 @@ for name, px in {'AppIcon76x76~ipad.png': 76, 'AppIcon76x76@2x~ipad.png': 152, '
     subprocess.run(['sips', '-s', 'format', 'png', '-z', str(px), str(px), str(icon), '--out', str(output / name)],
                    check=True, capture_output=True)
 # Tap-to-play reaches the Mac helper on the home network; iPadOS asks once.
+# Players copy the game files in through Finder's iPad view or the Files app.
+info['UIFileSharingEnabled'] = True
+info['LSSupportsOpeningDocumentsInPlace'] = True
 info['NSLocalNetworkUsageDescription'] = ('AgePad connects to the AgePad helper on your Mac, '
                                           'which lets the game use your Mac\'s Steam sign-in.')
 info_path.write_bytes(plistlib.dumps(info))

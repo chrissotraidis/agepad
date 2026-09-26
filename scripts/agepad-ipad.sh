@@ -269,7 +269,7 @@ kit() {
   [[ -n $APP ]] || { print "Build first: scripts/agepad-ipad.sh build"; return 1; }
   mkdir -p generated/kit
   python3 scripts/agepad-kit.py recipe $APP generated/kit/recipe.json || return 1
-  python3 scripts/agepad-kit.py base $APP generated/kit/recipe.json generated/kit/AgePad-base.ipa
+  python3 scripts/agepad-kit.py base $APP generated/kit/recipe.json generated/kit/AgePad-base.ipa && python3 scripts/audit-agepad-base.py generated/kit/AgePad-base.ipa
 }
 inject() {
   [[ -f ${1:-} ]] || { print "Usage: scripts/agepad-ipad.sh inject AgePad-base.ipa"; return 1; }

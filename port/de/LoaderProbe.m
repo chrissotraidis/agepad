@@ -569,6 +569,43 @@ static void DEApplyDefaultUIScale(void) {
     fprintf(stderr,"DE_DEFAULT_UI_SCALE applied=%d new_file=%d\n",written,text==nil);
 }
 
+// Game files copied in by the player (Finder's iPad view or the Files app, or
+// scripts/agepad-ipad.sh sync). GameDataInventory.json, written at build time
+// from the Mac's Steam install, says how many files and bytes a complete copy
+// has; once they match, the check is recorded and not repeated. Hidden files
+// (Finder's .DS_Store) are ignored on both sides. Returns YES when complete.
+static BOOL DEGameDataComplete(NSString *data,NSString **status) {
+    NSString *marker=[data stringByAppendingPathComponent:@".agepad-import-inventory-checked"];
+    NSFileManager *files=NSFileManager.defaultManager;
+    if ([files fileExistsAtPath:marker]) return YES;
+    NSDictionary *expected=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:
+        [NSBundle.mainBundle pathForResource:@"GameDataInventory" ofType:@"json"]]?:[NSData data] options:0 error:nil];
+    if (!expected) return [[files contentsOfDirectoryAtPath:data error:NULL] count]>0;
+    unsigned long long count=0,bytes=0;
+    NSDirectoryEnumerator *walk=[files enumeratorAtURL:[NSURL fileURLWithPath:data]
+        includingPropertiesForKeys:@[NSURLIsRegularFileKey,NSURLFileSizeKey] options:NSDirectoryEnumerationSkipsHiddenFiles errorHandler:nil];
+    for (NSURL *url in walk) {
+        NSNumber *regular=nil,*size=nil;
+        // Steam's engine leaves this small cache file in the game's working
+        // folder while playing; it isn't part of the game data.
+        if ([url.lastPathComponent isEqualToString:@"update_hosts_cached.vdf"]) continue;
+        [url getResourceValue:&regular forKey:NSURLIsRegularFileKey error:nil];
+        if (!regular.boolValue) continue;
+        [url getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+        count++;bytes+=size.unsignedLongLongValue;
+    }
+    unsigned long long wantCount=[expected[@"files"] unsignedLongLongValue],wantBytes=[expected[@"bytes"] unsignedLongLongValue];
+    BOOL complete=count==wantCount && bytes==wantBytes;
+    fprintf(stderr,"DE_GAME_DATA_CHECK files=%llu/%llu bytes=%llu/%llu complete=%d\n",count,wantCount,bytes,wantBytes,complete);
+    if (complete) [@"agepad in-app inventory check\n" writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    else if (status) *status=count?[NSString stringWithFormat:@"%@ of %@ game files copied (%@ of %@). If a copy is still running, wait for it to finish, then reopen AgePad.",
+        [NSNumberFormatter localizedStringFromNumber:@(count) numberStyle:NSNumberFormatterDecimalStyle],
+        [NSNumberFormatter localizedStringFromNumber:@(wantCount) numberStyle:NSNumberFormatterDecimalStyle],
+        [NSByteCountFormatter stringFromByteCount:(long long)bytes countStyle:NSByteCountFormatterCountStyleFile],
+        [NSByteCountFormatter stringFromByteCount:(long long)wantBytes countStyle:NSByteCountFormatterCountStyleFile]]:nil;
+    return complete;
+}
+
 // The original game searches Feral's per-user Application Support folder for
 // AgeOfEmpires2Data before asking for a folder. On iPad that folder is inside
 // this app's own container, so a relative link can expose the verified import
@@ -893,7 +930,8 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         fflush(stderr);
         NSString *data = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
             stringByAppendingPathComponent:@"AgeOfEmpires2Data"];
-        BOOL hasData = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:data error:NULL] count] > 0;
+        NSString *dataStatus = nil;
+        BOOL hasData = DEGameDataComplete(data, &dataStatus);
         // This opt-in is a launch diagnostic. A partial import may be enough
         // to reveal the next original-engine dependency, but is not gameplay.
         // Starts the original game once a Steam route is ready (now, or later
@@ -955,8 +993,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
             };
         UIColor *muted = [UIColor colorWithRed:.75 green:.81 blue:.84 alpha:1];
         UIColor *gold = [UIColor colorWithRed:.88 green:.71 blue:.40 alpha:1];
-        BOOL inventoryChecked = [NSFileManager.defaultManager fileExistsAtPath:
-            [data stringByAppendingPathComponent:@".agepad-import-inventory-checked"]];
+        BOOL inventoryChecked = hasData;
         NSDictionary *disk = [NSFileManager.defaultManager attributesOfFileSystemForPath:NSHomeDirectory() error:NULL];
         unsigned long long freeBytes = [disk[NSFileSystemFreeSize] unsignedLongLongValue];
         NSString *freeSpace = [NSByteCountFormatter stringFromByteCount:(long long)freeBytes countStyle:NSByteCountFormatterCountStyleFile];
@@ -1028,8 +1065,8 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                 DEPairedMacState==0 ? @"Steam isn't open on your Mac. Open Steam there, then reopen AgePad." :
                 @"Couldn't reach your Mac. Make sure it's awake and on the same Wi-Fi (or Tailscale), then reopen AgePad.",
                 23, UIFontWeightSemibold, UIColor.whiteColor);
-        addLine(inventoryChecked ? @"Game files · Ready on this iPad" :
-                hasData ? @"Game files · Copy incomplete or not checked" : @"Game files · Not on this iPad yet",
+        addLine(hasData ? @"Game files · Ready on this iPad" :
+                dataStatus ? [@"Game files · " stringByAppendingString:dataStatus] : @"Game files · Not on this iPad yet",
                 19, UIFontWeightMedium, UIColor.whiteColor);
         addLine([NSString stringWithFormat:@"Free space on this iPad · %@",freeSpace],
                 19, UIFontWeightMedium, UIColor.whiteColor);
@@ -1039,7 +1076,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         if (!engineRoute || !inventoryChecked) addLine(inventoryChecked ?
                 (paired ? @"The AgePad helper runs on the Mac (scripts/agepad-ipad.sh install-helper starts it automatically at login)." :
                  @"To pair: connect the iPad by USB and run  scripts/agepad-ipad.sh pair  on the Mac. After that, tap AgePad whenever the Mac is on with Steam open.") :
-                @"Game files are missing. On your Mac run  scripts/agepad-ipad.sh check  in the AgePad folder; it explains how to copy your Steam copy of the game to this iPad.",
+                @"To copy the game files: connect the iPad to your Mac, open it in Finder, choose Files, and drag the AgeOfEmpires2Data folder onto AgePad. It's in Steam > Library > Age of Empires II: DE > Manage > Browse local files. (Or run  scripts/agepad-ipad.sh sync  in the AgePad folder.) About 20 GB; keep 25 GB free.",
                 18, UIFontWeightRegular, muted);
         addLine(@"Controls · tap: select · Pencil tap after selecting: move/order · hold: plain click · two-finger tap: right-click · three-finger drag: scroll map · pinch: zoom",
                 16, UIFontWeightRegular, muted);

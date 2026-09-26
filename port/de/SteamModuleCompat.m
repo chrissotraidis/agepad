@@ -40,7 +40,25 @@ static NSString *DEAdjacentSteamPath(void) {
             stringByAppendingPathComponent:@"Frameworks/libsteam_api.dylib"];
 }
 static NSString *DEDeviceOriginalSteamPath(void) {
-    return [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"OriginalSteamModule.data"];
+    // The owned Mac module is shipped wrapped (a 16-byte AgePad header before
+    // the untouched bytes) so signing tools, which sign every Mach-O they find,
+    // leave it alone; the game hashes these bytes itself. It is unwrapped once
+    // into Caches. Older builds carry it unwrapped as OriginalSteamModule.data.
+    static NSString *path;
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        NSString *bundle=[NSBundle mainBundle].bundlePath;
+        NSString *plain=[bundle stringByAppendingPathComponent:@"OriginalSteamModule.data"];
+        NSData *wrapped=[NSData dataWithContentsOfFile:[bundle stringByAppendingPathComponent:@"OriginalSteamModule.wrapped"]
+                                               options:NSDataReadingMappedIfSafe error:nil];
+        if (wrapped.length<=16 || memcmp(wrapped.bytes,"AGEPAD-MODULE-1\n",16)) { path=plain;return; }
+        NSData *body=[wrapped subdataWithRange:NSMakeRange(16,wrapped.length-16)];
+        NSString *cache=[[NSSearchPathForDirectoriesInDomains(NSCachesDirectory,NSUserDomainMask,YES) firstObject]
+            stringByAppendingPathComponent:@"OriginalSteamModule.data"];
+        if (![[NSData dataWithContentsOfFile:cache] isEqualToData:body]) [body writeToFile:cache atomically:YES];
+        path=cache;
+    });
+    return path;
 }
 static NSDictionary *DESteamModuleConfig(void) {
     NSData *data=[NSData dataWithContentsOfFile:[[NSBundle mainBundle].bundlePath
@@ -135,8 +153,10 @@ static BOOL DESteamModuleMappedPath(const char *path,char *original,size_t size)
     size_t length=strlen(path),suffixLength=sizeof(suffix)-1;
     if (length<=suffixLength || strcmp(path+length-suffixLength,suffix)!=0 ||
         !strstr(path,"/Bundle/Application/")) return NO;
-    int count=snprintf(original,size,"%.*s/AgePadDeviceProbe.app/OriginalSteamModule.data",
-        (int)(length-suffixLength),path);
+    static char module[4096];
+    static dispatch_once_t once;
+    dispatch_once(&once,^{ strlcpy(module,DEDeviceOriginalSteamPath().fileSystemRepresentation,sizeof(module)); });
+    int count=snprintf(original,size,"%s",module);
     return count>0 && (size_t)count<size;
 }
 // Startup profile counters (read by the launcher's watchdog): stat calls,
