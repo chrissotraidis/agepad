@@ -21,6 +21,13 @@ int main(int argc,char **argv) {
         if (vtable) dladdr(vtable,&info);
         printf("STAGE0_INTERFACE name=%s object=%d status=%d vtable_offset=0x%lx\n",names[i],object!=NULL,status,
                vtable&&info.dli_fbase?(unsigned long)((char *)vtable-(char *)info.dli_fbase):0UL);
+        if (i==0 && vtable && getenv("STAGE0_DUMP_VTABLE")) {
+            for (int slot=0;slot<96;slot++) {
+                void *fn=((void **)vtable)[slot];Dl_info f={0};
+                if (!fn || !dladdr(fn,&f) || f.dli_fbase!=info.dli_fbase) break;
+                printf("STAGE0_ENGINE_SLOT %d 0x%lx\n",slot,(unsigned long)((char *)fn-(char *)f.dli_fbase));
+            }
+        }
     }
     return 0;
 }
