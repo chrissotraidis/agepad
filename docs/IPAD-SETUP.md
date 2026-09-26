@@ -81,11 +81,11 @@ In menus, taps are always plain clicks.
 | Tap | Select (left click) |
 | Drag | Selection box |
 | Two-finger tap | Right click: move, gather, attack |
-| Three-finger drag | Scroll the map |
+| Three-finger drag | Move the map: drag a little in any direction and the view keeps scrolling that way (at the game's scroll speed) until you lift |
 | Pinch | Zoom |
 | Apple Pencil tap on a unit or drag-box | Select; the next Pencil taps on the map give orders (right click) until you… |
 | Apple Pencil hold (½ s) | …plain left click, which stops giving orders |
-| Apple Pencil double-tap (on the Pencil's side, 2nd gen / Pro) | Deselect and stop giving orders |
+| Apple Pencil double-tap (2nd gen / Pro) or squeeze (Pro) | Deselect and stop giving orders |
 | Pencil tap on the top bar or bottom panel | Normal button press |
 | A mouse or trackpad (Bluetooth or USB-C) | Click, right click (secondary button or two-finger click), drag-box select. The wheel or a two-finger trackpad scroll zooms, as on the Mac (added 26 Sep, not yet tried with a real mouse); move the map with the keyboard arrows or the minimap |
 | A hardware keyboard | All the game's own hotkeys (F10 menu, Enter chat, letter shortcuts) |
