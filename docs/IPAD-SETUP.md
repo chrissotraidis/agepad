@@ -71,7 +71,7 @@ The Mac routes remain as fallbacks: **Play with my Mac's Steam instead** on the 
 
 In menus, taps are always plain clicks.
 
-**Tip:** the in-game HUD looks small on the iPad. In the game's **Options → Interface**, raise **HUD scale** and confirm; the setting is kept in your profile.
+**HUD size:** AgePad starts the in-game HUD at 125% on a new installation (it reads small on an iPad at the game's 100%). Change it any time in the game's **Options → Interface → HUD scale**; AgePad never changes it again. A new installation also skips Feral's desktop pre-game launcher and its Mac mouse tips, with crash reports and usage statistics off (changeable in the game's options).
 
 **Steam:** the name at the top right of the main menu is your Steam account.
 ## Controls in a match

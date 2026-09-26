@@ -512,6 +512,60 @@ static void *DEMainWatchdogLoop(void *unused) {
     return NULL;
 }
 
+// First-run settings, applied once per installation; a player's later choices
+// are never changed again. They live in Feral's registry file ("Preferences
+// Data"). The in-game HUD reads small on an iPad at the game's default "UI
+// Scale" (100), so it starts at 125 (Options > Interface > HUD scale). On a
+// new installation Feral's desktop pre-game launcher, which asks about sending
+// crash reports and usage statistics, is also skipped with "don't send"
+// (changeable later in the game's options).
+static void DEApplyDefaultUIScale(void) {
+    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+    if ([defaults boolForKey:@"AgePadDefaultUIScaleApplied"] && !getenv("AGEPAD_TEST_FIRST_RUN")) return;
+    NSString *path=[[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES).firstObject
+        stringByAppendingPathComponent:@"Feral Interactive/Age Of Empires II"] stringByAppendingPathComponent:@"Preferences Data"];
+    NSString *value=@"<value name=\"UI Scale\" type=\"integer\">125</value>";
+    NSString *text=[NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    NSString *result=nil;
+    if (!text) {
+        [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+        NSMutableString *setup=[NSMutableString string];
+        for (NSString *name in @[@"GameOptionsDialogShouldShow",@"AllowSendCrashReports",@"AllowSendUsageData"])
+            [setup appendFormat:@"                        <value name=\"%@\" type=\"integer\">0</value>\n",name];
+        // Desktop first-run notices that don't apply on an iPad (the launcher,
+        // Mac mouse/keyboard tips) are marked as seen, as after a first run.
+        for (NSString *name in @[@"GameOptionsDialogShown",@"SpecificationFirstLaunchCheck",@"SoftwareUpdatedAskedUser",@"TotalLaunchCount"])
+            [setup appendFormat:@"                        <value name=\"%@\" type=\"integer\">1</value>\n",name];
+        [setup appendString:@"                        <key name=\"SpecificationAlerts\">\n"];
+        for (NSString *name in @[@"FnMapping",@"MiddleMouseBinding",@"ModWarning_1_2RC9"])
+            [setup appendFormat:@"                            <value name=\"%@\" type=\"integer\">1</value>\n",name];
+        [setup appendString:@"                        </key>\n"];
+        result=[NSString stringWithFormat:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<registry>\n    <key name=\"HKEY_CURRENT_USER\">\n"
+            "        <key name=\"Software\">\n            <key name=\"Feral Interactive\">\n                <key name=\"Age Of Empires II\">\n"
+            "                    <key name=\"Setup\">\n%@                    </key>\n                </key>\n            </key>\n"
+            "            <key name=\"Microsoft\">\n                <key name=\"Microsoft Games\">\n"
+            // Standard graphics: the "Enhanced Graphics Pack" is a separate free
+            // download the imported game does not include.
+            "                    <key name=\"Age of Empires II DE\">\n                        %@\n"
+            "                        <value name=\"Graphics 2x\" type=\"integer\">0</value>\n"
+            "                        <value name=\"FreshStart\" type=\"integer\">0</value>\n"
+            // The game build AgePad's program is (menu "#185872"): its
+            // first-run notices are the desktop ones above.
+            "                        <value name=\"LastRunBuildVersion\" type=\"integer\">185872</value>\n                    </key>\n"
+            "                </key>\n            </key>\n        </key>\n    </key>\n</registry>\n",setup,value];
+    } else {
+        NSRange existing=[text rangeOfString:@"<value name=\"UI Scale\" type=\"integer\">100</value>"];
+        NSRange section=[text rangeOfString:@"<key name=\"Age of Empires II DE\">"];
+        if (existing.location!=NSNotFound) result=[text stringByReplacingCharactersInRange:existing withString:value];
+        else if (section.location!=NSNotFound && [text rangeOfString:@"name=\"UI Scale\""].location==NSNotFound)
+            result=[text stringByReplacingCharactersInRange:NSMakeRange(NSMaxRange(section),0)
+                withString:[@"\n                        " stringByAppendingString:value]];
+    }
+    BOOL written=result && [result writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    [defaults setBool:YES forKey:@"AgePadDefaultUIScaleApplied"];
+    fprintf(stderr,"DE_DEFAULT_UI_SCALE applied=%d new_file=%d\n",written,text==nil);
+}
+
 // The original game searches Feral's per-user Application Support folder for
 // AgeOfEmpires2Data before asking for a folder. On iPad that folder is inside
 // this app's own container, so a relative link can expose the verified import
@@ -842,6 +896,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         // Starts the original game once a Steam route is ready (now, or later
         // from the engine route's sign-in). Returns NO if it cannot start.
         BOOL (^startGame)(void) = ^BOOL {
+            DEApplyDefaultUIScale();
             NSString *gameData=DEDeviceLinkFeralDataFolder(data);
             DEStartMainWatchdog();
             // The game spells its data root through the Feral link with the
