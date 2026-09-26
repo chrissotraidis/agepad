@@ -3,6 +3,7 @@
 #   scripts/agepad-ipad.sh check            what is ready and what is missing
 #   scripts/agepad-ipad.sh build            build, sign and install the app (in place, keeps saves)
 #   scripts/agepad-ipad.sh sync             copy the game files to the iPad over USB-C (after a game update: only what changed)
+#   scripts/agepad-ipad.sh ipa              package the last build as a private .ipa (your copy only; never share it)
 #   scripts/agepad-ipad.sh pair             once, over USB: let the iPad reach this Mac's Steam over Wi-Fi
 #   scripts/agepad-ipad.sh install-helper   run the Mac helper automatically at login (tap-to-play)
 #   scripts/agepad-ipad.sh serve            run the Mac helper in this window instead
@@ -253,5 +254,13 @@ logs() {
   grep -E 'DE_MEMORY_LIMIT|DE_FAULT sig' $DEST/watchdog.log 2>/dev/null | head -3
   grep DE_WATCHDOG_TICK $DEST/watchdog.log 2>/dev/null | tail -1 | cut -c1-90
 }
-case ${1:-check} in check) check;; setup) setup;; build) build;; sync) shift; sync "$@";; pair) pair;; serve) serve;; install-helper) install_helper;;
+ipa() { # the last signed build as an .ipa: contains your copy of the game program and Steam, so keep it private
+  local APP=$(ls -dt generated/ipad-build-2*/AgePadDeviceProbe.app 2>/dev/null | head -1)
+  [[ -n $APP ]] || { print "Build first: scripts/agepad-ipad.sh build"; return 1; }
+  local STAGE=$(mktemp -d) OUT=generated/AgePad-$(date +%Y%m%d).ipa
+  mkdir -p $STAGE/Payload && cp -R $APP $STAGE/Payload/ && (cd $STAGE && zip -qry - Payload) > $OUT || return 1
+  print "Wrote $OUT ($(du -h $OUT | cut -f1)). It holds your own copy of the game program and Steam, signed for your"
+  print "registered iPads only: install it with Xcode, Apple Configurator or devicectl; do not share or upload it."
+}
+case ${1:-check} in check) check;; setup) setup;; build) build;; sync) shift; sync "$@";; ipa) ipa;; pair) pair;; serve) serve;; install-helper) install_helper;;
   play) shift; play "$@";; logs) logs;; *) sed -n 2,12p $0; exit 2;; esac
