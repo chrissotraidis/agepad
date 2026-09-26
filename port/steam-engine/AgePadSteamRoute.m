@@ -96,15 +96,56 @@ static NSDictionary<NSString *,NSString *> *AppRecordState(void) {
     }
     return state;
 }
+// The game's current public build as Valve's servers last told this iPad's
+// Steam: appcache/appinfo.vdf (format 0x07564429: string table, binary
+// key-values) → appinfo/depots/branches/public/buildid. 0 if unknown.
+static long long PublicGameBuild(uint32_t app) {
+    NSData *file=[NSData dataWithContentsOfFile:[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES).firstObject
+        stringByAppendingPathComponent:@"Steam/appcache/appinfo.vdf"] options:NSDataReadingMappedIfSafe error:nil];
+    const uint8_t *d=file.bytes;size_t n=file.length;
+    if (n<16 || *(const uint32_t *)d!=0x07564429) return 0;
+    uint64_t table=*(const uint64_t *)(d+8);
+    if (table+4>n) return 0;
+    uint32_t count=*(const uint32_t *)(d+table);
+    const char **strings=calloc(count,sizeof *strings);size_t p=table+4;
+    for (uint32_t i=0;i<count && p<n;i++) { strings[i]=(const char *)d+p;const uint8_t *end=memchr(d+p,0,n-p);if (!end) break;p=end-d+1; }
+    long long build=0;
+    for (p=16;p+8<=table;) {
+        uint32_t id=*(const uint32_t *)(d+p),size=*(const uint32_t *)(d+p+4);
+        if (!id) break;
+        if (id==app) {
+            // Walk the key-values; remember the path of section names.
+            const char *path[16];int depth=0;size_t q=p+8+4+4+8+20+4+20,stop=p+8+size;
+            while (q<stop && q<n) {
+                uint8_t type=d[q++];
+                if (type==8) { if (--depth<0) break;continue; }
+                if (q+4>n) break;
+                int32_t key=*(const int32_t *)(d+q);q+=4;
+                const char *name=key>=0 && (uint32_t)key<count?strings[key]:"";
+                if (type==0) { if (depth<16) path[depth]=name;depth++;continue; }
+                if (type==1) { const uint8_t *end=memchr(d+q,0,n-q);if (!end) break;q=end-d+1;continue; }
+                if (type==7) { q+=8;continue; }
+                if (type!=2) break;
+                int32_t value=*(const int32_t *)(d+q);q+=4;
+                if (depth==4 && !strcmp(name,"buildid") && !strcmp(path[1],"depots") && !strcmp(path[2],"branches") && !strcmp(path[3],"public"))
+                    build=value;
+            }
+            break;
+        }
+        p+=8+size;
+    }
+    free(strings);
+    return build;
+}
 static void LogAppRecordState(const char *when) {
     NSDictionary *state=AppRecordState();
-    fprintf(stderr,"AGEPAD_STEAM_APP_STATE when=%s buildid=%s target=%s state_flags=%s update_result=%s\n",when,
-        [state[@"buildid"] UTF8String]?:"-",[state[@"TargetBuildID"] UTF8String]?:"-",
+    long long have=[state[@"buildid"] longLongValue],latest=PublicGameBuild(813780);
+    fprintf(stderr,"AGEPAD_STEAM_APP_STATE when=%s buildid=%s public=%lld target=%s state_flags=%s update_result=%s\n",when,
+        [state[@"buildid"] UTF8String]?:"-",latest,[state[@"TargetBuildID"] UTF8String]?:"-",
         [state[@"StateFlags"] UTF8String]?:"-",[state[@"UpdateResult"] UTF8String]?:"-");
-    // Steam knows of a newer game build than the one on this iPad: remember it
-    // so the next launch can say so even if this one has already started.
-    long long have=[state[@"buildid"] longLongValue],latest=[state[@"TargetBuildID"] longLongValue];
-    if (have && latest>have) [NSUserDefaults.standardUserDefaults setObject:state[@"TargetBuildID"] forKey:@"AgePadNewerGameBuild"];
+    // Valve's public build is newer than the one on this iPad: remember it so
+    // the next launch can say so even if this one has already started.
+    if (have && latest>have) [NSUserDefaults.standardUserDefaults setObject:@(latest).stringValue forKey:@"AgePadNewerGameBuild"];
     else if (have && latest==have) [NSUserDefaults.standardUserDefaults removeObjectForKey:@"AgePadNewerGameBuild"];
 }
 static NSString *GameUpdateNote(void) {
