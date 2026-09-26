@@ -62,7 +62,7 @@ Open AgePad on the iPad. The first time, it shows **Sign in to Steam** with a QR
 ## Keeping it up to date
 
 - **When Steam updates itself on your Mac,** run `scripts/agepad-ipad.sh setup` (or `build`) with the iPad connected. AgePad takes Valve's Steam software from your Mac each time it is built. If Valve's servers ever stop accepting the copy inside AgePad, the iPad says so, tells you to do this, and keeps working offline in the meantime.
-- **When Steam updates Age of Empires II on your Mac,** the iPad keeps the version it has. That is fine for single player and offline play, but online matches need the current version. AgePad itself must first be updated for each new game version (its program is matched to one game version). `check` and `sync` tell you when that is the case and refuse to copy mismatched files. Once AgePad supports the new version, `sync` copies only the files the update changed.
+- **When Steam updates Age of Empires II,** AgePad says so on the iPad the next time it opens with Internet (it reads the current version from Steam's own data). The iPad keeps the version it has. That is fine for single player and offline play, but online matches need the current version. AgePad itself must first be updated for each new game version (its program is matched to one game version). `check` and `sync` tell you when that is the case and refuse to copy mismatched files. Once AgePad supports the new version, `sync` copies only the files the update changed.
 - `scripts/agepad-ipad.sh logs` copies the iPad's logs to `generated/ipad-logs/` for a bug report.
 
 ## Other ways to play
