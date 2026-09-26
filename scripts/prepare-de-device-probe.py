@@ -136,8 +136,15 @@ if args.steam_app_manifest:
         parser.error('Not the AoE II: DE app manifest: ' + str(args.steam_app_manifest))
     (output / 'SteamAppManifest_813780.acf').write_text(text)
 info = plistlib.loads(info_path.read_bytes())
-info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad DE Probe',
+info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad', 'CFBundleName': 'AgePad',
              'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True})
+# AgePad's own Home Screen icon (assets/agepad-icon-1024.png, a two-column
+# "II"), replacing the game's icon files the bundle already lists.
+icon = ROOT / 'assets/agepad-icon-1024.png'
+for name, px in {'AppIcon76x76~ipad.png': 76, 'AppIcon76x76@2x~ipad.png': 152, 'AppIcon83.5x83.5@2x~ipad.png': 167,
+                 'AppIcon60x60@2x.png': 120, 'AppIcon40x40@2x~ipad.png': 80, 'AppIcon29x29@2x~ipad.png': 58}.items():
+    subprocess.run(['sips', '-s', 'format', 'png', '-z', str(px), str(px), str(icon), '--out', str(output / name)],
+                   check=True, capture_output=True)
 # Tap-to-play reaches the Mac helper on the home network; iPadOS asks once.
 info['NSLocalNetworkUsageDescription'] = ('AgePad connects to the AgePad helper on your Mac, '
                                           'which lets the game use your Mac\'s Steam sign-in.')
@@ -154,8 +161,7 @@ settings.mkdir(exist_ok=True)
     {'Type': 'PSTitleValueSpecifier', 'Title': 'Signed in as', 'Key': 'AgePadSteamAccountName', 'DefaultValue': 'Not signed in'},
     {'Type': 'PSToggleSwitchSpecifier', 'Title': 'Sign out of Steam', 'Key': 'AgePadSteamSignOut', 'DefaultValue': False},
 ]}))
-# The original localized InfoPlist.strings overrides this diagnostic label.
-# Keep the probe visibly distinct from a playable AgePad installation.
+# The original localized InfoPlist.strings would rename the app back to the game's name.
 for localized in output.rglob('InfoPlist.strings'):
     localized.unlink()
 # Normal launch shows the setup screen. Steam relay and original startup are
