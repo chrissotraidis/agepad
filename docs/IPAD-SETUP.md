@@ -10,10 +10,12 @@ AgePad runs your own copy of **Age of Empires II: Definitive Edition** (the Stea
 |---|---|---|
 | The game (original Mac executable + your game files) | iPad | Runs the game natively on the iPad's Apple silicon |
 | AgePad compatibility layer | iPad | Translates the Mac windowing, graphics, audio and input calls to iPadOS |
-| Steam | **Your Mac** | Proves you own the game, exactly as when you play on the Mac |
-| `scripts/agepad-ipad.sh play` | Your Mac | Starts the game on the iPad and forwards its Steam requests to the Mac's Steam over the cable/Wi-Fi link to your Mac |
+| Steam | **iPad** (new, in testing) or your Mac | Proves you own the game, exactly as when you play on the Mac |
+| `scripts/agepad-ipad.sh play` / Mac helper | Your Mac | Fallback: forwards the game's Steam requests to the Mac's Steam over the cable, Wi-Fi or Tailscale |
 
-**About Steam:** the game's own Steam library talks to the Steam app that is open and signed in **on your Mac**. Your password and login never go to the iPad, and nothing is faked: if Steam on the Mac is closed or signed out, the game on the iPad quits at startup. That is why the Mac must stay on with Steam open while you play, and why tapping the AgePad icon on the iPad by itself only shows a setup screen. A standalone iPad-only Steam connection does not exist yet.
+**About Steam (26 September, in testing).** AgePad now carries Valve's own Steam client engine — the same `steamclient.dylib` that runs inside Steam on your Mac, copied from your own Mac Steam install when the app is built — and runs it on the iPad. The first time you open AgePad it shows **Sign in to Steam** with a QR code: open the Steam app on your phone, tap the Steam Guard shield and scan it (or tap *Sign in with your password instead*; a Steam Guard code is asked for if Steam wants one). You do this once. AgePad keeps the resulting sign-in in the iPad's Keychain (this device only) and never stores or logs your password; the iPad appears in your Steam account as "AgePad (iPad)". After that, tapping the icon signs in to Steam on the iPad and starts the game, with no Mac involved. With no connection it uses Steam's own offline mode, which, as on a PC, needs one earlier online sign-in on this iPad. Nothing is faked: Steam itself decides whether your account owns the game, and without a sign-in the game quits at startup.
+
+Status: on the tested iPad the engine starts, reaches Steam's servers, and the game's own Steam library connects to it. The first real sign-in, the menu, offline mode and online play are being verified now. Until then the Mac routes remain available: **Play with my Mac's Steam instead** on the sign-in screen (after pairing, Step 5), or `play` over USB.
 
 ## What you need
 
@@ -97,13 +99,12 @@ In menus, taps are always plain clicks.
 
 **Tip:** the in-game HUD looks small on the iPad. In the game's **Options → Interface**, raise **HUD scale** and confirm; the setting is kept in your profile.
 
-**Steam:** the name at the top right of the main menu is your Steam account, signed in through the Mac. There is nothing to sign in to on the iPad.
+**Steam:** the name at the top right of the main menu is your Steam account — signed in on the iPad, or through the Mac when you use a Mac route.
 
 ## Known limits
 
-- The Mac must stay on with Steam open; no standalone iPad session yet.
+- The iPad-only Steam route is new and still being verified (menu, offline mode, online play). The Mac routes keep working as a fallback.
 - Loading a skirmish takes about a minute. The first launch after install is slower.
 - Save, relaunch and resume on the iPad, sustained in-match frame rate, and multiplayer are not yet verified. The menu holds 120 fps.
 - iPads with less than 8 GB of memory are not expected to fit a match; iPhones are out of scope for the same reason.
 - The player score list can overlap the top of the minimap at the default HUD scale; under investigation.
-
