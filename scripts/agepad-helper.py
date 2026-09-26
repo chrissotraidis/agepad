@@ -8,7 +8,7 @@ fabricated. Every connection must begin with the pairing key created by
 accepted. Modes: S = Steam client stream, P = Steam install path query,
 I = helper process ID (Steam tracks the game by it).
 """
-import argparse, asyncio, hmac, ipaddress, os, signal, socket, subprocess, sys, time
+import struct, argparse, asyncio, hmac, ipaddress, os, signal, socket, subprocess, sys, time
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port', type=int, default=61343)
@@ -16,6 +16,7 @@ parser.add_argument('--steam-port', type=int, default=57343)
 parser.add_argument('--token-file', required=True)
 parser.add_argument('--path-relay', required=True, help='HostSteamPathRelay executable')
 parser.add_argument('--state-dir', required=True)
+parser.add_argument('--capture', help='Diagnostics: record the game\'s Steam stream (timestamp, direction, bytes) to this local file')
 args = parser.parse_args()
 
 token = open(args.token_file).read().strip().encode()
@@ -41,12 +42,16 @@ if os.path.exists(path_socket):
 path_relay = subprocess.Popen([args.path_relay, path_socket, '0'], stdout=subprocess.DEVNULL)
 
 STATS = {'up': 0, 'down': 0, 'P': 0, 'I': 0, 'S': 0}
+capture = open(args.capture, 'ab') if args.capture else None
+CAPTURE_START = time.monotonic()
 
 async def pump(reader, writer, key=None):
     try:
         while data := await reader.read(65536):
             if key:
                 STATS[key] += len(data)
+                if capture:
+                    capture.write(struct.pack('<dBI', time.monotonic() - CAPTURE_START, key == 'up', len(data)) + data)
             writer.write(data)
             await writer.drain()
     except (ConnectionError, OSError):
