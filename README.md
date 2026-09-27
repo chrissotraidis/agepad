@@ -48,7 +48,7 @@ management and packaging. The game itself and Steam come from your own installs.
 | Platform | Download | Setup |
 | --- | --- | --- |
 | iPad, 8 GB+ | AgePad 0.1 preview · `AgePad-base.ipa` (release not yet published) | [Install from the release](#install-from-the-release) |
-| iPad, build it yourself | This repository | [Setup guide](docs/IPAD-SETUP.md) (Xcode, paid Apple Developer account) |
+| iPad, build it yourself | This repository | [Setup guide](docs/IPAD-SETUP.md) (Xcode, Apple Developer account; paid recommended) |
 
 The release is about 1 MB because it holds only AgePad's own code. A Mac command adds
 your own game and Steam files to it in a few seconds; you then install the result
@@ -60,9 +60,9 @@ game data.
 
 ### Install from the release
 
-1. On a Mac with the game installed through Steam, download this repository and `AgePad-base.ipa`.
+1. On a Mac with the game installed through Steam, download this repository and `AgePad-base.ipa`. The next step uses Python 3; if your Mac doesn't have it yet, macOS offers to install it (Command Line Tools) the first time.
 2. Run `scripts/agepad-ipad.sh inject ~/Downloads/AgePad-base.ipa`. It checks your game and Steam versions and writes `generated/AgePad-mine.ipa`. That file contains your copy of the game program; keep it to yourself.
-3. Install `AgePad-mine.ipa` with Sideloadly, AltStore or Xcode.
+3. Install `AgePad-mine.ipa` with Sideloadly or AltStore (fine for short matches). For full matches with a paid developer account, set up the memory limit once ([Setup guide, Step 1](docs/IPAD-SETUP.md#step-1--signing-with-the-larger-memory-limit-once)) and install with `scripts/sign-agepad-ipa.sh generated/AgePad-mine.ipa <iPad ID> [your app ID]`.
 4. Connect the iPad, open it in **Finder → Files**, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto **AgePad**. About 20 GB; keep 25 GB free.
 5. Open AgePad and sign in to Steam once by scanning the code with the Steam app on your phone. From then on, tap the icon to play.
 
@@ -70,7 +70,8 @@ game data.
 
 **Need help or found a bug?** Ask in the [Discord](https://discord.gg/xwHfUD2bxW) or
 [open an issue](../../issues). `scripts/agepad-ipad.sh logs` copies the iPad's logs to
-your Mac; please don't attach game files, saves or Steam details.
+your Mac (it needs Xcode and `brew install libimobiledevice`; set `AGEPAD_BUNDLE_ID` if
+your app ID isn't the default); please don't attach game files, saves or Steam details.
 
 [Frequently asked questions](#frequently-asked-questions) · [Setup guide and full controls](docs/IPAD-SETUP.md) · [Release route and limits](docs/IPA-ROUTE.md)
 
@@ -88,7 +89,7 @@ your Mac; please don't attach game files, saves or Steam details.
   Options → Interface. **Signing out:** iPad Settings → AgePad → *Sign out of Steam*.
 
 Touch, save/load, offline and Steam sign-in were checked on the tested iPad.
-Two-finger taps and Apple Pencil accuracy were reworked on 26 September and still
+Two-finger taps and Apple Pencil accuracy were reworked on 26–27 September and still
 need hands-on confirmation (their gesture logic is covered by Simulator tests in
 `scripts/run-de-tests.sh`). Online matches, sessions over an hour and other iPad
 models are not yet verified.
@@ -133,7 +134,7 @@ Yes, through Steam's own offline mode: single player, skirmish and campaigns. It
 <details>
 <summary>What happens when the game or Steam updates?</summary>
 
-The iPad keeps the game version it has and tells you when Steam has a newer one. Single player and offline play are unaffected; online matches need the current version, which needs a matching AgePad release first. When Steam for Mac updates, rebuild or re-run `inject`; if Valve ever stops accepting AgePad's copy of Steam, the iPad says so and still starts offline.
+The iPad keeps the game version it has and tells you when Steam has a newer one. Single player and offline play are unaffected; online matches need the current version, which needs a matching AgePad release first. An installed AgePad keeps working when Steam for Mac updates. Each release matches one game and one Steam version, so `inject` refuses newer files until a matching release is out (building it yourself picks up the new Steam at once). If Valve ever stops accepting AgePad's copy of Steam, the iPad says so and still starts offline.
 
 </details>
 

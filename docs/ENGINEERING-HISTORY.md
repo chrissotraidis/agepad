@@ -37,7 +37,7 @@ The September 14 Simulator repair restores missing villagers and animals by pres
 
 ## Installing (developer summary)
 
-There is no downloadable IPA yet. Today the app is built on a Mac from this repository and your own Steam install, then signed with your Apple developer account and installed over USB. A free Apple account's signature expires after 7 days; a paid developer account lasts a year. The Steam client engine and the game are copied from your Mac, never bundled.
+Current install routes (the release plus `inject`, or building it yourself) are in the [README](../README.md#downloads). In both, the Steam client engine and the game come from your own Mac, never from AgePad. A free Apple account's signature expires after 7 days; a paid developer account lasts a year.
 
 The setup, all described in [the setup guide](IPAD-SETUP.md):
 

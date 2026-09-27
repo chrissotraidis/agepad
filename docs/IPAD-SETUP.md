@@ -2,7 +2,7 @@
 
 AgePad runs your own copy of **Age of Empires II: Definitive Edition** (the Steam Mac version) natively on an iPad. It is the original game, not a stream or a remake. This guide covers what you need and what happens at each step.
 
-**Current status (26 September 2026):** engineering preview. On an iPad Pro 12.9-inch (M2, 8 GB) the game signs in to Steam on the iPad itself, reaches the menu with no Mac, starts in Steam's offline mode without Internet, plays audio, loads a skirmish, and accepts touch and Apple Pencil. A real flight, save/resume, online matches and long sessions are still being tested. There is no App Store or public download: you build it yourself from your own Steam copy (below).
+**Current status (27 September 2026):** developer preview. On an iPad Pro 12.9-inch (M2, 8 GB) the game signs in to Steam on the iPad itself, reaches the menu with no Mac, starts in Steam's offline mode without Internet, plays audio, plays skirmishes at about 120 fps, saves and resumes, and accepts touch, Apple Pencil, mouse and keyboard. A real flight, online matches and long sessions are not yet tested. This guide builds AgePad yourself from your own Steam copy; the other way is the release plus `inject` ([README](../README.md#install-from-the-release)). There is no App Store version.
 
 ## How it works
 
@@ -63,17 +63,13 @@ Open AgePad on the iPad. The first time, it shows **Sign in to Steam** with a QR
 
 - **When Steam updates itself on your Mac,** run `scripts/agepad-ipad.sh setup` (or `build`) with the iPad connected. AgePad takes Valve's Steam software from your Mac each time it is built. If Valve's servers ever stop accepting the copy inside AgePad, the iPad says so, tells you to do this, and keeps working offline in the meantime.
 - **When Steam updates Age of Empires II,** AgePad says so on the iPad the next time it opens with Internet (it reads the current version from Steam's own data). The iPad keeps the version it has. That is fine for single player and offline play, but online matches need the current version. AgePad itself must first be updated for each new game version (its program is matched to one game version). `check` and `sync` tell you when that is the case and refuse to copy mismatched files. Once AgePad supports the new version, `sync` copies only the files the update changed.
-- `scripts/agepad-ipad.sh logs` copies the iPad's logs to `generated/ipad-logs/` for a bug report.
+- **If you installed from a release,** the steps above need the matching new AgePad release instead: `inject` it and reinstall (in place, keeping game files and saves), then drag the game folder over again in Finder after a game update.
+- `scripts/agepad-ipad.sh logs` copies the iPad's logs to `generated/ipad-logs/` for a bug report (set `AGEPAD_BUNDLE_ID` if you use your own app ID).
 
 ## Other ways to play
 
 The Mac routes remain as fallbacks: **Play with my Mac's Steam instead** on the sign-in screen (after `scripts/agepad-ipad.sh pair` and `install-helper`), or the engineering `scripts/agepad-ipad.sh play` over USB, which needs Steam open on the Mac for the whole session.
 
-In menus, taps are always plain clicks.
-
-**HUD size:** AgePad starts the in-game HUD at 125% on a new installation (it reads small on an iPad at the game's 100%). Change it any time in the game's **Options → Interface → HUD scale**; AgePad never changes it again. A new installation also skips Feral's desktop pre-game launcher and its Mac mouse tips, with crash reports and usage statistics off (changeable in the game's options).
-
-**Steam:** the name at the top right of the main menu is your Steam account.
 ## Controls in a match
 
 | Gesture | Action |
@@ -102,7 +98,7 @@ Side buttons:
 
 In menus, taps are always plain clicks.
 
-**Tip:** the in-game HUD looks small on the iPad. In the game's **Options → Interface**, raise **HUD scale** and confirm; the setting is kept in your profile.
+**HUD size:** AgePad starts the in-game HUD at 125% on a new installation (it reads small on an iPad at the game's 100%). Change it any time in the game's **Options → Interface → HUD scale**; AgePad never changes it again. A new installation also skips Feral's desktop pre-game launcher and its Mac mouse tips, with crash reports and usage statistics off (changeable in the game's options).
 
 **Steam:** the name at the top right of the main menu is your Steam account — signed in on the iPad, or through the Mac when you use a Mac route.
 

@@ -7,8 +7,8 @@ A full IPA can't be published: the working app contains Microsoft's game program
 ## The route: a public base app plus "add your own copy"
 
 1. **Base app (publishable, about 1 MB).** `scripts/agepad-ipad.sh kit` makes `AgePad-base.ipa`: AgePad's own code, the icon, and `AgePadKit.json`, a recipe of which game/Steam files go where, with their SHA-256 hashes and the header-only changes (platform, library paths) that make them load on iPadOS. The recipe holds no vendor bytes. `scripts/audit-agepad-base.py` checks the base app against the full game and Steam installs (whole files and code sections): **0 matches**.
-2. **Add your own copy (on your Mac, about 6 seconds).** `scripts/agepad-ipad.sh inject AgePad-base.ipa` reads your Steam install of the Mac game and Steam for Mac, checks every file against the recipe, applies the recorded header changes and writes `generated/AgePad-mine.ipa` (71 MB). Plain Python: no Xcode or Apple account needed for this step. Code and data stay byte-identical to your own files. Mismatched game or Steam versions are refused with a clear message.
-3. **Sign and install** with your signing method (see "Memory" below): Xcode/`devicectl`, Sideloadly, or AltStore. `scripts/sign-agepad-ipa.sh` does it with the Mac's own tools.
+2. **Add your own copy (on your Mac, about 6 seconds).** `scripts/agepad-ipad.sh inject AgePad-base.ipa` reads your Steam install of the Mac game and Steam for Mac, checks every file against the recipe, applies the recorded header changes and writes `generated/AgePad-mine.ipa` (71 MB). Plain Python 3 (macOS offers to install it the first time): no Xcode or Apple account needed for this step. Code and data stay byte-identical to your own files. Mismatched game or Steam versions are refused with a clear message.
+3. **Sign and install** with your signing method (see "Memory" below): Sideloadly or AltStore, or, with a paid account and the memory capability, `scripts/sign-agepad-ipa.sh AgePad-mine.ipa <iPad ID> [your app ID]`, which signs with the Mac's own tools and installs.
 4. **Copy the game data** (about 20 GB): connect the iPad, open it in Finder → Files, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto AgePad. Or `scripts/agepad-ipad.sh sync`. AgePad checks the copy is complete (file count and size) before starting the game, and shows progress if it isn't.
 5. **Open AgePad and sign in to Steam once** with the QR code.
 
@@ -42,4 +42,3 @@ Free Apple IDs (AltStore, SideStore, Sideloadly) generally can't get the capabil
 | Public full IPA | Redistributes Microsoft's and Valve's software |
 | Base app that downloads the game program later | iPadOS won't load code that isn't in the signed app |
 | Streaming (Steam Link etc.) | Needs a computer switched on; not native |
-

@@ -1,13 +1,17 @@
 #!/bin/zsh
-# Test helper: sign an injected AgePad .ipa the way a sideloading tool would
-# (every Mach-O and the app, with a profile and its entitlements), then install.
+# Sign an injected AgePad .ipa with your developer account's profile (which
+# carries the larger memory limit, docs/IPAD-SETUP.md Step 1) and install it:
+# every Mach-O and the app, the way a sideloading tool would.
 # Usage: scripts/sign-agepad-ipa.sh IN.ipa UDID [BUNDLE_ID]
+# BUNDLE_ID: your own app ID if it isn't local.agepad.device-de-probe (the app
+# is renamed to match your profile).
 set -eu
 IN=$1 UDID=$2 BUNDLE=${3:-local.agepad.device-de-probe}
 ROOT=${0:A:h:h}
 T=$(mktemp -d); cd $T
 unzip -q $IN
 A=$(print -r -- Payload/*.app)
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE" $A/Info.plist
 S=$(python3 $ROOT/scripts/find-signing.py $BUNDLE $UDID)
 P=$(print -r -- "$S" | head -1); ID=$(print -r -- "$S" | tail -1)
 cp "$P" $A/embedded.mobileprovision

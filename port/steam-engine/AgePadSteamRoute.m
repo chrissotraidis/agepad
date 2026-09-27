@@ -150,7 +150,7 @@ static void LogAppRecordState(const char *when) {
 }
 static NSString *GameUpdateNote(void) {
     return [NSUserDefaults.standardUserDefaults stringForKey:@"AgePadNewerGameBuild"]?
-        @"Steam has a newer version of Age of Empires II than this iPad has. Single player and offline play work as usual; online matches need the update: let Steam update the game on your Mac, then run  scripts/agepad-ipad.sh setup  with the iPad connected (once AgePad supports that version).":nil;
+        @"Steam has a newer version of Age of Empires II than this iPad has. Single player and offline play work as usual; online matches need the update. Once AgePad supports that version, let Steam update the game on your Mac, then run  scripts/agepad-ipad.sh setup  with the iPad connected (or, if you installed from a release, inject the new release and copy the game folder again).":nil;
 }
 
 static NSString *AccountFile(void) {
@@ -279,7 +279,7 @@ static NSString *LoadToken(NSString *account) {
             finish(@"Steam no longer accepts this iPad's sign-in (it was signed out, expired or revoked). Sign in again.");return;
         }
         if (!ready() && !offline && !anonymous) {
-            say(outdated?@"Steam has retired the version of Steam inside AgePad, so online play is off. To fix it, update Steam on your Mac and run  scripts/agepad-ipad.sh build  again. Starting offline now…":
+            say(outdated?@"Steam has retired the version of Steam inside AgePad, so online play is off. To fix it, update Steam on your Mac and run  scripts/agepad-ipad.sh build  again (or, if you installed from a release, inject the latest release). Starting offline now…":
                 [NSString stringWithFormat:@"Steam didn't accept the sign-in (%@). Starting in Steam's offline mode…",verdict?:@"no answer"]);
             offline=YES;result=AgePadEngineLogOnOffline();
             for (int tenth=0;tenth<150 && !ready();tenth++) usleep(100000);
