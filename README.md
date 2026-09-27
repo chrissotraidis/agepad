@@ -61,7 +61,7 @@ game data.
 ### Install from the release
 
 1. On a Mac with the game installed through Steam, download this repository and `AgePad-base.ipa`.
-2. Run `scripts/agepad-ipad.sh inject `/Downloads/AgePad-base.ipa`. It checks your game and Steam versions and writes `generated/AgePad-mine.ipa`. That file contains your copy of the game program; keep it to yourself.
+2. Run `scripts/agepad-ipad.sh inject ~/Downloads/AgePad-base.ipa`. It checks your game and Steam versions and writes `generated/AgePad-mine.ipa`. That file contains your copy of the game program; keep it to yourself.
 3. Install `AgePad-mine.ipa` with Sideloadly, AltStore or Xcode.
 4. Connect the iPad, open it in **Finder → Files**, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto **AgePad**. About 20 GB; keep 25 GB free.
 5. Open AgePad and sign in to Steam once by scanning the code with the Steam app on your phone. From then on, tap the icon to play.
@@ -170,3 +170,4 @@ endorsed by any of them.
 
 The license for AgePad's own code is not yet decided. Game and Steam files are not
 included in this repository and are not covered by any AgePad license.
+Third-party code and patches: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

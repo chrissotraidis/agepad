@@ -1,0 +1,18 @@
+name: Question or feature request
+description: Ask how something works or describe something missing.
+body:
+  - type: markdown
+    attributes:
+      value: Please check the [frequently asked questions](https://github.com/chrissotraidis/agepad#frequently-asked-questions) and existing issues first. Quick questions are often faster in the [Discord](https://discord.gg/xwHfUD2bxW).
+  - type: textarea
+    id: question
+    attributes:
+      label: Question or requested behaviour
+      description: What you want to do and where AgePad falls short.
+    validations:
+      required: true
+  - type: input
+    id: ipad
+    attributes:
+      label: iPad model and AgePad version
+      description: Optional; include any mouse, keyboard or Pencil involved.

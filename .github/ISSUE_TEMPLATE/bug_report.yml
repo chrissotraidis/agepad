@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a crash, freeze, input, display, sign-in or install problem.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve AgePad. Check the [frequently asked questions](https://github.com/chrissotraidis/agepad#frequently-asked-questions) first, or ask in the [Discord](https://discord.gg/xwHfUD2bxW).
+        Reports are public. Never attach game files, saves, `AgePad-mine.ipa`, Steam login details or your Steam ID.
+  - type: input
+    id: version
+    attributes:
+      label: AgePad version
+      placeholder: e.g. 0.1 preview, or the commit you built from
+    validations:
+      required: true
+  - type: input
+    id: ipad
+    attributes:
+      label: iPad model and iPadOS version
+      placeholder: e.g. iPad Pro 12.9-inch (M2, 8 GB), iPadOS 26.1
+    validations:
+      required: true
+  - type: dropdown
+    id: signing
+    attributes:
+      label: How AgePad is signed
+      description: This decides how much memory iPadOS gives the game.
+      options:
+        - Paid Apple Developer account
+        - Free Apple ID
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What went wrong?
+      description: What did you expect, and what happened instead? Include any exact message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: Where you were (setup, Steam sign-in, menu, skirmish, campaign, online), what you tapped, and whether you used fingers, Apple Pencil, mouse or keyboard.
+  - type: input
+    id: frequency
+    attributes:
+      label: How often does it happen?
+      placeholder: Every launch, after 20 minutes of a match, only online…
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Run `scripts/agepad-ipad.sh logs` on your Mac and paste the relevant lines from `generated/ipad-logs/`. Read them first and remove your Steam account name or ID if they appear.

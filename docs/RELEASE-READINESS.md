@@ -1,44 +1,55 @@
-# Release readiness
+# Release readiness: AgePad 0.1 preview
 
-Private-only. No source/binary publication authorized. No complete technical profile, mobile build, physical acceptance or release rights decision exists. Local ad-hoc signing of Mac probe bundles uses no account or distribution identity and is not publication approval.
+Updated 27 September 2026. The earlier 12 September assessment (freeaoe/Simulator
+era) is in the Git history and `docs/ENGINEERING-HISTORY.md`.
 
-freeaoe source carries GPLv3-or-later notices; dependency/license inventory and exact artifact distribution decisions remain open. Keep original/converted assets, private profiles/evidence and executable input out of the integration repository. Each future source/package candidate needs its own audit and explicit publication approval.
+## Verdict
 
-## Recovery qualification — 2026-09-12 evening
+Ready for a public **preview** once the three items under "Needs Chris" are done.
+Nothing else blocks it. It is a preview: one iPad model tested, online play and
+long sessions not yet verified (the README and release notes say so).
 
-Status: **not ready for public release**. The existing original Mac DE engine
-runs again on the designated iPad Simulator. No new publication or signing was
-performed. Recovery is now explicit in `scripts/recover-de-session.py`; it does
-not depend on remembered experimental shell flags or rebuild game libraries.
+## Checked
 
-| Gate | Current evidence | Required before release |
-| --- | --- | --- |
-| Menu clicks and loading | Single Player → Load Game → autosave accepted first taps in repeated fresh runs | Broader repeatability and physical touch testing |
-| Selection and orders | Town center direct tap; idle-villager shortcut; Order + ground moved ring to destination | Fix box selection and test rapid/interrupted gestures |
-| Camera and zoom | Minimap tap pans; Zoom +/− shortcuts change world scale | Actual two-finger pan/pinch, mouse wheel and trackpad acceptance |
-| Rendering | Terrain, buildings, HUD and fog render | Unit bodies still invisible: release blocker |
-| Audio | Mac default-output failure identified; RemoteIO bridge initializes/starts in the real game | Confirm audible music/effects and interruption/resume on target device |
-| Input accessibility | Shortcut labels exposed; original game controls mostly absent from AX; fullscreen status-bar overlap fixed and screenshot verified | Remove duplicate shortcut AX elements; device target-size and assistive-input checks; save-name text entry fails under automation |
-| Host stability | Bounded keep-awake; quieter launch; game/helper cleanup tested | Establish cause of desktop freeze; sustained session and thermal/memory qualification |
-| Physical install | Simulator execution only | Signed device build, installation/import/lifecycle/save qualification |
-| Steam dependency | Genuine host Steam and local helper required | Supported end-user service/setup flow |
-| Distribution | Source safety check passes | Exact artifact, dependency/license and asset-exclusion review; public packaging remains absent |
+| Check | Result |
+|---|---|
+| Game on a real iPad | Menu, skirmish at ~120 fps, save and load, offline play, Steam QR sign-in (iPad Pro 12.9-inch M2, 8 GB) |
+| Base app contents | `AgePad-base.ipa`: 65 files, all AgePad's own; audit finds no game or Steam file; no personal paths, addresses or Steam IDs |
+| Release round trip | recipe → base → audit → inject → identical to a direct build (`tests/test_agepad_kit_roundtrip.py`) |
+| Game version | Base app, release notes and current Steam game all build 25464371 |
+| Repository history (104 commits) | No keys, tokens, Steam IDs, device IDs or home paths; all commits use the GitHub no-reply address; no game or Steam files ever committed |
+| Screenshots in `docs/images` | Game UI and AgePad screens only; the Steam QR shown is an expired, approval-only code |
+| Licences | The iPad app contains only AgePad code plus MIT bcdec; GPL/LGPL material is confined to patches for earlier routes ([THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)) |
+| Tests | `scripts/run-de-tests.sh` (incl. two-finger and Pencil logic in the Simulator) and `scripts/check-repo-safety.py` pass |
+| Community | README badges and Discord, issue templates for bugs and questions |
 
-A 30-second stationary-world observation counted 877 displayed composition
-completions (29.23/s), zero reported drops. This is Simulator composition,
-not physical FPS. The indirect-scroll recognizer experiment produced no incoming
-wheel dispatch under automation, with or without pointer capture; it was reverted
-from the live candidate and retained only as private diagnostic material.
+## Needs Chris
 
-Private evidence: `generated/recovery-audit-20260912/REPORT.md` and
-`generated/mac-de-simulator-375/recovery-20260912-*`. Test runner expiration now
-stops the owned game before removing helper/keep-awake coverage, and helper failure
-ends the observation. A real five-second expiration check confirmed game and
-helper gone, relay exited and discovery absent. A separate SIGTERM check confirmed
-owned processes stopped. Do not leave a renderer orphaned as a purported soak.
+1. **Touch review on the iPad**, with a fresh build (it also carries the 27 September
+   two-finger fix): `scripts/agepad-ipad.sh build`. Checks: two-finger taps,
+   three-finger scroll, Pencil tap accuracy, Pencil double-tap/squeeze, a mouse wheel.
+2. **Licence.** `LICENSE.draft` is MIT, which fits: the shipped app has no GPL code.
+   GPL-3.0 (like KartPad) also works. Either way, update the README's last paragraph.
+3. **Publish:** push, make the repository public, tag and release (below).
 
-Rendering/audio follow-up evidence: `generated/render-audio-20260912/REPORT.md`.
-The 400 successful observed sprite parses contain no villager idle/walk records;
-this is a diagnostic boundary, not a completed rendering repair. The unmodified
-Mac comparison did not reach gameplay under automated input. Native graphics
-parity remains unqualified.
+## Release steps
+
+After the touch review, with the iPad still connected:
+
+```sh
+scripts/agepad-ipad.sh kit                 # makes generated/kit/AgePad-base.ipa; must end "0 contain game or Steam content"
+shasum -a 256 generated/kit/AgePad-base.ipa
+mv LICENSE.draft LICENSE                   # or your chosen licence; edit README "Credits and license"
+git add LICENSE README.md && git commit -m "License"
+git push origin main
+gh repo edit chrissotraidis/agepad --visibility public --accept-visibility-change-consequences
+git tag v0.1 && git push origin v0.1
+gh release create v0.1 generated/kit/AgePad-base.ipa --prerelease \
+  --title "AgePad 0.1 (preview)" --notes-file docs/RELEASE-NOTES-0.1.md
+```
+
+Then: in the README "Downloads" row, replace "(release not yet published)" with a
+link to the release; download the asset while signed out and compare its SHA-256.
+
+If Steam or the game updates before the release, rebuild first: `inject` rejects
+files that don't match the base app's recorded versions.

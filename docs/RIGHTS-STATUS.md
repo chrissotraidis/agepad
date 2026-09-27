@@ -1,7 +1,12 @@
 # Rights status
 
-private-only; publication not approved; third-party rights under review.
+Updated 27 September 2026.
 
-The user requested execution of the v2 goal loop in this workspace using the supplied reference folder. Authority covers reversible private engineering and local testing. No publication, purchase, paid infrastructure, publisher contact, account change, signing upload, or release is authorized. Source and binary distribution require separate decisions.
-
-The optional Metal candidate adds pinned ANGLE/Chromium build dependencies (see `port/metal/dependencies.lock.json`). ANGLE's root license is retained in `port/metal/ANGLE-LICENSE`; the source patches retain their file notices. This is an addition to the eventual full dependency/notice audit, not a completed distribution-rights review or a release authorization.
+- **AgePad's own code:** licence to be chosen by Chris before publication
+  (`LICENSE.draft` proposes MIT). See [RELEASE-READINESS.md](RELEASE-READINESS.md).
+- **Third-party code and patches:** [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+- **Game and Steam:** never in the repository or the release. Players add their own
+  copies with `scripts/agepad-ipad.sh inject`; the resulting `AgePad-mine.ipa` is
+  for their own devices only. `scripts/audit-agepad-base.py` checks each release.
+- AgePad is an unofficial fan project, not affiliated with Microsoft, Forgotten
+  Empires, Feral Interactive, Valve or Apple.
