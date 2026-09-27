@@ -41,7 +41,7 @@ extern id DEUIKitScreenObject(UIScreen *screen);
 @property(nonatomic) CGPoint pencilStart,overridePoint;
 @property(nonatomic) NSTimeInterval pencilStartTime,lastDragSent;
 @property(nonatomic,strong) NSTimer *zoomTimer;
-@property(nonatomic,weak) UIGestureRecognizer *orderTap,*zoomPinch;
+@property(nonatomic,weak) UIGestureRecognizer *orderTap,*zoomPinch,*mapPan;
 // Two-finger tap (right click), recognised here rather than by a UIKit tap
 // recognizer, which gave up on slow or slightly moving taps.
 @property(nonatomic) BOOL twoFingerCandidate,twoFingerFailed;
@@ -69,6 +69,11 @@ static BOOL DEPencilOrderArmed;
 // which closes it. Gameplay gestures (orders, drag boxes, scrolls) prove the
 // menu is closed, so they reset the toggle.
 static BOOL DEMenuOpen;
+// Something may be selected (a map tap or box, IDLE, TOWN). A Pencil
+// double-tap sends Escape only then: Escape with nothing selected opens the
+// game menu. Kept once per process, because this code is loaded in two copies.
+static void DESetMaybeSelected(BOOL value) { NSThread.mainThread.threadDictionary[@"AgePadMaybeSelected"]=@(value); }
+static BOOL DEMaybeSelected(void) { return [NSThread.mainThread.threadDictionary[@"AgePadMaybeSelected"] boolValue]; }
 // Longest gap between the two fingers of a two-finger order tap; a single
 // finger held still in a match waits this long before its press begins.
 static const NSTimeInterval DETwoFingerWindow=0.45;
@@ -213,6 +218,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
     NSString *characters=button.tag==0?@".":button.tag==1?@"h":@"\uF70D";
     DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
     DEPencilOrderArmed=button.tag==0 || button.tag==1; // IDLE/TOWN select units; MENU does not.
+    if(button.tag==0 || button.tag==1) DESetMaybeSelected(YES);
     DEPostGameKey(key,characters,YES);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{DEPostGameKey(key,characters,NO);});
 }
@@ -377,7 +383,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      BOOL order=!self.twoFingerFailed && self.twoFingerCount==2 && held<1.0;
      fprintf(stderr,"DE_TWO_FINGER end order=%d held=%.2f touches=%lu moved=%d\n",order,held,(unsigned long)self.twoFingerCount,self.twoFingerFailed);
      self.twoFingerCandidate=NO;self.twoFingerStarts=nil;
-     if(order){DEMenuOpen=NO;DEPencilOrderArmed=YES;self.pencilStart=self.twoFingerPoint;self.gameTouch=touches.anyObject;[self sendPendingClick:YES];self.gameTouch=nil;
+     if(order){DEMenuOpen=NO;self.pencilStart=self.twoFingerPoint;self.gameTouch=touches.anyObject;[self sendPendingClick:YES];self.gameTouch=nil;
          DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();}
      return;
  }
@@ -385,12 +391,15 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      BOOL hud=[self pencilPointInHUD:self.pencilStart];
      NSTimeInterval held=self.gameTouch.timestamp-self.pencilStartTime;
      BOOL order=NO;const char *reason;
-     if(!self.pendingIsPencil){reason="finger";if(!hud)DEPencilOrderArmed=YES;}
+     // Only a Pencil selection makes later Pencil taps orders: after finger
+     // taps, picking up the Pencil and tapping a unit selects it.
+     if(!self.pendingIsPencil){reason="finger";DEPencilOrderArmed=NO;}
      else if(hud){DEPencilOrderArmed=NO;reason="hud";}
      else if(held>=0.45){DEPencilOrderArmed=NO;reason="hold";}
      else if(DEPencilOrderArmed){order=YES;reason="order";}
      else {DEPencilOrderArmed=YES;reason="select";}
      if(order)DEMenuOpen=NO;
+     else if(!hud)DESetMaybeSelected(YES);
      [self sendPendingClick:order];
      self.pencilPending=NO;self.gameTouch=nil;
      fprintf(stderr,"DE_PENCIL_TAP kind=%s held=%.2f armed=%d\n",reason,held,DEPencilOrderArmed);
@@ -401,10 +410,10 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      NSTimeInterval held=self.gameTouch.timestamp-self.pencilStartTime;
      CGPoint end=[self.gameTouch locationInView:self.window];
      BOOL box=hypot(end.x-self.pencilStart.x,end.y-self.pencilStart.y)>=8;
-     // A drag-box selects (arm orders); a finger long-press without movement
-     // behaves like a Pencil hold and disarms.
-     DEPencilOrderArmed=box?![self pencilPointInHUD:self.pencilStart]:(held<0.45 && DEPencilOrderArmed);
-     if(box)DEMenuOpen=NO;
+     // A Pencil drag-box selects and arms orders (a finger box doesn't); a
+     // long press without movement behaves like a Pencil hold and disarms.
+     DEPencilOrderArmed=box?(self.pendingIsPencil && ![self pencilPointInHUD:self.pencilStart]):(held<0.45 && DEPencilOrderArmed);
+     if(box){DEMenuOpen=NO;DESetMaybeSelected(YES);}
      fprintf(stderr,"DE_PENCIL_DRAG box=%d armed=%d\n",box,DEPencilOrderArmed);
  }
  if(self.gameTouch && [touches containsObject:self.gameTouch]) DELogButtonMask(event,2,self.gameButtonMask);

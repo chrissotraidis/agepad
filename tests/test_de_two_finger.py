@@ -18,7 +18,9 @@ s = (root / 'port/de/WindowViewCompat.m').read_text()
 protocol = s[s.index('@protocol DEGameMouseEvent'):s.index('@interface DEGameViewHost')]
 interface = s[s.index('@interface DEGameViewHost'):s.index('static void DEPostGameKey(unsigned short macKey, NSString *characters, BOOL pressed);')]
 handlers = s[s.index('- (void)sendGameMouse:'):s.index('- (void)layoutSubviews')]
+gestures = (root / 'port/de/NativeTouchGestures.m').read_text()
 window_line = next(l for l in s.splitlines() if l.startswith('static const NSTimeInterval DETwoFingerWindow'))
+window_line += '\n' + '\n'.join(l for l in s.splitlines() if l.startswith(('static void DESetMaybeSelected', 'static BOOL DEMaybeSelected')))
 preamble = r'''
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -78,6 +80,8 @@ static BOOL DEInputVerbose(NSUInteger t){return NO;}
 static void DELogTouchDetail(id t,NSUInteger n){}
 static void DELogButtonMask(id e,NSUInteger t,UIEventButtonMask m){}
 static void DELogSynthesizedMouse(NSUInteger p,id e,UIEventButtonMask m,SEL s){}
+static int escapeDowns;
+static void DEPostGameKey(unsigned short key,NSString *characters,BOOL pressed){if(key==53 && pressed)escapeDowns++;}
 '''
 main = r'''
 static void pump(double seconds){NSDate *end=[NSDate dateWithTimeIntervalSinceNow:seconds];while(end.timeIntervalSinceNow>0)CFRunLoopRunInMode(kCFRunLoopDefaultMode,0.005,true);}
@@ -123,10 +127,32 @@ PTAP("pencil_4_hold_deselect",q,0.5) PTAP("pencil_5_select_again",p,0.08)
 PTAP("pencil_6_hud_tap",CGPointMake(600,900),0.08) PTAP("pencil_7_after_hud",p,0.08)
 {FakeTouch *a=touch(p,host);a.type=UITouchTypePencil;began(a,@[a]);pump(0.05);moved(a,CGPointMake(700,500),@[a]);pump(0.05);ended(a,@[a]);r[@"pencil_8_box"]=drain();}
 PTAP("pencil_9_order_after_box",q,0.08)
+// Finger taps and two-finger orders don't switch the Pencil to orders: the
+// next Pencil tap on a unit selects it.
+{FakeTouch *a=touch(p,host);began(a,@[a]);pump(0.08);ended(a,@[a]);drain();}
+PTAP("pencil_after_finger_tap",q,0.08)
+{FakeTouch *a=touch(p,host),*b=touch(q,host);began(a,@[a]);pump(0.08);began(b,@[a,b]);pump(0.1);ended(a,@[a,b]);ended(b,@[a,b]);drain();}
+DEPencilOrderArmed=NO;PTAP("pencil_select_before_two_finger",p,0.08)
+{FakeTouch *a=touch(p,host),*b=touch(q,host);began(a,@[a]);pump(0.08);began(b,@[a,b]);pump(0.1);ended(a,@[a,b]);ended(b,@[a,b]);drain();}
+PTAP("pencil_after_two_finger_order",q,0.08)
+r[@"maybe_selected"]=@(DEMaybeSelected());
+// Pencil double-tap: one Escape per gesture even when reported twice, and
+// none when nothing is selected (Escape then opened the game menu).
+escapeDowns=0;DESetMaybeSelected(YES);[host pencilDeselect:"a"];[host pencilDeselect:"b"];pump(0.35);
+[host pencilDeselect:"c"];pump(0.1);r[@"double_tap_escapes"]=@(escapeDowns);
+// Two/three-finger map drag: a right-button drag held at least 0.35 s; a
+// drag under 16 points sends nothing.
+drain();
+{[host nativeMapScrollPhase:0 point:p];for(int i=1;i<=6;i++){[host nativeMapScrollPhase:1 point:CGPointMake(p.x+i*10,p.y+i*4)];pump(0.01);}
+ [host nativeMapScrollPhase:2 point:CGPointMake(p.x+60,p.y+24)];pump(0.1);
+ BOOL early=NO;for(NSEvent *e in NSApplication.sharedApplication.queue.events)if(e.type==4)early=YES;r[@"drag_released_early"]=@(early);r[@"map_drag"]=drain();}
+{[host nativeMapScrollPhase:0 point:p];[host nativeMapScrollPhase:1 point:CGPointMake(p.x+8,p.y+6)];[host nativeMapScrollPhase:2 point:CGPointMake(p.x+8,p.y+6)];r[@"tiny_drag"]=drain();}
+// Zoom: whole wheel steps only; the remainder waits for more movement.
+{CGFloat pending=2.6;[host sendZoomSteps:&pending point:p source:"test"];r[@"zoom_steps"]=drain();r[@"zoom_left"]=@(round(pending*10)/10);}
 puts([[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:r options:NSJSONWritingSortedKeys error:nil] encoding:NSUTF8StringEncoding].UTF8String);
 return 0;}}
 '''
-(out/'TwoFingerProbe.m').write_text(preamble.replace('TWO_FINGER_WINDOW', window_line)+protocol+interface+'\n@implementation DEGameViewHost\n'+handlers+'\n@end\n'+main)
+(out/'TwoFingerProbe.m').write_text(preamble.replace('TWO_FINGER_WINDOW', window_line)+protocol+interface+'\n@implementation DEGameViewHost\n'+handlers+'\n@end\n'+gestures+main)
 sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
 subprocess.run(['xcrun','clang','-fobjc-arc','-Wno-deprecated-declarations','-target','arm64-apple-ios26.0-simulator','-isysroot',sdk,'-I',str(root/'port/de'),str(out/'TwoFingerProbe.m'),
                 '-framework','Foundation','-framework','UIKit','-framework','QuartzCore','-framework','GameController','-framework','CoreGraphics','-o',str(out/'TwoFingerProbe')],check=True)
@@ -143,10 +169,13 @@ LEFT,RIGHT=[1,2],[3,4]
 expect={'one_finger_tap':LEFT,'two_finger_tap':RIGHT,'slow_two_finger_tap':RIGHT,'uneven_lift':RIGHT,
         'tap_while_holding_button':LEFT,'pinch':[],'three_fingers':[],
         'pencil_1_select':LEFT,'pencil_2_order':RIGHT,'pencil_3_order_again':RIGHT,'pencil_4_hold_deselect':LEFT,
-        'pencil_5_select_again':LEFT,'pencil_6_hud_tap':LEFT,'pencil_7_after_hud':LEFT,'pencil_9_order_after_box':RIGHT}
+        'pencil_5_select_again':LEFT,'pencil_6_hud_tap':LEFT,'pencil_7_after_hud':LEFT,'pencil_9_order_after_box':RIGHT,
+        'pencil_after_finger_tap':LEFT,'pencil_select_before_two_finger':LEFT,'pencil_after_two_finger_order':RIGHT,'maybe_selected':True,
+        'double_tap_escapes':1,'drag_released_early':False,'tiny_drag':[],'zoom_steps':[22,22],'zoom_left':0.6}
 bad={k:r[k] for k,v in expect.items() if r[k]!=v}
 if r['one_finger_drag'][:1]!=[1] or r['one_finger_drag'][-1:]!=[2] or 6 not in r['one_finger_drag']: bad['one_finger_drag']=r['one_finger_drag']
 if r['pencil_8_box'][:1]!=[1] or r['pencil_8_box'][-1:]!=[2] or 6 not in r['pencil_8_box']: bad['pencil_8_box']=r['pencil_8_box']
+if r['map_drag'][:1]!=[3] or r['map_drag'][-1:]!=[4] or r['map_drag'].count(7)<5: bad['map_drag']=r['map_drag']
 print(json.dumps(r))
 assert not bad,'unexpected: %s' % bad
-print('PASS: two-finger taps right-click only (pinch, 3 fingers, side-button hold do not); Pencil tap selects, repeat taps order, hold/HUD disarm, box arms')
+print('PASS: two-finger taps right-click only; Pencil tap selects, repeat taps order, hold/HUD disarm, only Pencil selections arm; one Escape per double-tap; map drag is a held right drag; zoom in whole steps')

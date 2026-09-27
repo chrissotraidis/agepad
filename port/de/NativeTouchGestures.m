@@ -1,4 +1,6 @@
 // Native UIKit gesture recognition; routes commands into the original engine.
+// A pinch that has zoomed doesn't also start a map drag.
+static BOOL DEZoomedThisGesture;
 @implementation DEGameViewHost (NativeTouch)
 - (void)installNativeGestures {
     self.multipleTouchEnabled=YES;
@@ -8,10 +10,11 @@
     // UIKit cancels that stream if a multi-finger gesture wins recognition.
     order.numberOfTouchesRequired=2;order.delaysTouchesBegan=NO;
     UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(nativeMapPan:)];
-    // Three fingers scroll the map; two fingers are reserved for the
-    // right-click tap and pinch zoom so they never compete with a scroll.
-    // Three or four fingers (fingers rarely land together; a fourth is fine).
-    pan.minimumNumberOfTouches=3;pan.maximumNumberOfTouches=4;
+    // Two or three fingers drag the map (fingers only, so a hand resting while
+    // the Pencil draws doesn't scroll). A two-finger tap barely moves, so it
+    // stays a right click; a pinch that zooms doesn't scroll.
+    pan.minimumNumberOfTouches=2;pan.maximumNumberOfTouches=4;
+    pan.allowedTouchTypes=@[@(UITouchTypeDirect)];
     UIPinchGestureRecognizer *pinch=[[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(nativeZoom:)];
     // The order tap no longer waits for pinch/pan to fail: two fingers landing
     // a few ms apart register a small scale change, which previously made the
@@ -23,7 +26,11 @@
     for(UIGestureRecognizer *gesture in @[order,pan,pinch]) {
         gesture.delegate=self;gesture.cancelsTouchesInView=YES;[self addGestureRecognizer:gesture];
     }
-    self.orderTap=order;self.zoomPinch=pinch;
+    // The map drag only watches: two-finger taps keep reaching the game view
+    // (a tap that rolls a few points must stay a right click), and a real
+    // drag moves too far to count as a tap.
+    pan.cancelsTouchesInView=NO;
+    self.orderTap=order;self.zoomPinch=pinch;self.mapPan=pan;
     // A mouse wheel or two-finger trackpad scroll arrives as a scroll-only
     // pan (no touches); send it as the Mac mouse wheel, which zooms in DE.
     UIPanGestureRecognizer *wheel=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(nativeWheel:)];
@@ -49,17 +56,24 @@
         [self pencilDeselect:"squeeze"];
 }
 - (void)pencilDeselect:(const char *)how {
-    // One deselect per gesture even if iPadOS reports it through both APIs.
-    static NSTimeInterval last;NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
-    if(now-last<0.3)return;
-    last=now;
     DEPencilOrderArmed=NO;DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
-    fprintf(stderr,"DE_PENCIL_DOUBLE_TAP gesture=%s action=deselect key=escape\n",how);
+    // One Escape per gesture: iPadOS may report it through two APIs, and this
+    // code is loaded twice, so the guard is kept once per process. A second
+    // Escape (or one with nothing selected) opened the game menu.
+    NSMutableDictionary *shared=NSThread.mainThread.threadDictionary;
+    NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
+    if(now-[shared[@"AgePadPencilDeselectAt"] doubleValue]<0.3)return;
+    shared[@"AgePadPencilDeselectAt"]=@(now);
+    BOOL escape=DEMaybeSelected() || DEMenuOpen;
+    fprintf(stderr,"DE_PENCIL_DOUBLE_TAP gesture=%s action=deselect escape=%d\n",how,escape);
+    if(!escape)return;
+    DESetMaybeSelected(NO);DEMenuOpen=NO;
     DEPostGameKey(53,@"\e",YES);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{DEPostGameKey(53,@"\e",NO);});
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)a shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
-    return (a==self.orderTap && b==self.zoomPinch) || (a==self.zoomPinch && b==self.orderTap);
+    NSArray *together=@[self.zoomPinch?:NSNull.null,self.orderTap?:NSNull.null,self.mapPan?:NSNull.null];
+    return a!=b && [together containsObject:a] && [together containsObject:b];
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
     for(UIView *view=touch.view;view && view!=self;view=view.superview)
@@ -74,8 +88,11 @@
     id<DEGameMouseEvent> e=[NSClassFromString(@"NSEvent") new];
     e.type=type;e.window=window;e.timestamp=CACurrentMediaTime();e.clickCount=1;
     e.buttonNumber=(type==3 || type==4)?1:(type>=25 && type<=27)?2:0;
-    if(type==25 || type==27)e.pressure=1;
+    if(type==3 || type==7 || type==25 || type==27)e.pressure=1;
     e.locationInWindow=CGPointMake(local.x-host.bounds.origin.x,CGRectGetMaxY(host.bounds)-local.y);
+    static CGPoint previous;
+    if(type==7 || type==27){e.deltaX=point.x-previous.x;e.deltaY=point.y-previous.y;}
+    previous=point;
     if(type==22){e.deltaY=wheel;[(id)e setValue:@(wheel) forKey:@"scrollingDeltaY"];}
     id app=((id(*)(id,SEL))objc_msgSend)(NSClassFromString(@"NSApplication"),sel_registerName("sharedApplication"));
     DEPostOrderedMouseEvent((id)e,self.gameLayer,^{
@@ -92,51 +109,65 @@
     DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
 }
 - (void)nativeMapPan:(UIPanGestureRecognizer *)gesture {
-    CGPoint point=[gesture locationInView:self];
+    // The pan reports the fingers' centre, which jumps when a finger lands or
+    // lifts mid-drag; carry an offset so the map doesn't jump with it.
+    static CGPoint offset,last;static NSUInteger fingers;
+    CGPoint centre=[gesture locationInView:self];
     UIGestureRecognizerState state=gesture.state;
+    if(state==UIGestureRecognizerStateBegan){offset=CGPointZero;fingers=gesture.numberOfTouches;}
+    else if(gesture.numberOfTouches!=fingers){fingers=gesture.numberOfTouches;offset=CGPointMake(last.x-centre.x,last.y-centre.y);}
+    CGPoint point=CGPointMake(centre.x+offset.x,centre.y+offset.y);last=point;
     [self nativeMapScrollPhase:state==UIGestureRecognizerStateBegan?0:state==UIGestureRecognizerStateChanged?1:
         (state==UIGestureRecognizerStateEnded || state==UIGestureRecognizerStateCancelled || state==UIGestureRecognizerStateFailed)?2:-1 point:point];
 }
-// DE scrolls when the map is dragged with its click-drag-scroll mouse button
-// (Options → Controls, middle button by default on Mac) while the
-// CLICK_DRAG_SCROLL hotkey (slash) may also be held. Send both: a middle
-// (other) button drag with slash down, so either setting scrolls.
-// Phase 0 begin, 1 move, 2 end.
-// Three fingers move the map like a joystick: the arrow keys DE scrolls with
-// by default are held in the direction the fingers moved from where they
-// landed (content follows the fingers: dragging left shows what is to the
-// right), and released when the fingers lift. A dead zone stops jitter.
+// The map follows the fingers through DE's own click-drag scrolling, which
+// uses the right mouse button by default (Options → Game → Click-Drag
+// Scrolling): a right-button drag. The press starts once the fingers have
+// moved 16 points and is held at least 0.35 s, which DE reads as a scroll,
+// never a right-click order. (Held arrow keys, used before, scrolled at a
+// fixed speed until the fingers lifted and overshot.) Phase 0 begin, 1 move, 2 end.
 - (void)nativeMapScrollPhase:(NSInteger)phase point:(CGPoint)point {
-    static CGPoint start;
-    static BOOL held[4]; // left, right, down, up
-    static const unsigned short keys[4]={123,124,125,126};
-    static NSString *chars[4];
-    if(!chars[0]){chars[0]=@"\uF702";chars[1]=@"\uF703";chars[2]=@"\uF701";chars[3]=@"\uF700";}
-    BOOL want[4]={NO,NO,NO,NO};
-    if(phase==0){start=point;DEMenuOpen=NO;fprintf(stderr,"DE_GESTURE_SCROLL state=began x=%g y=%g\n",point.x,point.y);}
-    if(phase==1) {
-        CGFloat dx=point.x-start.x,dy=point.y-start.y,dead=18;
-        want[0]=dx>dead;want[1]=dx<-dead;want[2]=dy<-dead;want[3]=dy>dead;
+    static CGPoint start;static BOOL pressed;static NSTimeInterval pressedAt;
+    if(phase==0){start=point;pressed=NO;DEMenuOpen=NO;fprintf(stderr,"DE_GESTURE_SCROLL state=began x=%g y=%g\n",point.x,point.y);return;}
+    if(phase==1 && !pressed) {
+        if(DEZoomedThisGesture || hypot(point.x-start.x,point.y-start.y)<16)return;
+        pressed=YES;pressedAt=CACurrentMediaTime();
+        [self nativeMouse:5 point:start wheel:0];[self nativeMouse:3 point:start wheel:0];
     }
-    for(int i=0;i<4;i++) if(want[i]!=held[i]) {
-        held[i]=want[i];DEPostGameKey(keys[i],chars[i],want[i]);
-    }
-    if(phase==2)fprintf(stderr,"DE_GESTURE_SCROLL state=end x=%g y=%g\n",point.x,point.y);
+    if(!pressed)return;
+    [self nativeMouse:7 point:point wheel:0];
+    if(phase!=2)return;
+    pressed=NO;
+    NSTimeInterval wait=MAX(0,0.35-(CACurrentMediaTime()-pressedAt));
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(wait*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[self nativeMouse:4 point:point wheel:0];});
+    fprintf(stderr,"DE_GESTURE_SCROLL state=end x=%g y=%g moved=%g\n",point.x,point.y,hypot(point.x-start.x,point.y-start.y));
+}
+// Zoom in whole wheel clicks, the same step as ZOOM +/−; fractional wheel
+// amounts zoomed far less than the fingers moved.
+- (void)sendZoomSteps:(CGFloat *)pending point:(CGPoint)point source:(const char *)source {
+    int steps=0;
+    while(fabs(*pending)>=1){CGFloat step=*pending>0?1:-1;[self nativeMouse:22 point:point wheel:step];*pending-=step;steps+=(int)step;}
+    if(steps)fprintf(stderr,"DE_GESTURE_ZOOM source=%s steps=%d\n",source,steps);
 }
 - (void)nativeZoom:(UIPinchGestureRecognizer *)gesture {
+    static CGFloat pending;
+    if(gesture.state==UIGestureRecognizerStateBegan){pending=0;DEZoomedThisGesture=NO;}
+    if(gesture.state==UIGestureRecognizerStateEnded || gesture.state==UIGestureRecognizerStateCancelled)DEZoomedThisGesture=NO;
     if(gesture.state!=UIGestureRecognizerStateChanged)return;
-    CGFloat amount=log(gesture.scale)*8.0;
-    if(fabs(amount)<0.2)return;
-    fprintf(stderr,"DE_GESTURE_ZOOM amount=%g\n",amount);
-    [self nativeMouse:22 point:[gesture locationInView:self] wheel:amount];gesture.scale=1;
+    // One step per 7% change in finger spread (spreading them to double
+    // their distance is about 10 steps).
+    pending+=log(gesture.scale)*15.0;gesture.scale=1;
+    if(fabs(pending)>=1)DEZoomedThisGesture=YES;
+    [self sendZoomSteps:&pending point:[gesture locationInView:self] source:"pinch"];
 }
 - (void)nativeWheel:(UIPanGestureRecognizer *)gesture {
+    static CGFloat pending;
+    if(gesture.state==UIGestureRecognizerStateBegan)pending=0;
     if(gesture.state!=UIGestureRecognizerStateChanged)return;
-    CGFloat amount=[gesture translationInView:self].y/12.0;
-    if(fabs(amount)<0.5)return;
-    fprintf(stderr,"DE_WHEEL amount=%g\n",amount);
-    [self nativeMouse:22 point:[gesture locationInView:self] wheel:amount];
+    // Trackpad two-finger scroll or mouse wheel: one step per 8 points.
+    pending+=[gesture translationInView:self].y/8.0;
     [gesture setTranslation:CGPointZero inView:self];
+    [self sendZoomSteps:&pending point:[gesture locationInView:self] source:"wheel"];
 }
 // Test-only input (AGEPAD_TEST_INPUT=1): lines written to
 // Documents/agepad-test-input.txt from the Mac are played through the same

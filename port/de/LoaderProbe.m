@@ -1078,7 +1078,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
                  @"To pair: connect the iPad by USB and run  scripts/agepad-ipad.sh pair  on the Mac. After that, tap AgePad whenever the Mac is on with Steam open.") :
                 @"To copy the game files: connect the iPad to your Mac, open it in Finder, choose Files, and drag the AgeOfEmpires2Data folder onto AgePad. It's in Steam > Library > Age of Empires II: DE > Manage > Browse local files. (Or run  scripts/agepad-ipad.sh sync  in the AgePad folder.) About 20 GB; keep 25 GB free.",
                 18, UIFontWeightRegular, muted);
-        addLine(@"Controls · tap: select · Pencil tap after selecting: move/order · hold: plain click · two-finger tap: right-click · three-finger drag: scroll map · pinch: zoom",
+        addLine(@"Controls · tap: select · two-finger tap: right-click · two-finger drag: move map · pinch: zoom · Pencil: tap to select, tap again to order, hold or double-tap the Pencil to stop",
                 16, UIFontWeightRegular, muted);
         fprintf(stderr, "DE_DEVICE_SETUP_GATE data_folder_present=%d inventory_checked=%d steam_connection=%d original_launch=skipped\n",
                 hasData, inventoryChecked, steamInitialized);
