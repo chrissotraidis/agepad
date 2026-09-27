@@ -52,6 +52,8 @@ extern id DEUIKitScreenObject(UIScreen *screen);
 - (void)refreshTouchCommandButton;
 - (void)installNativeGestures;
 - (void)startTestInput;
+- (NSSet<UITouch *> *)mapTouches:(UIEvent *)event;
+- (BOOL)mapTouchesAllUp:(UIEvent *)event;
 - (void)pencilDeselect:(const char *)how;
 - (void)nativeMapScrollPhase:(NSInteger)phase point:(CGPoint)point;
 - (void)nativeMouse:(NSUInteger)type point:(CGPoint)point wheel:(CGFloat)wheel;
@@ -255,22 +257,25 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
  // Second finger on the map soon after the first (and neither a Pencil): a
  // two-finger tap candidate. Undo anything the first finger started.
+ // Only touches on the game view count: a finger holding a side button
+ // (ZOOM, R-CLICK…) must not turn a map tap into a two-finger order.
+ NSSet<UITouch *> *mapTouches=[self mapTouches:event];
  UITouch *first=self.gameTouch?:touches.anyObject;
- BOOL fingers=YES;for(UITouch *t in event.allTouches)if(t.type!=UITouchTypeDirect)fingers=NO;
- if(fingers && event.allTouches.count>=2 && !self.twoFingerCandidate &&
+ BOOL fingers=YES;for(UITouch *t in mapTouches)if(t.type!=UITouchTypeDirect)fingers=NO;
+ if(fingers && mapTouches.count>=2 && !self.twoFingerCandidate &&
     event.timestamp-(self.gameTouch?self.pencilStartTime:event.timestamp)<0.5) {
-     self.twoFingerCandidate=YES;self.twoFingerFailed=NO;self.twoFingerCount=event.allTouches.count;
+     self.twoFingerCandidate=YES;self.twoFingerFailed=NO;self.twoFingerCount=mapTouches.count;
      self.twoFingerStart=self.gameTouch?self.pencilStartTime:event.timestamp;
      self.twoFingerPoint=[first locationInView:self.window];
      self.twoFingerStarts=[NSMutableDictionary dictionary];
-     for(UITouch *t in event.allTouches)self.twoFingerStarts[[NSValue valueWithNonretainedObject:t]]=[NSValue valueWithCGPoint:[t locationInView:self.window]];
+     for(UITouch *t in mapTouches)self.twoFingerStarts[[NSValue valueWithNonretainedObject:t]]=[NSValue valueWithCGPoint:[t locationInView:self.window]];
      if(self.gameTouch && self.pencilPending){self.pencilPending=NO;}
      else if(self.gameTouch){[self sendGameMouse:6 touch:self.gameTouch cancelled:YES];[self sendGameMouse:2 touch:self.gameTouch cancelled:YES];}
      self.pencilDragging=NO;self.gameTouch=nil;
-     fprintf(stderr,"DE_TWO_FINGER begin touches=%lu\n",(unsigned long)event.allTouches.count);
+     fprintf(stderr,"DE_TWO_FINGER begin touches=%lu\n",(unsigned long)mapTouches.count);
      return;
  }
- if(self.twoFingerCandidate){self.twoFingerCount=MAX(self.twoFingerCount,event.allTouches.count);return;}
+ if(self.twoFingerCandidate){self.twoFingerCount=MAX(self.twoFingerCount,mapTouches.count);return;}
  if(self.gameTouch)return;self.gameTouch=touches.anyObject;self.pencilStartTime=self.gameTouch.timestamp;
  // Simulator mouse-backed touches can report tapCount=0 on release after
  // reporting 1 on press. Preserve the click identity across the mouse pair.
@@ -301,6 +306,15 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  // Preserve AppKit's move-before-button ordering at the same actual point.
  if(getenv("AGEPAD_TOUCH_MOVE_BEFORE_DOWN")) [self sendGameMouse:5 touch:self.gameTouch cancelled:NO];
  [self sendGameMouse:1 touch:self.gameTouch cancelled:NO];
+}
+// Touches on the game view itself (not on the side buttons).
+- (NSSet<UITouch *> *)mapTouches:(UIEvent *)event {
+ return [event.allTouches objectsPassingTest:^BOOL(UITouch *t,BOOL *stop){
+     return t.view && [t.view isDescendantOfView:self] && ![t.view isKindOfClass:UIControl.class]; }];
+}
+- (BOOL)mapTouchesAllUp:(UIEvent *)event {
+ for(UITouch *t in [self mapTouches:event])if(t.phase!=UITouchPhaseEnded && t.phase!=UITouchPhaseCancelled)return NO;
+ return YES;
 }
 // Left button down at the original contact point; the gesture continues as a
 // normal press/drag (selection box) and releases in touchesEnded.
@@ -351,8 +365,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
 }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
  if(self.twoFingerCandidate) {
-     BOOL allUp=YES;for(UITouch *t in event.allTouches)if(t.phase!=UITouchPhaseEnded && t.phase!=UITouchPhaseCancelled)allUp=NO;
-     if(!allUp)return;
+     if(![self mapTouchesAllUp:event])return;
      NSTimeInterval held=event.timestamp-self.twoFingerStart;
      BOOL order=!self.twoFingerFailed && self.twoFingerCount==2 && held<1.0;
      fprintf(stderr,"DE_TWO_FINGER end order=%d held=%.2f touches=%lu moved=%d\n",order,held,(unsigned long)self.twoFingerCount,self.twoFingerFailed);
@@ -399,8 +412,7 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
 }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
  if(self.twoFingerCandidate){ // a pinch or map scroll took over
-     BOOL allUp=YES;for(UITouch *t in event.allTouches)if(t.phase!=UITouchPhaseEnded && t.phase!=UITouchPhaseCancelled)allUp=NO;
-     if(allUp){self.twoFingerCandidate=NO;self.twoFingerStarts=nil;}
+     if([self mapTouchesAllUp:event]){self.twoFingerCandidate=NO;self.twoFingerStarts=nil;}
      return;
  }
  if(self.pencilPending && self.gameTouch && [touches containsObject:self.gameTouch]) {

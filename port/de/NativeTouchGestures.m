@@ -38,16 +38,21 @@
     }
 }
 - (void)pencilInteractionDidTap:(UIPencilInteraction *)interaction API_AVAILABLE(ios(12.1)) {
-    [self pencilDeselect:"double-tap"];
+    if (UIPencilInteraction.preferredTapAction!=UIPencilPreferredActionIgnore) [self pencilDeselect:"double-tap"];
 }
 // iPadOS 17.5+ delivers the double-tap here, and Apple Pencil Pro's squeeze.
 - (void)pencilInteraction:(UIPencilInteraction *)interaction didReceiveTap:(UIPencilInteractionTap *)tap API_AVAILABLE(ios(17.5)) {
-    [self pencilDeselect:"double-tap"];
+    if (UIPencilInteraction.preferredTapAction!=UIPencilPreferredActionIgnore) [self pencilDeselect:"double-tap"];
 }
 - (void)pencilInteraction:(UIPencilInteraction *)interaction didReceiveSqueeze:(UIPencilInteractionSqueeze *)squeeze API_AVAILABLE(ios(17.5)) {
-    if(squeeze.phase==UIPencilInteractionPhaseEnded)[self pencilDeselect:"squeeze"];
+    if(squeeze.phase==UIPencilInteractionPhaseEnded && UIPencilInteraction.preferredSqueezeAction!=UIPencilPreferredActionIgnore)
+        [self pencilDeselect:"squeeze"];
 }
 - (void)pencilDeselect:(const char *)how {
+    // One deselect per gesture even if iPadOS reports it through both APIs.
+    static NSTimeInterval last;NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;
+    if(now-last<0.3)return;
+    last=now;
     DEPencilOrderArmed=NO;DEGlobalTouchCommandMode=NO;DERefreshTouchCommandButtons();
     fprintf(stderr,"DE_PENCIL_DOUBLE_TAP gesture=%s action=deselect key=escape\n",how);
     DEPostGameKey(53,@"\e",YES);
