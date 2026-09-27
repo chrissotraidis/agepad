@@ -2,7 +2,10 @@
 """Compile actual touch translation methods and verify rapid-interaction ordering."""
 from pathlib import Path
 import subprocess,hashlib,json
+import sys
 root=Path(__file__).resolve().parents[1]; out=root/'generated/de-touch-ordering-regression'
+sys.path.insert(0,str(root/'scripts'))
+import de_device
 out.mkdir(parents=True,exist_ok=True)
 s=(root/'port/de/WindowViewCompat.m').read_text()
 mouse=s[s.index('- (void)sendGameMouse:'):s.index('- (void)touchesBegan:')]
@@ -59,12 +62,15 @@ static __weak NSWindow *DEKeyGameWindow;
 static BOOL DEGlobalTouchCommandMode;
 static void DELogTouchDetail(id t,NSUInteger n){}
 static void DELogSynthesizedMouse(NSUInteger p,id e,UIEventButtonMask m,SEL s){}
+static BOOL DEInputVerbose(NSUInteger t){return NO;}
 @interface DEGameViewHost:UIView
 @property(nonatomic,strong) CALayer *gameLayer;
 @property(nonatomic,strong) id originalView;
 @property(nonatomic) NSInteger gameClickCount;
 @property(nonatomic) CGPoint previousTouchPoint;
 @property(nonatomic) UIEventButtonMask gameButtonMask;
+@property(nonatomic) BOOL forceSecondary,overrideActive;
+@property(nonatomic) CGPoint overridePoint;
 -(void)sendGameMouse:(NSUInteger)type touch:(UITouch *)touch cancelled:(BOOL)cancelled;
 @end
 '''
@@ -87,6 +93,10 @@ NSMutableArray *sequence=[NSMutableArray new];for(NSEvent *e in NSApplication.sh
 [NSApplication.sharedApplication.queue.events removeAllObjects];
 DEPostGameKey(44,@"/",YES);pump(0.02);
 NSEvent *key=NSApplication.sharedApplication.queue.events.firstObject;
+BOOL slashHeld=CGEventSourceKeyState(0,44);
+DEPostGameKey(44,@"/",NO);pump(0.02);
+BOOL slashReleased=!CGEventSourceKeyState(0,44);
+[NSApplication.sharedApplication.queue.events removeAllObjects];
 [host sendGameMouse:2 touch:(UITouch *)b cancelled:NO];pump(0.14);
 [NSApplication.sharedApplication.queue.events removeAllObjects];
 host.gameButtonMask=UIEventButtonMaskSecondary;
@@ -95,7 +105,7 @@ host.gameButtonMask=UIEventButtonMaskSecondary;
 [host sendGameMouse:2 touch:(UITouch *)b cancelled:NO];pump(0.14);
 NSMutableArray *secondary=[NSMutableArray new];
 for(NSEvent *e in NSApplication.sharedApplication.queue.events)[secondary addObject:@{@"type":@(e.type),@"button":@(e.buttonNumber)}];
-NSDictionary *result=@{ @"mouse_sequence":sequence,@"hardware_secondary":secondary,@"synthetic_key_event_type":@(key.type),@"synthetic_key_code":@(key.keyCode),@"polled_slash_down":@(CGEventSourceKeyState(0,44)),@"physical_keyboard_present":@(GCKeyboard.coalescedKeyboard.keyboardInput!=nil)};
+NSDictionary *result=@{ @"mouse_sequence":sequence,@"hardware_secondary":secondary,@"synthetic_key_event_type":@(key.type),@"synthetic_key_code":@(key.keyCode),@"polled_slash_down":@(slashHeld),@"polled_slash_released":@(slashReleased),@"physical_keyboard_present":@(GCKeyboard.coalescedKeyboard.keyboardInput!=nil)};
 puts([[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil] encoding:NSUTF8StringEncoding].UTF8String);
 return 0;
 }}
@@ -106,10 +116,14 @@ sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'
 subprocess.run(['xcrun','clang','-fobjc-arc','-target','arm64-apple-ios26.0-simulator','-isysroot',sdk,'-I',str(root/'port/de'),str(out/'InputProbe.m'),'-framework','Foundation','-framework','UIKit','-framework','QuartzCore','-framework','GameController','-framework','CoreGraphics','-o',str(out/'InputProbe')],check=True)
 subprocess.run(['codesign','-s','-','--force',str(out/'InputProbe')],check=True)
 
-# Exercise the real adapter in the only permitted already-booted Simulator.
-device='574671AD-6F61-4558-9528-BF946DDB760A'
+# Exercise the real adapter in the AgePad Simulator, only when it is the one
+# booted Simulator (never boot a second one next to other work).
+device=de_device.device_udid()
 boot=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','booted','-j'],text=True))
-assert [d['udid'] for group in boot['devices'].values() for d in group]==[device]
+booted=[d['udid'] for group in boot['devices'].values() for d in group]
+if booted!=[device]:
+    print('COMPILED; run skipped: boot only the AgePad Simulator (%s) to run it. Booted now: %s' % (device, booted or 'none'))
+    sys.exit(0)
 run=subprocess.run(['xcrun','simctl','spawn',device,str(out/'InputProbe')],capture_output=True,text=True,timeout=30)
 (out/'run.stderr').write_text(run.stderr)
 assert run.returncode==0,run.stderr
@@ -118,4 +132,6 @@ result=json.loads(run.stdout)
 assert [event['type'] for event in result['mouse_sequence']]==[1,2,1,6],result
 assert [event['event'] for event in result['mouse_sequence']]==[1,2,3,4],result
 assert result['hardware_secondary']==[{'type':3,'button':1},{'type':7,'button':1},{'type':4,'button':1}],result
+# Keys AgePad holds itself (three-finger map scroll) read as held while down.
+assert result['polled_slash_down'] and result['polled_slash_released'],result
 print('PASS: ordered touch delivery and hardware secondary down/drag/up in the actual adapter')
