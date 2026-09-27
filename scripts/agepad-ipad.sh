@@ -46,7 +46,7 @@ sync_tool() {
   if [[ ! -x $TOOL || scripts/agepad-sync.c -nt $TOOL ]]; then
     mkdir -p $TOOL:h
     cc -O2 scripts/agepad-sync.c $(pkg-config --cflags --libs libimobiledevice-1.0 libplist-2.0 2>/dev/null) -o $TOOL 2>/dev/null \
-      || { print -u2 "Could not build the copy tool. Install its library with: brew install libimobiledevice"; return 1; }
+      || { print -u2 "Could not build the copy tool. Install its library with: brew install libimobiledevice pkgconf"; return 1; }
   fi
   print $TOOL
 }
@@ -73,7 +73,7 @@ check() {
   xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1 && ok "Xcode with iPad support" \
     || bad "Xcode not found" "Install Xcode from the App Store, open it once and let it finish installing components."
   pkg-config --exists libimobiledevice-1.0 2>/dev/null && ok "USB copy library (libimobiledevice)" \
-    || bad "USB copy library missing" "Install Homebrew (https://brew.sh), then run: brew install libimobiledevice"
+    || bad "USB copy library missing" "Install Homebrew (https://brew.sh), then run: brew install libimobiledevice pkgconf"
   [[ -d "$STEAM_APP/AgeOfEmpires2Data" ]] && ok "Your Steam copy of AoE II: DE (Mac edition) found" \
     || bad "AoE II: DE not found in Steam on this Mac" "Install Age of Empires II: Definitive Edition in Steam for Mac (you must own it)."
   if NOTE=$(version_note); then bad "Game version differs from AgePad's" "$NOTE"; fi

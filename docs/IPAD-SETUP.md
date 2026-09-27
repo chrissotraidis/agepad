@@ -22,7 +22,7 @@ Status (26 September): on the tested iPad the QR sign-in works, the sign-in is r
 ## What you need
 
 - A Mac with Apple silicon and Xcode, and Steam for Mac with **Age of Empires II: DE** installed (you must own it; it is the Mac edition of the same Steam purchase).
-- Homebrew's USB file library: `brew install libimobiledevice`.
+- Homebrew's USB file library: `brew install libimobiledevice pkgconf`.
 - An iPad with **8 GB of memory or more** (tested: iPad Pro 12.9-inch, M2) and about **25 GB free**, with Developer Mode on (Settings → Privacy & Security → Developer Mode; iPadOS asks for it the first time an app from your Mac is installed).
 - A USB-C cable between the iPad and the Mac, for setup and for later game updates. Playing needs no cable and no Mac.
 - An Apple Developer account signed in to Xcode, to sign AgePad for your own iPad. A paid account is recommended: with a free account the app stops opening after 7 days until you run setup again, and whether a free account can grant the larger memory limit (below) has not been tested.

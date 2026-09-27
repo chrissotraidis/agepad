@@ -223,6 +223,7 @@ def recipe(app, out, game, steam):
 
 
 def zip_app(app, out):
+    out.parent.mkdir(parents=True, exist_ok=True)  # generated/ doesn't exist in a fresh clone
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
         for p in sorted(app.rglob('*')):
             arc = 'Payload/' + app.name + '/' + str(p.relative_to(app))
