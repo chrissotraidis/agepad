@@ -153,7 +153,7 @@ static void remove_stale(const char *relative) {
         snprintf(local,sizeof local,"%s/%s",source,child);
         snprintf(target,sizeof target,"%s/%s",remote_root,child);
         size_t n=strlen(name);
-        int part=n>13 && !strcmp(name+n-13,".agepad-part");
+        int part=n>12 && !strcmp(name+n-12,".agepad-part");
         if (!part && !lstat(local,&value)) { if (S_ISDIR(value.st_mode)) remove_stale(child);continue; }
         // Steam's engine drops this cache file wherever the game's working
         // folder is; it is not game data. Remove it without a report.
