@@ -25,12 +25,11 @@ long sessions not yet verified (the README and release notes say so).
 
 ## Needs Chris
 
-1. **Touch review on the iPad**, with a fresh build (it also carries the 27 September
-   two-finger fix): `scripts/agepad-ipad.sh build`. Checks: two-finger taps,
-   three-finger scroll, Pencil tap accuracy, Pencil double-tap/squeeze, a mouse wheel.
-2. **Licence.** `LICENSE.draft` is MIT, which fits: the shipped app has no GPL code.
-   GPL-3.0 (like KartPad) also works. Either way, update the README's last paragraph.
-3. **Publish:** push, make the repository public, tag and release (below).
+1. **Second touch review on the iPad** (first review 27 September; the follow-up
+   build changes map drag, zoom speed, Pencil arming and the double-tap).
+2. **Publish:** push, make the repository public, tag and release (below).
+
+Licence: MIT, chosen 27 September ([LICENSE](../LICENSE)).
 
 ## Release steps
 
@@ -39,8 +38,6 @@ After the touch review, with the iPad still connected:
 ```sh
 scripts/agepad-ipad.sh kit                 # makes generated/kit/AgePad-base.ipa; must end "0 contain game or Steam content"
 shasum -a 256 generated/kit/AgePad-base.ipa
-mv LICENSE.draft LICENSE                   # or your chosen licence; edit README "Credits and license"
-git add LICENSE README.md && git commit -m "License"
 git push origin main
 gh repo edit chrissotraidis/agepad --visibility public --accept-visibility-change-consequences
 git tag v0.1 && git push origin v0.1

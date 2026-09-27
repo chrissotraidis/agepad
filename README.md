@@ -21,6 +21,7 @@ management and packaging. The game itself and Steam come from your own installs.
   <img alt="Offline play" src="https://img.shields.io/badge/offline-Steam%20offline%20mode-30D158">
   <img alt="Supported game version" src="https://img.shields.io/badge/AoE%20II%20DE-488492.107976-FF9F0A">
   <img alt="Developer preview" src="https://img.shields.io/badge/status-developer%20preview-FF9F0A">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-8E8E93"></a>
   <img alt="Game data not included" src="https://img.shields.io/badge/game%20data-not%20included-FF453A">
   <a href="https://discord.gg/xwHfUD2bxW"><img alt="Join the community on Discord" src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&amp;logoColor=white"></a>
 </p>
@@ -75,11 +76,11 @@ your app ID isn't the default); please don't attach game files, saves or Steam d
 
 [Frequently asked questions](#frequently-asked-questions) · [Setup guide and full controls](docs/IPAD-SETUP.md) · [Release route and limits](docs/IPA-ROUTE.md)
 
-- **Touch:** tap to select, two-finger tap for orders (right click), three-finger
-  drag to move the map, pinch to zoom. Side buttons: R-CLICK, IDLE villager, TOWN
+- **Touch:** tap to select, two-finger tap for orders (right click), two-finger drag
+  to move the map, pinch to zoom. Side buttons: R-CLICK, IDLE villager, TOWN
   center, ZOOM and MENU.
-- **Apple Pencil:** tap a unit, then each tap on the map is an order; hold for half a
-  second, double-tap the Pencil, or squeeze an Apple Pencil Pro to stop.
+- **Apple Pencil:** tap a unit, then each Pencil tap on the map is an order; hold for
+  half a second, double-tap the Pencil, or squeeze an Apple Pencil Pro to stop.
 - **Mouse, trackpad and keyboard:** clicks, right clicks, drag-select, the wheel
   (zoom) and the game's own hotkeys.
 - **Online and offline:** online everything runs through Steam as on a computer.
@@ -169,6 +170,6 @@ Edge and published by Xbox Game Studios; the Mac version is by Feral Interactive
 Steam is Valve's. AgePad is an independent fan project and is not affiliated with or
 endorsed by any of them.
 
-The license for AgePad's own code is not yet decided. Game and Steam files are not
-included in this repository and are not covered by any AgePad license.
-Third-party code and patches: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+AgePad's own code is released under the [MIT License](LICENSE). Game and Steam files
+are not included in this repository and are not covered by it. Third-party code and
+patches keep their own licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
