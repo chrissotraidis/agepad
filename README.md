@@ -89,7 +89,8 @@ your Mac; please don't attach game files, saves or Steam details.
 
 Touch, save/load, offline and Steam sign-in were checked on the tested iPad.
 Two-finger taps and Apple Pencil accuracy were reworked on 26 September and still
-need hands-on confirmation. Online matches, sessions over an hour and other iPad
+need hands-on confirmation (their gesture logic is covered by Simulator tests in
+`scripts/run-de-tests.sh`). Online matches, sessions over an hour and other iPad
 models are not yet verified.
 
 ## Frequently asked questions

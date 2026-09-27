@@ -80,7 +80,7 @@ In menus, taps are always plain clicks.
 |---|---|
 | Tap | Select (left click) |
 | Drag | Selection box |
-| Two-finger tap | Right click: move, gather, attack |
+| Two-finger tap | Right click: move, gather, attack (the fingers can land up to about half a second apart) |
 | Three-finger drag | Move the map: drag a little in any direction and the view keeps scrolling that way (at the game's scroll speed) until you lift |
 | Pinch | Zoom |
 | Apple Pencil tap on a unit or drag-box | Select; the next Pencil taps on the map give orders (right click) until you… |

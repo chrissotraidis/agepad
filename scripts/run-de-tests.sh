@@ -1,12 +1,13 @@
 #!/bin/zsh
 # Run AgePad's game-side tests: the Mac-runnable ones run; the iPadOS ones are
-# compiled for the Simulator (and the touch test runs if the AgePad Simulator
-# is the only one booted). Usage: scripts/run-de-tests.sh
+# compiled for the Simulator (and the touch tests run if the AgePad Simulator
+# is booted). Usage: scripts/run-de-tests.sh
 set -u
 ROOT=${0:A:h:h}; cd $ROOT
 T=$(mktemp -d); FAILED=0
+KEEP_T=0; trap '(( KEEP_T )) || rm -rf -- "$T"' EXIT # keep build output only when a test failed
 pass() { print -P "  %F{green}✓%f $1"; }
-fail() { print -P "  %F{red}✗%f $1"; FAILED=1; }
+fail() { print -P "  %F{red}✗%f $1"; FAILED=1; KEEP_T=1; }
 mac() { # name, extra sources/flags
   local name=$1; shift
   if xcrun clang -fobjc-arc -I port/de "$@" -o $T/$name 2>$T/$name.err && $T/$name >$T/$name.out 2>&1; then pass "$name: $(tail -1 $T/$name.out)"
@@ -23,6 +24,7 @@ for name in pointer_ownership ordered_delivery; do
     && pass "$name: compiles for iPadOS" || fail "$name (see $T/$name.err)"
 done
 OUT=$(python3 tests/test_de_touch_ordering.py 2>&1) && pass "touch-ordering: $(print -r -- $OUT | tail -1)" || fail "touch-ordering: $(print -r -- $OUT | tail -3)"
+OUT=$(python3 tests/test_de_two_finger.py 2>&1) && pass "two-finger: $(print -r -- $OUT | tail -1)" || fail "two-finger: $(print -r -- $OUT | tail -3)"
 OUT=$(python3 tests/test_agepad_kit_roundtrip.py 2>&1) && pass "release round trip: $(print -r -- $OUT | tail -1)" || fail "release round trip: $(print -r -- $OUT | tail -3)"
 OUT=$(python3 tests/test-startup-trace-parser.py 2>&1) && pass "startup-trace-parser" || fail "startup-trace-parser"
 (( FAILED )) && { print 'Some tests failed.'; exit 1; }

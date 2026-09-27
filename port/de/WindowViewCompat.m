@@ -69,6 +69,9 @@ static BOOL DEPencilOrderArmed;
 // which closes it. Gameplay gestures (orders, drag boxes, scrolls) prove the
 // menu is closed, so they reset the toggle.
 static BOOL DEMenuOpen;
+// Longest gap between the two fingers of a two-finger order tap; a single
+// finger held still in a match waits this long before its press begins.
+static const NSTimeInterval DETwoFingerWindow=0.45;
 // High-rate pointer events (move/drag, up to 240 Hz from Apple Pencil) are
 // only logged with AGEPAD_INPUT_VERBOSE; the logging itself added latency.
 static BOOL DEInputVerbose(NSUInteger type) {
@@ -263,7 +266,10 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
  UITouch *first=self.gameTouch?:touches.anyObject;
  BOOL fingers=YES;for(UITouch *t in mapTouches)if(t.type!=UITouchTypeDirect)fingers=NO;
  if(fingers && mapTouches.count>=2 && !self.twoFingerCandidate &&
-    event.timestamp-(self.gameTouch?self.pencilStartTime:event.timestamp)<0.5) {
+    event.timestamp-(self.gameTouch?self.pencilStartTime:event.timestamp)<DETwoFingerWindow &&
+    // Once the first finger's press has begun in a match, the second finger
+    // can't turn it into an order without leaving a drag behind.
+    (!self.gameTouch || self.pencilPending || !DEPencilMatchActive())) {
      self.twoFingerCandidate=YES;self.twoFingerFailed=NO;self.twoFingerCount=mapTouches.count;
      self.twoFingerStart=self.gameTouch?self.pencilStartTime:event.timestamp;
      self.twoFingerPoint=[first locationInView:self.window];
@@ -294,9 +300,10 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
      [self sendGameMouse:5 touch:self.gameTouch cancelled:NO];
      if(!pencil) {
          UITouch *touch=self.gameTouch;
-         // 220 ms covers the usual gap between the two fingers of an order tap,
-         // so the first finger is cancelled instead of clicking (deselecting).
-         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,220*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+         // DETwoFingerWindow covers the gap between the two fingers of an
+         // order tap, even a slow one, so the first finger is cancelled
+         // instead of clicking (deselecting). Moving starts a drag at once.
+         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(DETwoFingerWindow*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
              if(self.pencilPending && self.gameTouch==touch){[self commitPendingPress];fprintf(stderr,"DE_TOUCH_DEFERRED_PRESS reason=held\n");}
          });
      }

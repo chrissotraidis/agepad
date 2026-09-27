@@ -116,13 +116,13 @@ sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'
 subprocess.run(['xcrun','clang','-fobjc-arc','-target','arm64-apple-ios26.0-simulator','-isysroot',sdk,'-I',str(root/'port/de'),str(out/'InputProbe.m'),'-framework','Foundation','-framework','UIKit','-framework','QuartzCore','-framework','GameController','-framework','CoreGraphics','-o',str(out/'InputProbe')],check=True)
 subprocess.run(['codesign','-s','-','--force',str(out/'InputProbe')],check=True)
 
-# Exercise the real adapter in the AgePad Simulator, only when it is the one
-# booted Simulator (never boot a second one next to other work).
+# Exercise the real adapter in the AgePad Simulator when it is booted (other
+# tasks' Simulators may run alongside; they are not touched).
 device=de_device.device_udid()
 boot=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','booted','-j'],text=True))
 booted=[d['udid'] for group in boot['devices'].values() for d in group]
-if booted!=[device]:
-    print('COMPILED; run skipped: boot only the AgePad Simulator (%s) to run it. Booted now: %s' % (device, booted or 'none'))
+if device not in booted:
+    print('COMPILED; run skipped: boot the AgePad Simulator (%s) to run it.' % device)
     sys.exit(0)
 run=subprocess.run(['xcrun','simctl','spawn',device,str(out/'InputProbe')],capture_output=True,text=True,timeout=30)
 (out/'run.stderr').write_text(run.stderr)
