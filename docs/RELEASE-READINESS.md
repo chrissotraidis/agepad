@@ -26,14 +26,13 @@ long sessions not yet verified (the README and release notes say so).
 | Tests | `scripts/run-de-tests.sh` (incl. two-finger and Pencil logic in the Simulator) and `scripts/check-repo-safety.py` pass |
 | Community | README badges and Discord, issue templates for bugs and questions |
 
-## Needs Chris
+## Published
 
-1. **Touch review of the 30 September build** (installed on the iPad): three-finger
-   map drag with real fingers, quick repeated swipes, two-finger drag vs pinch, and
-   dragging after zooming in or out.
-2. **Rebuild the base app after any further change** (`scripts/agepad-ipad.sh kit`);
-   the current one (30 September, SHA-256 `a03b8f13…80b502`, staged with the PadMint manifest and SHA256SUMS in `generated/release/v0.1.0`) matches the installed build.
-3. **Publish:** push, make the repository public, tag and release (below).
+0.1.0 was published on 30 September 2026, after Chris's hands-on touch review
+(three-finger drag fine, then 20% faster; pinch zoom made faster). The release app
+(SHA-256 `a03b8f13…80b502`) matches the build on the tested iPad. Still open:
+dragging at other zoom levels with real fingers, a mouse, full online matches,
+sessions over an hour and other iPads.
 
 Licence: MIT, chosen 27 September ([LICENSE](../LICENSE)).
 
@@ -51,9 +50,12 @@ cp padmint.json $R/AgePad-v$V-padmint.json
 python3 -m padmint audit $R                # from a PadMint checkout; must PASS (it cannot see game code; the kit audit above can)
 git push origin main
 git tag v$V && git push origin v$V
-gh release create v$V $R/* --prerelease \
-  --title "AgePad $V (preview)" --notes-file docs/RELEASE-NOTES-0.1.md
+gh release create v$V $R/* --latest \
+  --title "AgePad $V" --notes-file docs/RELEASE-NOTES-0.1.md
 ```
+
+Not a GitHub pre-release: PadMint and the README's download link follow
+`/releases/latest`, which skips pre-releases. The notes say it is a developer preview.
 
 Then download the three assets while signed out and compare them with
 `SHA256SUMS`, and run `padmint make agepad ios` once from a PadMint release that
