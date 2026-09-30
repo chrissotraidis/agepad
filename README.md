@@ -64,6 +64,9 @@ for full matches ([why](docs/IPA-ROUTE.md#memory-the-one-real-limit)).
 
 ### With PadMint
 
+AgePad appears in PadMint from its next release (PadMint 0.2.1 and earlier don't
+list it yet); until then, use [the inject command](#directly-with-the-inject-command).
+
 1. Download [PadMint](https://github.com/chrissotraidis/padmint/releases/latest), unzip it and double-click `PadMint.command`.
 2. Choose **AgePad** and **iPhone/iPad**. There is no game file to drag in: PadMint downloads the AgePad release, finds your game and Steam in Steam's folders on this Mac, checks every file against the release and saves your AgePad IPA in the folder you choose.
 3. Continue with [install and copy the game data](#then-install-and-copy-the-game-data).
