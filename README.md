@@ -90,11 +90,12 @@ your app ID isn't the default); please don't attach game files, saves or Steam d
   Options → Interface. **Signing out:** iPad Settings → AgePad → *Sign out of Steam*.
 
 Checked on the tested iPad: touch, Apple Pencil, keyboard and trackpad, save/load,
-Steam sign-in, going online, and offline play. Map dragging with three fingers was
-reworked on 30 September (iPadOS no longer takes three-finger swipes for undo, and
-a drag no longer turns into a zoom halfway); its gesture logic is covered by
-Simulator tests in `scripts/run-de-tests.sh`. A mouse, full online matches, sessions
-over an hour and other iPad models are not yet verified.
+Steam sign-in, going online, and offline play. Map dragging was rebuilt on 30
+September: the map now stays under your fingers (measured on the iPad within about
+3%; before, it moved the wrong way, ignored small drags and ran away on big ones),
+iPadOS no longer takes three-finger swipes for undo, and a drag no longer turns into
+a zoom halfway. A mouse, full online matches, sessions over an hour and other iPad
+models are not yet verified.
 
 ## Frequently asked questions
 

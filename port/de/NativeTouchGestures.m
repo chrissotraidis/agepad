@@ -133,37 +133,83 @@ static BOOL DEGestureActive(UIGestureRecognizer *gesture) {
     [self nativeMapScrollPhase:state==UIGestureRecognizerStateBegan?0:state==UIGestureRecognizerStateChanged?1:
         (state==UIGestureRecognizerStateEnded || state==UIGestureRecognizerStateCancelled || state==UIGestureRecognizerStateFailed)?2:-1 point:point];
 }
-// The map follows the fingers through DE's own click-drag scrolling, which
-// uses the right mouse button by default (Options → Game → Click-Drag
-// Scrolling): a right-button drag. The press starts once the fingers have
-// moved 16 points and is held at least 0.35 s, which DE reads as a scroll,
-// never a right-click order. (Held arrow keys, used before, scrolled at a
-// fixed speed until the fingers lifted and overshot.) A drag that starts
-// while the previous one's release is still waiting presses once that release
-// is sent, from where the fingers are then, so quick repeated swipes don't
-// lose the button halfway. Phase 0 begin, 1 move, 2 end.
+// Map drag. DE's click-drag scrolling (right button, the game's default) is a
+// joystick, not a grab: while the button is held the view scrolls away from
+// the press point, faster the further the pointer is, and not at all within
+// about 68 points. Measured on the iPad Pro 12.9 (30 September, default zoom),
+// the map content moves opposite the pointer offset (dx, dy) at
+//   v = 3.84 e + 0.0622 e^2 points/s,  e = r - 68,  r = |(dx, 1.78 dy)|,
+// in the direction of (dx, 1.78 dy). So a finger's own position as the
+// pointer scrolled the wrong way, did nothing for small moves and ran away on
+// big ones. Instead AgePad presses once in the middle of the map and, 60
+// times a second, puts the pointer at the offset whose speed moves the view by
+// what the fingers still need (their movement minus what the view has
+// already moved), then releases once the view has caught up and the button
+// has been held 0.35 s (a shorter right press would be an order). A new drag
+// before that continues the same press. Phase 0 begin, 1 move, 2 end.
+static const CGFloat DEScrollDeadZone=68,DEScrollLinear=3.84,DEScrollSquare=0.0622,DEScrollYStretch=1.78;
+static const CGFloat DEScrollMaxSpeed=1500,DEScrollCatchUp=0.1;
+static CGFloat DEScrollRadiusForSpeed(CGFloat v) { // inverse of v(e)
+    return DEScrollDeadZone+(sqrt(DEScrollLinear*DEScrollLinear+4*DEScrollSquare*v)-DEScrollLinear)/(2*DEScrollSquare);
+}
+static struct { BOOL active,started,pressed; CGPoint fingerStart,finger,base,target,moved,velocity,anchor;
+    NSTimeInterval pressedAt,tick; __unsafe_unretained NSTimer *timer; } DEScroll;
 - (void)nativeMapScrollPhase:(NSInteger)phase point:(CGPoint)point {
-    static CGPoint start;static BOOL pressed,releasePending,lateStart;static NSTimeInterval pressedAt;
-    if(phase==0){start=point;pressed=NO;lateStart=releasePending;DEMenuOpen=NO;
-        fprintf(stderr,"DE_GESTURE_SCROLL state=began x=%g y=%g late=%d\n",point.x,point.y,lateStart);return;}
-    if(phase==2 && !DEGestureActive(self.zoomPinch))DEMapMode=DEMapGestureUndecided; // the fingers are up
-    if(phase==1 && !pressed) {
-        if(DEMapMode==DEMapGestureZoom || releasePending)return;
-        CGFloat moved=hypot(point.x-start.x,point.y-start.y);
-        if(!lateStart && moved<(DEMapMode==DEMapGestureScroll?6:16))return;
-        DEMapMode=DEMapGestureScroll;
-        if(lateStart)start=point;
-        pressed=YES;pressedAt=CACurrentMediaTime();
-        [self nativeMouse:5 point:start wheel:0];[self nativeMouse:3 point:start wheel:0];
+    if(phase==0) {
+        DEMenuOpen=NO;DEScroll.active=YES;DEScroll.started=NO;DEScroll.fingerStart=DEScroll.finger=point;
+        DEScroll.base=DEScroll.target;
+        fprintf(stderr,"DE_GESTURE_SCROLL state=began x=%g y=%g continuing=%d\n",point.x,point.y,DEScroll.pressed);
+        return;
     }
-    if(!pressed)return;
-    [self nativeMouse:7 point:point wheel:0];
-    if(phase!=2)return;
-    pressed=NO;releasePending=YES;
-    NSTimeInterval wait=MAX(0,0.35-(CACurrentMediaTime()-pressedAt));
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(wait*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
-        [self nativeMouse:4 point:point wheel:0];releasePending=NO;});
-    fprintf(stderr,"DE_GESTURE_SCROLL state=end x=%g y=%g moved=%g\n",point.x,point.y,hypot(point.x-start.x,point.y-start.y));
+    if(!DEScroll.active)return;
+    if(DEMapMode==DEMapGestureZoom && !DEScroll.started){if(phase==2)DEScroll.active=NO;return;}
+    if(!DEScroll.started) {
+        CGFloat moved=hypot(point.x-DEScroll.fingerStart.x,point.y-DEScroll.fingerStart.y);
+        if(phase==1 && moved>=(DEMapMode==DEMapGestureScroll || DEScroll.pressed?6:16)) {
+            DEScroll.started=YES;DEMapMode=DEMapGestureScroll;
+        }
+    }
+    if(DEScroll.started) {
+        DEScroll.finger=point;
+        DEScroll.target=CGPointMake(DEScroll.base.x+point.x-DEScroll.fingerStart.x,DEScroll.base.y+point.y-DEScroll.fingerStart.y);
+        if(!DEScroll.pressed) {
+            DEScroll.pressed=YES;DEScroll.pressedAt=DEScroll.tick=CACurrentMediaTime();
+            DEScroll.moved=DEScroll.velocity=CGPointZero;
+            DEScroll.anchor=CGPointMake(CGRectGetMidX(self.bounds),CGRectGetHeight(self.bounds)*0.43);
+            [self nativeMouse:5 point:DEScroll.anchor wheel:0];[self nativeMouse:3 point:DEScroll.anchor wheel:0];
+            __weak DEGameViewHost *weakSelf=self;
+            NSTimer *timer=[NSTimer timerWithTimeInterval:1.0/60 repeats:YES block:^(NSTimer *t){[weakSelf mapScrollTick];}];
+            [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];DEScroll.timer=timer;
+        }
+    }
+    if(phase==2) {
+        DEScroll.active=NO;
+        if(!DEGestureActive(self.zoomPinch))DEMapMode=DEMapGestureUndecided; // the fingers are up
+        fprintf(stderr,"DE_GESTURE_SCROLL state=end x=%g y=%g target=%g,%g\n",point.x,point.y,DEScroll.target.x,DEScroll.target.y);
+    }
+}
+- (void)mapScrollTick {
+    NSTimeInterval now=CACurrentMediaTime(),dt=MIN(now-DEScroll.tick,0.1);DEScroll.tick=now;
+    DEScroll.moved.x+=DEScroll.velocity.x*dt;DEScroll.moved.y+=DEScroll.velocity.y*dt;
+    CGPoint need=CGPointMake(DEScroll.target.x-DEScroll.moved.x,DEScroll.target.y-DEScroll.moved.y);
+    CGFloat distance=hypot(need.x,need.y);
+    if(distance<1.5 && !DEScroll.active && now-DEScroll.pressedAt>=0.35) {
+        [DEScroll.timer invalidate];DEScroll.timer=nil;DEScroll.pressed=NO;DEScroll.velocity=CGPointZero;
+        [self nativeMouse:7 point:DEScroll.anchor wheel:0];[self nativeMouse:4 point:DEScroll.anchor wheel:0];
+        [self nativeMouse:5 point:DEScroll.finger wheel:0]; // leave the pointer where the fingers lifted
+        fprintf(stderr,"DE_GESTURE_SCROLL state=released moved=%g,%g\n",DEScroll.moved.x,DEScroll.moved.y);
+        DEScroll.target=DEScroll.moved=CGPointZero;
+        return;
+    }
+    CGFloat speed=distance<1.5?0:MIN(distance/DEScrollCatchUp,DEScrollMaxSpeed);
+    DEScroll.velocity=speed>0?CGPointMake(need.x/distance*speed,need.y/distance*speed):CGPointZero;
+    CGPoint pointer=DEScroll.anchor;
+    if(speed>0) {
+        // Content moves opposite the pointer; in the game's measure y counts 1.78 times.
+        CGFloat r=DEScrollRadiusForSpeed(speed);
+        pointer=CGPointMake(DEScroll.anchor.x-need.x/distance*r,DEScroll.anchor.y-need.y/distance*r/DEScrollYStretch);
+    }
+    [self nativeMouse:7 point:pointer wheel:0];
 }
 // Zoom in whole wheel clicks, the same step as ZOOM +/−; fractional wheel
 // amounts zoomed far less than the fingers moved.
@@ -198,7 +244,8 @@ static BOOL DEGestureActive(UIGestureRecognizer *gesture) {
 // mouse/key paths as touches, in screen points, on the largest visible game
 // view, then the file is removed:
 //   click X Y | rclick X Y | key MACKEYCODE | text lowercase0to9 | wait MS
-//   mdrag X1 Y1 X2 Y2 (three-finger map scroll) | pdtap (Pencil double-tap)| rclick X Y | key MACKEYCODE | text lowercaseletters0to9 | wait MS
+//   mdrag X1 Y1 X2 Y2 (three-finger map scroll) | pdtap (Pencil double-tap)
+//   mhold X Y DX DY MS (right button held at an offset: calibrates click-drag scrolling)
 - (void)startTestInput {
     if (!getenv("AGEPAD_TEST_INPUT")) return;
     static NSHashTable<DEGameViewHost *> *hosts;
@@ -230,6 +277,16 @@ static BOOL DEGestureActive(UIGestureRecognizer *gesture) {
                 fprintf(stderr,"DE_TEST_INPUT %s view=%gx%g\n",line.UTF8String,host.bounds.size.width,host.bounds.size.height);
                 if ([word[0] isEqualToString:@"pdtap"]) {
                     [host pencilDeselect:"test"];
+                } else if (word.count>5 && [word[0] isEqualToString:@"mhold"]) {
+                    // Right button pressed at X Y, pointer held DX DY away for MS: measures
+                    // how DE's click-drag scrolling responds to a held offset.
+                    CGPoint from=CGPointMake(word[1].doubleValue,word[2].doubleValue);
+                    CGPoint to=CGPointMake(from.x+word[3].doubleValue,from.y+word[4].doubleValue);
+                    double ms=word[5].doubleValue;
+                    [host nativeMouse:5 point:from wheel:0];[host nativeMouse:3 point:from wheel:0];
+                    for (int step=1;step*16<ms;step++)
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,step*16*NSEC_PER_MSEC),dispatch_get_main_queue(),^{ [host nativeMouse:7 point:to wheel:0]; });
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(ms*NSEC_PER_MSEC)),dispatch_get_main_queue(),^{ [host nativeMouse:4 point:to wheel:0]; });
                 } else if (word.count>4 && [word[0] isEqualToString:@"mdrag"]) {
                     // The three-finger scroll's own event sequence, from X1 Y1 to X2 Y2.
                     CGPoint from=CGPointMake(word[1].doubleValue,word[2].doubleValue),to=CGPointMake(word[3].doubleValue,word[4].doubleValue);

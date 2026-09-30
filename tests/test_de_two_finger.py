@@ -91,6 +91,18 @@ static FakeEvent *event(NSArray *all){FakeEvent *e=[FakeEvent new];e.allTouches=
 static void began(FakeTouch *t,NSArray *all){t.phase=UITouchPhaseBegan;t.timestamp=NSProcessInfo.processInfo.systemUptime;[host touchesBegan:[NSSet setWithObject:t] withEvent:(UIEvent *)event(all)];}
 static void moved(FakeTouch *t,CGPoint p,NSArray *all){t.point=p;t.phase=UITouchPhaseMoved;t.timestamp=NSProcessInfo.processInfo.systemUptime;[host touchesMoved:[NSSet setWithObject:t] withEvent:(UIEvent *)event(all)];}
 static void ended(FakeTouch *t,NSArray *all){t.phase=UITouchPhaseEnded;t.timestamp=NSProcessInfo.processInfo.systemUptime;[host touchesEnded:[NSSet setWithObject:t] withEvent:(UIEvent *)event(all)];}
+// Replays the queued right-button drag through DE's measured click-drag
+// scrolling (see NativeTouchGestures.m) and returns how far the map content
+// moved, in view points, as the game would scroll it.
+static CGPoint simulateScroll(void){BOOL down=NO;CGPoint a=CGPointZero,cur=CGPointZero,moved=CGPointZero;double t=0;
+  for(NSEvent *e in NSApplication.sharedApplication.queue.events){
+    if(down){double dt=e.timestamp-t;CGFloat ox=cur.x-a.x,oy=-(cur.y-a.y),r=hypot(ox,1.78*oy);
+      if(r>68){CGFloat x=r-68,v=3.84*x+0.0622*x*x;moved.x-=v*dt*ox/r;moved.y-=v*dt*1.78*oy/r;}}
+    if(e.type==3){down=YES;a=cur=e.locationInWindow;}
+    else if(e.type==7)cur=e.locationInWindow;
+    else if(e.type==4)down=NO;
+    t=e.timestamp;}
+  return moved;}
 static NSArray *drain(void){pump(0.45);NSMutableArray *types=[NSMutableArray new];
   for(NSEvent *e in NSApplication.sharedApplication.queue.events)if(e.type!=5)[types addObject:@(e.type)];
   [NSApplication.sharedApplication.queue.events removeAllObjects];host.gameTouch=nil;return types;}
@@ -140,20 +152,27 @@ r[@"maybe_selected"]=@(DEMaybeSelected());
 // none when nothing is selected (Escape then opened the game menu).
 escapeDowns=0;DESetMaybeSelected(YES);[host pencilDeselect:"a"];[host pencilDeselect:"b"];pump(0.35);
 [host pencilDeselect:"c"];pump(0.1);r[@"double_tap_escapes"]=@(escapeDowns);
-// Two/three-finger map drag: a right-button drag held at least 0.35 s; a
-// drag under 16 points sends nothing.
+// Two/three-finger map drag: one right-button press held at least 0.35 s,
+// and, replayed through DE's measured scrolling, the map moves as far as the
+// fingers did; a drag under 16 points sends nothing.
 drain();
 {[host nativeMapScrollPhase:0 point:p];for(int i=1;i<=6;i++){[host nativeMapScrollPhase:1 point:CGPointMake(p.x+i*10,p.y+i*4)];pump(0.01);}
  [host nativeMapScrollPhase:2 point:CGPointMake(p.x+60,p.y+24)];pump(0.1);
- BOOL early=NO;for(NSEvent *e in NSApplication.sharedApplication.queue.events)if(e.type==4)early=YES;r[@"drag_released_early"]=@(early);r[@"map_drag"]=drain();}
+ BOOL early=NO;for(NSEvent *e in NSApplication.sharedApplication.queue.events)if(e.type==4)early=YES;r[@"drag_released_early"]=@(early);
+ pump(0.8);CGPoint m=simulateScroll();r[@"map_drag_moved"]=@[@(round(m.x)),@(round(m.y))];r[@"map_drag"]=drain();}
+// A fast flick: 300 x 150 points in 0.1 s, then lift. The view catches up.
+{[host nativeMapScrollPhase:0 point:q];for(int i=1;i<=5;i++){[host nativeMapScrollPhase:1 point:CGPointMake(q.x-i*60,q.y-i*30)];pump(0.02);}
+ [host nativeMapScrollPhase:2 point:CGPointMake(q.x-300,q.y-150)];pump(1.5);
+ CGPoint m=simulateScroll();r[@"flick_moved"]=@[@(round(m.x)),@(round(m.y))];r[@"flick"]=drain();}
 {[host nativeMapScrollPhase:0 point:p];[host nativeMapScrollPhase:1 point:CGPointMake(p.x+8,p.y+6)];[host nativeMapScrollPhase:2 point:CGPointMake(p.x+8,p.y+6)];r[@"tiny_drag"]=drain();}
-// A second swipe right after the first: its press waits for the first
-// release, so the button is never released in the middle of a drag.
+// A second swipe right after the first continues the same press: one press,
+// one release, and the map moves by both swipes.
 {[host nativeMapScrollPhase:0 point:p];for(int i=1;i<=4;i++){[host nativeMapScrollPhase:1 point:CGPointMake(p.x+i*10,p.y)];pump(0.01);}
  [host nativeMapScrollPhase:2 point:CGPointMake(p.x+40,p.y)];
- [host nativeMapScrollPhase:0 point:q];[host nativeMapScrollPhase:1 point:CGPointMake(q.x+20,q.y)];pump(0.4);
+ pump(0.1);[host nativeMapScrollPhase:0 point:q];[host nativeMapScrollPhase:1 point:CGPointMake(q.x+20,q.y)];pump(0.1);
  for(int i=1;i<=4;i++){[host nativeMapScrollPhase:1 point:CGPointMake(q.x+20+i*10,q.y)];pump(0.01);}
- [host nativeMapScrollPhase:2 point:CGPointMake(q.x+60,q.y)];r[@"repeat_drag"]=drain();pump(0.3);drain();}
+ [host nativeMapScrollPhase:2 point:CGPointMake(q.x+60,q.y)];pump(0.8);
+ CGPoint m=simulateScroll();r[@"repeat_drag_moved"]=@[@(round(m.x)),@(round(m.y))];r[@"repeat_drag"]=drain();}
 // Zoom: whole wheel steps only; the remainder waits for more movement.
 {CGFloat pending=2.6;[host sendZoomSteps:&pending point:p source:"test"];r[@"zoom_steps"]=drain();r[@"zoom_left"]=@(round(pending*10)/10);}
 puts([[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:r options:NSJSONWritingSortedKeys error:nil] encoding:NSUTF8StringEncoding].UTF8String);
@@ -182,10 +201,11 @@ expect={'one_finger_tap':LEFT,'two_finger_tap':RIGHT,'slow_two_finger_tap':RIGHT
 bad={k:r[k] for k,v in expect.items() if r[k]!=v}
 if r['one_finger_drag'][:1]!=[1] or r['one_finger_drag'][-1:]!=[2] or 6 not in r['one_finger_drag']: bad['one_finger_drag']=r['one_finger_drag']
 if r['pencil_8_box'][:1]!=[1] or r['pencil_8_box'][-1:]!=[2] or 6 not in r['pencil_8_box']: bad['pencil_8_box']=r['pencil_8_box']
-if r['map_drag'][:1]!=[3] or r['map_drag'][-1:]!=[4] or r['map_drag'].count(7)<5: bad['map_drag']=r['map_drag']
-# Two held drags in a row: press, drags, release, then press, drags, release.
-rd=[t for t in r['repeat_drag'] if t in (3,4)]
-if rd!=[3,4,3,4] or r['repeat_drag'][-1:]!=[4] or r['repeat_drag'][r['repeat_drag'].index(4)+1:].count(7)<4: bad['repeat_drag']=r['repeat_drag']
+def one_press(events): return [t for t in events if t in (3,4)]==[3,4] and events.count(7)>=5
+def near(got,want,tolerance): return abs(got[0]-want[0])<=tolerance and abs(got[1]-want[1])<=tolerance
+for name,want,tol in (('map_drag',(60,24),3),('flick',(-300,-150),4),('repeat_drag',(100,0),3)):
+    if not one_press(r[name]): bad[name]=r[name]
+    if not near(r[name+'_moved'],want,tol): bad[name+'_moved']=r[name+'_moved']
 print(json.dumps(r))
 assert not bad,'unexpected: %s' % bad
 print('PASS: two-finger taps right-click only; Pencil tap selects, repeat taps order, hold/HUD disarm, only Pencil selections arm; one Escape per double-tap; map drag is a held right drag; zoom in whole steps')
