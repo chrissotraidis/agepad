@@ -2,7 +2,7 @@
 
 AgePad runs your own copy of **Age of Empires II: Definitive Edition** (the Steam Mac version) natively on an iPad. It is the original game, not a stream or a remake. This guide covers what you need and what happens at each step.
 
-**Current status (30 September 2026):** developer preview. On an iPad Pro 12.9-inch (M2, 8 GB) the game signs in to Steam on the iPad itself, goes online, reaches the menu with no Mac, starts in Steam's offline mode without Internet, plays audio, plays skirmishes at about 120 fps, saves and resumes, and accepts touch, Apple Pencil, trackpad and keyboard. A real flight, full online matches, a mouse and long sessions are not yet tested. This guide builds AgePad yourself from your own Steam copy; the other way is the release plus `inject` ([README](../README.md#install-from-the-release)). There is no App Store version.
+**Current status (30 September 2026):** developer preview. On an iPad Pro 12.9-inch (M2, 8 GB) the game signs in to Steam on the iPad itself, goes online, reaches the menu with no Mac, starts in Steam's offline mode without Internet, plays audio, plays skirmishes at about 120 fps, saves and resumes, and accepts touch, Apple Pencil, trackpad and keyboard. A real flight, full online matches, a mouse and long sessions are not yet tested. This guide builds AgePad yourself from your own Steam copy; the other way is the release plus PadMint or `inject` ([README](../README.md#get-agepad)). There is no App Store version.
 
 ## How it works
 

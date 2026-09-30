@@ -3,6 +3,7 @@
 /worktrees/
 /generated/
 /private/
+/build/
 /docs/artifacts/
 __pycache__/
 *.pyc

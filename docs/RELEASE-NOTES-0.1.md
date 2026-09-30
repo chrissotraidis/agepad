@@ -4,15 +4,14 @@ Play your own Steam copy of **Age of Empires II: Definitive Edition** natively o
 
 ## In this release
 
-- `AgePad-v0.1.0-ios-base.ipa` (about 1 MB): AgePad's own code only. It contains no game or Steam files; `scripts/audit-agepad-base.py` checks this.
-- `AgePad-v0.1.0-padmint.json`: the manifest [PadMint](https://github.com/chrissotraidis/padmint) uses to make your personal app.
-- `SHA256SUMS` for both.
+- `AgePad-v0.1.0-ios-unsigned.ipa` (about 1 MB): AgePad's own code only. It contains no game or Steam files; `scripts/audit-agepad-base.py` checks this.
+- `AgePad-v0.1.0-padmint.json`: the recipe [PadMint](https://github.com/chrissotraidis/padmint) follows for this version. `SHA256SUMS`: checksums.
 - Build: game version 488492.107976 (Steam build 25464371), Steam for Mac as of 30 September 2026.
 
 ## How to install
 
-1. On a Mac with the game installed through Steam, download the repository and `AgePad-v0.1.0-ios-base.ipa`.
-2. Run `scripts/agepad-ipad.sh inject AgePad-v0.1.0-ios-base.ipa`. It adds your own game and Steam files and writes `generated/AgePad-mine.ipa`. Keep that file to yourself. (Or let PadMint do steps 1 and 2.)
+1. On a Mac with the game installed through Steam, run PadMint and choose AgePad, or download the repository and `AgePad-v0.1.0-ios-unsigned.ipa`.
+2. Without PadMint, run `scripts/agepad-ipad.sh inject AgePad-v0.1.0-ios-unsigned.ipa`. Either way your own game and Steam files are added and you get your AgePad IPA. Keep that file to yourself.
 3. Install it with Sideloadly, AltStore, or Xcode. A paid Apple Developer account is recommended (full matches); a free Apple ID works for short matches.
 4. Copy the `AgeOfEmpires2Data` folder to AgePad with Finder → Files (about 20 GB).
 5. Open AgePad, scan the Steam sign-in code with the Steam app on your phone, and play.

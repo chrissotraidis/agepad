@@ -2,35 +2,29 @@
   "schema_version": 1,
   "id": "agepad",
   "name": "AgePad",
-  "game": "Age of Empires II: Definitive Edition (Steam, Mac edition, game build 25464371)",
-  "kind": "upstream-engine",
+  "game": "Age of Empires II: Definitive Edition (Mac edition from Steam, game build 25464371)",
+  "kind": "emulator-shell",
   "status": "experimental",
   "inputs": [
     {
-      "type": "steam-mac-game",
-      "formats": [
-        "plist"
-      ],
-      "when": "build",
-      "description": "Info.plist inside your own Steam install of the Mac game: ~/Library/Application Support/Steam/steamapps/common/AoE2DE/Age Of Empires II.app/Contents/Info.plist. AgePad reads the whole app from there and Steam for Mac's client libraries from the standard Steam folder, and checks every file against the release recipe."
+      "type": "steam-mac-install",
+      "formats": [],
+      "when": "in-app",
+      "description": "Your own Steam copy of Age of Empires II: DE for Mac and Steam for Mac, installed on this Mac. The build finds them in Steam's standard folders (no file to choose) and checks every file against the release's recipe. The game data folder (AgeOfEmpires2Data, about 20 GB) is copied to the iPad afterwards with Finder or the Files app."
     }
   ],
   "targets": {
     "ios": {
       "hosts": {
-        "macos-arm64": "experimental"
+        "macos-arm64": "experimental",
+        "macos-x86_64": "unsupported",
+        "linux-x86_64": "unsupported",
+        "windows-x86_64": "unsupported"
       },
-      "published_app": "AgePad-v{version}-ios-base.ipa",
+      "published_app": "AgePad-v{version}-ios-unsigned.ipa",
       "output": "ipa",
       "check": "ipa",
       "steps": [
-        {
-          "stage": "preflight",
-          "command": [
-            "{python}",
-            "{repo}/scripts/check-repo-safety.py"
-          ]
-        },
         {
           "stage": "inject",
           "command": [
@@ -38,9 +32,7 @@
             "{repo}/scripts/agepad-kit.py",
             "inject",
             "{app}",
-            "{output}",
-            "--game",
-            "{disc}"
+            "{output}"
           ]
         }
       ]
@@ -57,9 +49,9 @@
       }
     ]
   },
-  "notes": "The release publishes AgePad's own code only (audited by scripts/audit-agepad-base.py). inject adds the player's own Mac game program and Steam client libraries, byte-identical apart from load-command headers. The about 20 GB game data folder is copied to the iPad separately (Finder → Files or scripts/agepad-ipad.sh sync). Needs an iPad with 8 GB of memory; a paid developer account is recommended for the larger memory limit.",
+  "notes": "Not emulation: the Mac game is native Apple silicon code, and AgePad's compatibility libraries stand in for the Mac-only system parts on iPadOS. The published app is AgePad's own code plus a recipe (paths, SHA-256 hashes, header-only edits). The inject step adds the player's own game program and Steam client files; it needs no Xcode and takes seconds. iPad with 8 GB of memory or more only; iPhones cannot hold a match. Sign and install the result with a sideloading tool or scripts/sign-agepad-ipa.sh.",
   "publication": {
     "public_binaries": false,
-    "reason": "The release publishes the app without game or Steam code; PadMint adds the player's own copy, and the result stays personal."
+    "reason": "The release publishes the base app only (AgePad's own code, audited by scripts/audit-agepad-base.py against the game and Steam installs). The IPA this recipe makes contains Microsoft's game program and Valve's Steam software from the player's own installs and stays personal. padmint audit cannot recognise that content, so its PASS is not permission to publish a personal build."
   }
 }

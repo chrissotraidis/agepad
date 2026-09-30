@@ -43,20 +43,21 @@ After the touch review, with the iPad still connected:
 
 ```sh
 scripts/agepad-ipad.sh kit      # generated/kit/AgePad-base.ipa; must end "0 contain game or Steam content"
-V=$(python3 -c "import json;print(json.load(open('version.json'))['version'])")
-mkdir -p generated/release/v$V
-cp generated/kit/AgePad-base.ipa generated/release/v$V/AgePad-v$V-ios-base.ipa
-cp padmint.json generated/release/v$V/AgePad-v$V-padmint.json
-(cd generated/release/v$V && shasum -a 256 AgePad-v$V-* > SHA256SUMS)
+V=$(python3 -c "import json;print(json.load(open('version.json'))['version'])")   # 0.1.0
+R=generated/release-v$V; mkdir -p $R
+cp generated/kit/AgePad-base.ipa $R/AgePad-v$V-ios-unsigned.ipa   # the names PadMint downloads
+cp padmint.json $R/AgePad-v$V-padmint.json
+(cd $R && shasum -a 256 AgePad-v$V-* > SHA256SUMS)
+python3 -m padmint audit $R                # from a PadMint checkout; must PASS (it cannot see game code; the kit audit above can)
 git push origin main
-gh repo edit chrissotraidis/agepad --visibility public --accept-visibility-change-consequences
 git tag v$V && git push origin v$V
-gh release create v$V generated/release/v$V/* --prerelease \
-  --title "AgePad $V (developer preview)" --notes-file docs/RELEASE-NOTES-0.1.md
+gh release create v$V $R/* --prerelease \
+  --title "AgePad $V (preview)" --notes-file docs/RELEASE-NOTES-0.1.md
 ```
 
-Then download the assets while signed out and compare them with `SHA256SUMS`; add
-AgePad to PadMint's catalog (`catalog/agepad.json`, pinned to the release commit).
+Then download the three assets while signed out and compare them with
+`SHA256SUMS`, and run `padmint make agepad ios` once from a PadMint release that
+lists AgePad (catalog entry `catalog/agepad.json`).
 
 If Steam or the game updates before the release, rebuild first: `inject` rejects
 files that don't match the base app's recorded versions.
