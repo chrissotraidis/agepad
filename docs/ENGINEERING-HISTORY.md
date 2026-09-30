@@ -37,7 +37,7 @@ The September 14 Simulator repair restores missing villagers and animals by pres
 
 ## Installing (developer summary)
 
-Current install routes (the release plus `inject`, or building it yourself) are in the [README](../README.md#downloads). In both, the Steam client engine and the game come from your own Mac, never from AgePad. A free Apple account's signature expires after 7 days; a paid developer account lasts a year.
+Current install routes (the release plus PadMint or `inject`, or building it yourself) are in the [README](../README.md#get-agepad). In both, the Steam client engine and the game come from your own Mac, never from AgePad. A free Apple account's signature expires after 7 days; a paid developer account lasts a year.
 
 The setup, all described in [the setup guide](IPAD-SETUP.md):
 

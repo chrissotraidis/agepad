@@ -43,28 +43,46 @@ management and packaging. The game itself and Steam come from your own installs.
 > documentation, debugging and maintenance. There is no audited percentage of
 > AI-generated code. Build, test and device records describe what was checked.
 
-## Downloads
+## Get AgePad
 
-| Platform | Download | Setup |
+| Device | Download | Setup |
 | --- | --- | --- |
-| iPad, 8 GB+ | AgePad 0.1 preview · `AgePad-base.ipa` (release not yet published) | [Install from the release](#install-from-the-release) |
+| iPad, 8 GB+ | [AgePad 0.1.0 preview](https://github.com/chrissotraidis/agepad/releases/latest) · `AgePad-v0.1.0-ios-unsigned.ipa` | [With PadMint](#with-padmint) or [directly](#directly-with-the-inject-command) |
 | iPad, build it yourself | This repository | [Setup guide](docs/IPAD-SETUP.md) (Xcode, Apple Developer account; paid recommended) |
 
-The release is about 1 MB because it holds only AgePad's own code. A Mac command adds
-your own game and Steam files to it in a few seconds; you then install the result
-with your usual sideloading tool. [How the release works](docs/IPA-ROUTE.md).
+The release app is about 1 MB because it holds only AgePad's own code: no game
+program, game data or Steam software. Your Mac adds your own game and Steam files to
+it in a few seconds; you then install the result with your usual sideloading tool.
+[How the release works](docs/IPA-ROUTE.md).
+
+**You need** a Mac with Age of Empires II: DE installed through Steam (the Mac
+version comes with the Steam purchase), an iPad with 8 GB of memory or more with
+25 GB free, and a sideloading tool. A paid Apple Developer account is recommended
+for full matches ([why](docs/IPA-ROUTE.md#memory-the-one-real-limit)).
+
+### With PadMint
+
+1. Download [PadMint](https://github.com/chrissotraidis/padmint/releases/latest), unzip it and double-click `PadMint.command`.
+2. Choose **AgePad** and **iPhone/iPad**. There is no game file to drag in: PadMint downloads the AgePad release, finds your game and Steam in Steam's folders on this Mac, checks every file against the release and saves your AgePad IPA in the folder you choose.
+3. Continue with [install and copy the game data](#then-install-and-copy-the-game-data).
+
+### Directly, with the inject command
+
+1. Download this repository and `AgePad-v0.1.0-ios-unsigned.ipa` from the release. The next step uses Python 3; if your Mac doesn't have it yet, macOS offers to install it (Command Line Tools) the first time.
+2. Run `scripts/agepad-ipad.sh inject ~/Downloads/AgePad-v0.1.0-ios-unsigned.ipa`. It checks your game and Steam versions and writes `generated/AgePad-mine.ipa`.
+
+### Then: install and copy the game data
+
+1. Install your IPA with Sideloadly or AltStore (fine for short matches). For full matches with a paid developer account, set up the memory limit once ([Setup guide, Step 1](docs/IPAD-SETUP.md#step-1--signing-with-the-larger-memory-limit-once)) and install with `scripts/sign-agepad-ipa.sh <your IPA> <iPad ID> [your app ID]`.
+2. Connect the iPad, open it in **Finder → Files**, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto **AgePad**. About 20 GB; keep 25 GB free.
+3. Open AgePad and sign in to Steam once by scanning the code with the Steam app on your phone. From then on, tap the icon to play.
+
+The IPA you make contains your own copy of the game program and Steam: keep it to
+yourself and never upload it.
 
 **Update in place.** Reinstalling over an existing AgePad keeps your game files,
 saves and Steam sign-in. Deleting the app removes all of them, including the 20 GB of
 game data.
-
-### Install from the release
-
-1. On a Mac with the game installed through Steam, download this repository and `AgePad-base.ipa`. The next step uses Python 3; if your Mac doesn't have it yet, macOS offers to install it (Command Line Tools) the first time.
-2. Run `scripts/agepad-ipad.sh inject ~/Downloads/AgePad-base.ipa`. It checks your game and Steam versions and writes `generated/AgePad-mine.ipa`. That file contains your copy of the game program; keep it to yourself.
-3. Install `AgePad-mine.ipa` with Sideloadly or AltStore (fine for short matches). For full matches with a paid developer account, set up the memory limit once ([Setup guide, Step 1](docs/IPAD-SETUP.md#step-1--signing-with-the-larger-memory-limit-once)) and install with `scripts/sign-agepad-ipa.sh generated/AgePad-mine.ipa <iPad ID> [your app ID]`.
-4. Connect the iPad, open it in **Finder → Files**, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto **AgePad**. About 20 GB; keep 25 GB free.
-5. Open AgePad and sign in to Steam once by scanning the code with the Steam app on your phone. From then on, tap the icon to play.
 
 ## Playing
 
@@ -95,6 +113,13 @@ need hands-on confirmation (their gesture logic is covered by Simulator tests in
 models are not yet verified.
 
 ## Frequently asked questions
+
+<details>
+<summary>Is this emulation?</summary>
+
+No. The Mac edition of the game is native Apple silicon code, and the iPad has the same kind of processor, so the game's own code runs directly on it. What iPadOS lacks are the Mac-only parts the game expects (Mac windows, mouse and keyboard events, some graphics calls, Steam running beside it). AgePad supplies those as compatibility libraries, a little like Wine does for Windows programs, but with no processor translation. Your game files are changed only in their headers (which platform they are for and where their libraries are); their code and data stay byte-for-byte your own.
+
+</details>
 
 <details>
 <summary>Can I download a ready-to-play IPA?</summary>

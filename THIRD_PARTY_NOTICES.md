@@ -2,7 +2,8 @@
 
 ## What the iPad app contains
 
-`AgePad-base.ipa` holds only AgePad's own code (the iPad compatibility libraries,
+The released app (`AgePad-vX.Y.Z-ios-unsigned.ipa`, which `scripts/agepad-ipad.sh kit`
+makes as `AgePad-base.ipa`) holds only AgePad's own code (the iPad compatibility libraries,
 launcher, settings and icons) and a list of which of your files go where. It
 contains no game or Steam files; `scripts/audit-agepad-base.py` checks every file
 against your local game and Steam installs.

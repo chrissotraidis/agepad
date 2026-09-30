@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "id": "agepad",
+  "name": "AgePad",
+  "game": "Age of Empires II: Definitive Edition (Mac edition from Steam, game build 25464371)",
+  "kind": "emulator-shell",
+  "status": "experimental",
+  "inputs": [
+    {
+      "type": "steam-mac-install",
+      "formats": [],
+      "when": "in-app",
+      "description": "Your own Steam copy of Age of Empires II: DE for Mac and Steam for Mac, installed on this Mac. The build finds them in Steam's standard folders (no file to choose) and checks every file against the release's recipe. The game data folder (AgeOfEmpires2Data, about 20 GB) is copied to the iPad afterwards with Finder or the Files app."
+    }
+  ],
+  "targets": {
+    "ios": {
+      "hosts": {
+        "macos-arm64": "experimental",
+        "macos-x86_64": "unsupported",
+        "linux-x86_64": "unsupported",
+        "windows-x86_64": "unsupported"
+      },
+      "published_app": "AgePad-v{version}-ios-unsigned.ipa",
+      "output": "ipa",
+      "check": "ipa",
+      "steps": [
+        {
+          "stage": "inject",
+          "command": [
+            "{python}",
+            "{repo}/scripts/agepad-kit.py",
+            "inject",
+            "{app}",
+            "{output}"
+          ]
+        }
+      ]
+    }
+  },
+  "requirements": {
+    "disk_gb": 1,
+    "tools": [
+      {
+        "name": "python3",
+        "version_args": [
+          "--version"
+        ]
+      }
+    ]
+  },
+  "notes": "Not emulation: the Mac game is native Apple silicon code, and AgePad's compatibility libraries stand in for the Mac-only system parts on iPadOS. The published app is AgePad's own code plus a recipe (paths, SHA-256 hashes, header-only edits). The inject step adds the player's own game program and Steam client files; it needs no Xcode and takes seconds. iPad with 8 GB of memory or more only; iPhones cannot hold a match. Sign and install the result with a sideloading tool or scripts/sign-agepad-ipa.sh.",
+  "publication": {
+    "public_binaries": false,
+    "reason": "The release publishes the base app only (AgePad's own code, audited by scripts/audit-agepad-base.py against the game and Steam installs). The IPA this recipe makes contains Microsoft's game program and Valve's Steam software from the player's own installs and stays personal. padmint audit cannot recognise that content, so its PASS is not permission to publish a personal build."
+  }
+}

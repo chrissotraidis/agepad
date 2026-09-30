@@ -43,13 +43,20 @@ mv LICENSE.draft LICENSE                   # or your chosen licence; edit README
 git add LICENSE README.md && git commit -m "License"
 git push origin main
 gh repo edit chrissotraidis/agepad --visibility public --accept-visibility-change-consequences
-git tag v0.1 && git push origin v0.1
-gh release create v0.1 generated/kit/AgePad-base.ipa --prerelease \
-  --title "AgePad 0.1 (preview)" --notes-file docs/RELEASE-NOTES-0.1.md
+V=$(python3 -c "import json;print(json.load(open('version.json'))['version'])")   # 0.1.0
+R=generated/release-v$V; mkdir -p $R
+cp generated/kit/AgePad-base.ipa $R/AgePad-v$V-ios-unsigned.ipa   # the names PadMint downloads
+cp padmint.json $R/AgePad-v$V-padmint.json
+(cd $R && shasum -a 256 AgePad-v$V-* > SHA256SUMS)
+python3 -m padmint audit $R                # from a PadMint checkout; must PASS (it cannot see game code; the kit audit above can)
+git tag v$V && git push origin v$V
+gh release create v$V $R/* --prerelease \
+  --title "AgePad $V (preview)" --notes-file docs/RELEASE-NOTES-0.1.md
 ```
 
-Then: in the README "Downloads" row, replace "(release not yet published)" with a
-link to the release; download the asset while signed out and compare its SHA-256.
+Then download the three assets while signed out and compare them with
+`SHA256SUMS`, and run `padmint make agepad ios` once from a PadMint release that
+lists AgePad (catalog entry `catalog/agepad.json`).
 
 If Steam or the game updates before the release, rebuild first: `inject` rejects
 files that don't match the base app's recorded versions.
