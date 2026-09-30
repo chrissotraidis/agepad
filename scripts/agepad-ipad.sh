@@ -77,8 +77,11 @@ check() {
   [[ -d "$STEAM_APP/AgeOfEmpires2Data" ]] && ok "Your Steam copy of AoE II: DE (Mac edition) found" \
     || bad "AoE II: DE not found in Steam on this Mac" "Install Age of Empires II: Definitive Edition in Steam for Mac (you must own it)."
   if NOTE=$(version_note); then bad "Game version differs from AgePad's" "$NOTE"; fi
-  [[ -f $CANDIDATE/candidate.app/DEOriginalGame ]] && ok "AgePad build package" \
-    || bad "AgePad build package missing ($CANDIDATE)" "Make it once from your game: python3 scripts/bootstrap-de-simulator.py $CANDIDATE (docs/DE-BOOTSTRAP-20260919.md)"
+  # Only building AgePad yourself (setup/build) needs the build package; the
+  # release route (inject) doesn't.
+  if [[ -f $CANDIDATE/candidate.app/DEOriginalGame ]]; then ok "AgePad build package"
+  elif (( ${SETUP:-0} )); then bad "AgePad build package missing ($CANDIDATE)" "Make it once from your game: python3 scripts/bootstrap-de-simulator.py $CANDIDATE (docs/DE-BOOTSTRAP-20260919.md)"
+  else info "No build package (only needed to build AgePad yourself; installing from the release doesn't need it)"; fi
   UDID=$(udid)
   [[ -n $UDID ]] && ok "iPad connected ($UDID)" \
     || bad "No iPad connected" "Connect the iPad with a USB-C cable, unlock it and tap Trust. First time: turn on Settings > Privacy & Security > Developer Mode."

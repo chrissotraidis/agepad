@@ -19,7 +19,7 @@ Play your own Steam copy of **Age of Empires II: Definitive Edition** natively o
 
 - The real game: menu in about 30 seconds, skirmishes at about 120 fps, save and load.
 - Touch, Apple Pencil, mouse, trackpad and keyboard.
-  Tap selects, two-finger tap gives orders, two-finger drag moves the map, pinch
+  Tap selects, two-finger tap gives orders, two- or three-finger drag moves the map, pinch
   zooms. With the Pencil, tap to select, then each tap gives an order until you hold
   for half a second or double-tap the Pencil. [All controls](https://github.com/chrissotraidis/agepad/blob/main/docs/IPAD-SETUP.md).
 - Steam signed in on the iPad itself; offline play through Steam's offline mode.
@@ -27,8 +27,9 @@ Play your own Steam copy of **Age of Empires II: Definitive Edition** natively o
 ## Known limits
 
 - Tested on one iPad (iPad Pro 12.9-inch, M2, 8 GB).
+- Not yet verified: full online matches, sessions over an hour, and a real mouse.
 - Without a paid developer account the app gets about 5 GB of memory; a five-player match fits, with little spare, and long matches may be closed by iPadOS.
-- If your game or Steam version differs from this release, `inject` stops and says so. Wait for the matching release, or build with Option B in the README.
+- If your game or Steam version differs from this release, `inject` stops and says so. Wait for the matching release, or build AgePad yourself ([setup guide](https://github.com/chrissotraidis/agepad/blob/main/docs/IPAD-SETUP.md)).
 - Xbox Network sign-in doesn't open yet.
 
 Unofficial fan project, not affiliated with Microsoft, Valve, Feral Interactive or Apple. You need your own copy of the game.

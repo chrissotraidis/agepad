@@ -645,6 +645,10 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
 // scrolling at the screen edges (touch and trackpad pointer).
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }
+// No three-finger undo/redo/copy/paste: three fingers drag the map.
+- (UIEditingInteractionConfiguration)editingInteractionConfiguration API_AVAILABLE(ios(13.0)) {
+    return UIEditingInteractionConfigurationNone;
+}
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
     return UIInterfaceOrientationMaskLandscape;
 }

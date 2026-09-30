@@ -35,10 +35,10 @@ management and packaging. The game itself and Steam come from your own installs.
 > assemble your app on your Mac from your own copy.
 >
 > **Developer preview.** Tested on one iPad (iPad Pro 12.9-inch, M2, 8 GB): menu in
-> about 30 seconds, skirmishes at about 120 fps, save and load, offline play through
-> Steam's offline mode. Online matches, long sessions and other iPads are not yet
-> verified. Unofficial fan project, not affiliated with Microsoft, Valve, Feral
-> Interactive or Apple.
+> about 30 seconds, skirmishes at about 120 fps, save and load, Steam online, and
+> offline play through Steam's offline mode. Full online matches, long sessions,
+> mice and other iPads are not yet verified. Unofficial fan project, not affiliated
+> with Microsoft, Valve, Feral Interactive or Apple.
 >
 > **AI disclosure:** AgePad uses substantial AI assistance for code, tests,
 > documentation, debugging and maintenance. There is no audited percentage of
@@ -76,8 +76,8 @@ your app ID isn't the default); please don't attach game files, saves or Steam d
 
 [Frequently asked questions](#frequently-asked-questions) · [Setup guide and full controls](docs/IPAD-SETUP.md) · [Release route and limits](docs/IPA-ROUTE.md)
 
-- **Touch:** tap to select, two-finger tap for orders (right click), two-finger drag
-  to move the map, pinch to zoom. Side buttons: R-CLICK, IDLE villager, TOWN
+- **Touch:** tap to select, two-finger tap for orders (right click), two- or
+  three-finger drag to move the map, pinch to zoom. Side buttons: R-CLICK, IDLE villager, TOWN
   center, ZOOM and MENU.
 - **Apple Pencil:** tap a unit, then each Pencil tap on the map is an order; hold for
   half a second, double-tap the Pencil, or squeeze an Apple Pencil Pro to stop.
@@ -89,11 +89,12 @@ your app ID isn't the default); please don't attach game files, saves or Steam d
 - **HUD size** starts at 125% on a new install; change it in the game's
   Options → Interface. **Signing out:** iPad Settings → AgePad → *Sign out of Steam*.
 
-Touch, save/load, offline and Steam sign-in were checked on the tested iPad.
-Two-finger taps and Apple Pencil accuracy were reworked on 26–27 September and still
-need hands-on confirmation (their gesture logic is covered by Simulator tests in
-`scripts/run-de-tests.sh`). Online matches, sessions over an hour and other iPad
-models are not yet verified.
+Checked on the tested iPad: touch, Apple Pencil, keyboard and trackpad, save/load,
+Steam sign-in, going online, and offline play. Map dragging with three fingers was
+reworked on 30 September (iPadOS no longer takes three-finger swipes for undo, and
+a drag no longer turns into a zoom halfway); its gesture logic is covered by
+Simulator tests in `scripts/run-de-tests.sh`. A mouse, full online matches, sessions
+over an hour and other iPad models are not yet verified.
 
 ## Frequently asked questions
 

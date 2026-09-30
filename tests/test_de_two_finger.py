@@ -147,6 +147,13 @@ drain();
  [host nativeMapScrollPhase:2 point:CGPointMake(p.x+60,p.y+24)];pump(0.1);
  BOOL early=NO;for(NSEvent *e in NSApplication.sharedApplication.queue.events)if(e.type==4)early=YES;r[@"drag_released_early"]=@(early);r[@"map_drag"]=drain();}
 {[host nativeMapScrollPhase:0 point:p];[host nativeMapScrollPhase:1 point:CGPointMake(p.x+8,p.y+6)];[host nativeMapScrollPhase:2 point:CGPointMake(p.x+8,p.y+6)];r[@"tiny_drag"]=drain();}
+// A second swipe right after the first: its press waits for the first
+// release, so the button is never released in the middle of a drag.
+{[host nativeMapScrollPhase:0 point:p];for(int i=1;i<=4;i++){[host nativeMapScrollPhase:1 point:CGPointMake(p.x+i*10,p.y)];pump(0.01);}
+ [host nativeMapScrollPhase:2 point:CGPointMake(p.x+40,p.y)];
+ [host nativeMapScrollPhase:0 point:q];[host nativeMapScrollPhase:1 point:CGPointMake(q.x+20,q.y)];pump(0.4);
+ for(int i=1;i<=4;i++){[host nativeMapScrollPhase:1 point:CGPointMake(q.x+20+i*10,q.y)];pump(0.01);}
+ [host nativeMapScrollPhase:2 point:CGPointMake(q.x+60,q.y)];r[@"repeat_drag"]=drain();pump(0.3);drain();}
 // Zoom: whole wheel steps only; the remainder waits for more movement.
 {CGFloat pending=2.6;[host sendZoomSteps:&pending point:p source:"test"];r[@"zoom_steps"]=drain();r[@"zoom_left"]=@(round(pending*10)/10);}
 puts([[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:r options:NSJSONWritingSortedKeys error:nil] encoding:NSUTF8StringEncoding].UTF8String);
@@ -176,6 +183,9 @@ bad={k:r[k] for k,v in expect.items() if r[k]!=v}
 if r['one_finger_drag'][:1]!=[1] or r['one_finger_drag'][-1:]!=[2] or 6 not in r['one_finger_drag']: bad['one_finger_drag']=r['one_finger_drag']
 if r['pencil_8_box'][:1]!=[1] or r['pencil_8_box'][-1:]!=[2] or 6 not in r['pencil_8_box']: bad['pencil_8_box']=r['pencil_8_box']
 if r['map_drag'][:1]!=[3] or r['map_drag'][-1:]!=[4] or r['map_drag'].count(7)<5: bad['map_drag']=r['map_drag']
+# Two held drags in a row: press, drags, release, then press, drags, release.
+rd=[t for t in r['repeat_drag'] if t in (3,4)]
+if rd!=[3,4,3,4] or r['repeat_drag'][-1:]!=[4] or r['repeat_drag'][r['repeat_drag'].index(4)+1:].count(7)<4: bad['repeat_drag']=r['repeat_drag']
 print(json.dumps(r))
 assert not bad,'unexpected: %s' % bad
 print('PASS: two-finger taps right-click only; Pencil tap selects, repeat taps order, hold/HUD disarm, only Pencil selections arm; one Escape per double-tap; map drag is a held right drag; zoom in whole steps')

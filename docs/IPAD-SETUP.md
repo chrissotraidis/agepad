@@ -2,7 +2,7 @@
 
 AgePad runs your own copy of **Age of Empires II: Definitive Edition** (the Steam Mac version) natively on an iPad. It is the original game, not a stream or a remake. This guide covers what you need and what happens at each step.
 
-**Current status (27 September 2026):** developer preview. On an iPad Pro 12.9-inch (M2, 8 GB) the game signs in to Steam on the iPad itself, reaches the menu with no Mac, starts in Steam's offline mode without Internet, plays audio, plays skirmishes at about 120 fps, saves and resumes, and accepts touch, Apple Pencil, mouse and keyboard. A real flight, online matches and long sessions are not yet tested. This guide builds AgePad yourself from your own Steam copy; the other way is the release plus `inject` ([README](../README.md#install-from-the-release)). There is no App Store version.
+**Current status (30 September 2026):** developer preview. On an iPad Pro 12.9-inch (M2, 8 GB) the game signs in to Steam on the iPad itself, goes online, reaches the menu with no Mac, starts in Steam's offline mode without Internet, plays audio, plays skirmishes at about 120 fps, saves and resumes, and accepts touch, Apple Pencil, trackpad and keyboard. A real flight, full online matches, a mouse and long sessions are not yet tested. This guide builds AgePad yourself from your own Steam copy; the other way is the release plus `inject` ([README](../README.md#install-from-the-release)). There is no App Store version.
 
 ## How it works
 
@@ -55,7 +55,7 @@ The first time on a new Mac, the build needs a one-time **build package** made f
 
 Open AgePad on the iPad. The first time, it shows **Sign in to Steam** with a QR code: in the Steam app on your phone tap the Steam Guard shield and scan it (or use *Sign in with your password instead*). After that, tapping AgePad signs in by itself and opens the game in about half a minute to a minute.
 
-- **Online:** everything works, including multiplayer (a real online match is still being tested).
+- **Online:** AgePad goes online through Steam on the iPad (a full online match hasn't been played end to end yet).
 - **Offline, e.g. on a flight:** AgePad uses Steam's own offline mode. Single player, skirmish and campaigns work; multiplayer is greyed out. Open AgePad once with Internet before you go offline.
 - **Signing out or switching accounts:** iPad Settings → AgePad → *Sign out of Steam*; it applies the next time you open AgePad. To also remove the iPad from your Steam account, revoke "AgePad (iPad)" in Steam's security settings.
 
@@ -77,7 +77,7 @@ The Mac routes remain as fallbacks: **Play with my Mac's Steam instead** on the 
 | Tap | Select (left click) |
 | Drag | Selection box |
 | Two-finger tap | Right click: move, gather, attack (the fingers can land up to about half a second apart) |
-| Two- or three-finger drag | Move the map; it follows your fingers (the game's click-drag scrolling, right mouse button, its default) |
+| Two- or three-finger drag | Move the map; it follows your fingers (the game's click-drag scrolling, right mouse button, its default). With two fingers, a gesture is a drag or a pinch, whichever you start; three fingers always drag. iPadOS's three-finger undo/copy gestures are off inside AgePad |
 | Pinch | Zoom, in the same steps as ZOOM + / ZOOM − |
 | Apple Pencil tap on a unit or drag-box | Select; the next Pencil taps on the map give orders (right click) until you… (finger taps don't do this: after using fingers, a Pencil tap selects) |
 | Apple Pencil hold (½ s) | …plain left click, which stops giving orders |
@@ -104,7 +104,7 @@ In menus, taps are always plain clicks.
 
 ## Known limits
 
-- The iPad-only Steam route is new and still being verified (menu, offline mode, online play). The Mac routes keep working as a fallback.
+- The iPad-only Steam route is new: sign-in, going online and offline mode work on the tested iPad; full online matches are still to be played. The Mac routes keep working as a fallback.
 - Loading a skirmish takes about a minute. The first launch after install is slower.
 - Save, relaunch and resume work on the iPad (also offline); a match holds about 120 fps at about 4.6–4.8 GB. Online matches have not been played end to end.
 - iPads with less than 8 GB of memory are not expected to fit a match; iPhones are out of scope for the same reason.
