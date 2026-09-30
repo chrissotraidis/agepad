@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "id": "agepad",
+  "name": "AgePad",
+  "game": "Age of Empires II: Definitive Edition (Steam, Mac edition, game build 25464371)",
+  "kind": "upstream-engine",
+  "status": "experimental",
+  "inputs": [
+    {
+      "type": "steam-mac-game",
+      "formats": [
+        "plist"
+      ],
+      "when": "build",
+      "description": "Info.plist inside your own Steam install of the Mac game: ~/Library/Application Support/Steam/steamapps/common/AoE2DE/Age Of Empires II.app/Contents/Info.plist. AgePad reads the whole app from there and Steam for Mac's client libraries from the standard Steam folder, and checks every file against the release recipe."
+    }
+  ],
+  "targets": {
+    "ios": {
+      "hosts": {
+        "macos-arm64": "experimental"
+      },
+      "published_app": "AgePad-v{version}-ios-base.ipa",
+      "output": "ipa",
+      "check": "ipa",
+      "steps": [
+        {
+          "stage": "preflight",
+          "command": [
+            "{python}",
+            "{repo}/scripts/check-repo-safety.py"
+          ]
+        },
+        {
+          "stage": "inject",
+          "command": [
+            "{python}",
+            "{repo}/scripts/agepad-kit.py",
+            "inject",
+            "{app}",
+            "{output}",
+            "--game",
+            "{disc}"
+          ]
+        }
+      ]
+    }
+  },
+  "requirements": {
+    "disk_gb": 1,
+    "tools": [
+      {
+        "name": "python3",
+        "version_args": [
+          "--version"
+        ]
+      }
+    ]
+  },
+  "notes": "The release publishes AgePad's own code only (audited by scripts/audit-agepad-base.py). inject adds the player's own Mac game program and Steam client libraries, byte-identical apart from load-command headers. The about 20 GB game data folder is copied to the iPad separately (Finder → Files or scripts/agepad-ipad.sh sync). Needs an iPad with 8 GB of memory; a paid developer account is recommended for the larger memory limit.",
+  "publication": {
+    "public_binaries": false,
+    "reason": "The release publishes the app without game or Steam code; PadMint adds the player's own copy, and the result stays personal."
+  }
+}

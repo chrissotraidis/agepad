@@ -203,7 +203,8 @@ if r['one_finger_drag'][:1]!=[1] or r['one_finger_drag'][-1:]!=[2] or 6 not in r
 if r['pencil_8_box'][:1]!=[1] or r['pencil_8_box'][-1:]!=[2] or 6 not in r['pencil_8_box']: bad['pencil_8_box']=r['pencil_8_box']
 def one_press(events): return [t for t in events if t in (3,4)]==[3,4] and events.count(7)>=5
 def near(got,want,tolerance): return abs(got[0]-want[0])<=tolerance and abs(got[1]-want[1])<=tolerance
-for name,want,tol in (('map_drag',(60,24),3),('flick',(-300,-150),4),('repeat_drag',(100,0),3)):
+# The map moves 1.2 times the finger movement.
+for name,want,tol in (('map_drag',(72,29),3),('flick',(-360,-180),5),('repeat_drag',(120,0),3)):
     if not one_press(r[name]): bad[name]=r[name]
     if not near(r[name+'_moved'],want,tol): bad[name+'_moved']=r[name+'_moved']
 print(json.dumps(r))

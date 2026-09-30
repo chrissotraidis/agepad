@@ -320,6 +320,9 @@ def main():
         s.add_argument('--game', type=Path, default=GAME, help='the Mac game app\'s Contents folder')
         s.add_argument('--steam', type=Path, default=STEAM, help='Steam for Mac\'s Contents/MacOS folder')
     a = p.parse_args()
+    if a.command in ('recipe', 'inject') and a.game.is_file():
+        # A file inside the game app (PadMint passes one, e.g. Contents/Info.plist): use its Contents folder.
+        a.game = next((parent for parent in a.game.resolve().parents if parent.name == 'Contents'), a.game)
     if a.command == 'recipe':
         return recipe(a.app, a.out, a.game, a.steam)
     if a.command == 'base':

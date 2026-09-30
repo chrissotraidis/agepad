@@ -148,7 +148,9 @@ static BOOL DEGestureActive(UIGestureRecognizer *gesture) {
 // has been held 0.35 s (a shorter right press would be an order). A new drag
 // before that continues the same press. Phase 0 begin, 1 move, 2 end.
 static const CGFloat DEScrollDeadZone=68,DEScrollLinear=3.84,DEScrollSquare=0.0622,DEScrollYStretch=1.78;
-static const CGFloat DEScrollMaxSpeed=1500,DEScrollCatchUp=0.1;
+// The map moves 1.2 times as far as the fingers (Chris, 30 September: 1:1
+// felt a little slow on the 12.9-inch screen).
+static const CGFloat DEScrollMaxSpeed=1800,DEScrollCatchUp=0.08,DEScrollGain=1.2;
 static CGFloat DEScrollRadiusForSpeed(CGFloat v) { // inverse of v(e)
     return DEScrollDeadZone+(sqrt(DEScrollLinear*DEScrollLinear+4*DEScrollSquare*v)-DEScrollLinear)/(2*DEScrollSquare);
 }
@@ -171,7 +173,8 @@ static struct { BOOL active,started,pressed; CGPoint fingerStart,finger,base,tar
     }
     if(DEScroll.started) {
         DEScroll.finger=point;
-        DEScroll.target=CGPointMake(DEScroll.base.x+point.x-DEScroll.fingerStart.x,DEScroll.base.y+point.y-DEScroll.fingerStart.y);
+        DEScroll.target=CGPointMake(DEScroll.base.x+(point.x-DEScroll.fingerStart.x)*DEScrollGain,
+                                    DEScroll.base.y+(point.y-DEScroll.fingerStart.y)*DEScrollGain);
         if(!DEScroll.pressed) {
             DEScroll.pressed=YES;DEScroll.pressedAt=DEScroll.tick=CACurrentMediaTime();
             DEScroll.moved=DEScroll.velocity=CGPointZero;
@@ -224,9 +227,9 @@ static struct { BOOL active,started,pressed; CGPoint fingerStart,finger,base,tar
     if(gesture.state!=UIGestureRecognizerStateChanged)return;
     // Zoom is a two-finger gesture; a third finger or a started drag ignores it.
     if(gesture.numberOfTouches!=2 || DEMapMode==DEMapGestureScroll){gesture.scale=1;pending=0;return;}
-    // One step per 7% change in finger spread (spreading them to double
-    // their distance is about 10 steps).
-    pending+=log(gesture.scale)*15.0;gesture.scale=1;
+    // One step per 5% change in finger spread (spreading them to double
+    // their distance is about 14 steps; 10 felt slow).
+    pending+=log(gesture.scale)*21.0;gesture.scale=1;
     if(fabs(pending)>=1)DEMapMode=DEMapGestureZoom;
     [self sendZoomSteps:&pending point:[gesture locationInView:self] source:"pinch"];
 }
