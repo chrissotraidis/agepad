@@ -14,6 +14,7 @@ Pencil controls, an in-app Steam sign-in built on Valve's own Steam client, game
 management and packaging. The game itself and Steam come from your own installs.
 
 <p align="center">
+  <a href="https://github.com/chrissotraidis/agepad/actions/workflows/repository-checks.yml"><img alt="Repository checks" src="https://github.com/chrissotraidis/agepad/actions/workflows/repository-checks.yml/badge.svg"></a>
   <img alt="iPad with 8 GB or more" src="https://img.shields.io/badge/platform-iPad%20%288%20GB%2B%29-0A84FF?logo=apple">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF?logo=apple">
   <img alt="Metal renderer" src="https://img.shields.io/badge/renderer-Metal-5E5CE6">
@@ -48,7 +49,8 @@ management and packaging. The game itself and Steam come from your own installs.
 
 | Platform | Download | Setup |
 | --- | --- | --- |
-| iPad, 8 GB+ | AgePad 0.1 preview · `AgePad-base.ipa` (release not yet published) | [Install from the release](#install-from-the-release) |
+| iPad, 8 GB+ | [AgePad 0.1.0 (developer preview)](https://github.com/chrissotraidis/agepad/releases/latest) · `AgePad-v0.1.0-ios-base.ipa` | [Install from the release](#install-from-the-release) |
+| iPad, with PadMint | [PadMint](https://github.com/chrissotraidis/padmint/releases/latest) on your Mac | Choose AgePad; PadMint adds your own game to the release app for you |
 | iPad, build it yourself | This repository | [Setup guide](docs/IPAD-SETUP.md) (Xcode, Apple Developer account; paid recommended) |
 
 The release is about 1 MB because it holds only AgePad's own code. A Mac command adds
@@ -61,8 +63,8 @@ game data.
 
 ### Install from the release
 
-1. On a Mac with the game installed through Steam, download this repository and `AgePad-base.ipa`. The next step uses Python 3; if your Mac doesn't have it yet, macOS offers to install it (Command Line Tools) the first time.
-2. Run `scripts/agepad-ipad.sh inject ~/Downloads/AgePad-base.ipa`. It checks your game and Steam versions and writes `generated/AgePad-mine.ipa`. That file contains your copy of the game program; keep it to yourself.
+1. On a Mac with the game installed through Steam, download this repository and `AgePad-v0.1.0-ios-base.ipa` from the release. The next step uses Python 3; if your Mac doesn't have it yet, macOS offers to install it (Command Line Tools) the first time.
+2. Run `scripts/agepad-ipad.sh inject ~/Downloads/AgePad-v0.1.0-ios-base.ipa`. In a few seconds it checks your game and Steam versions and writes `generated/AgePad-mine.ipa`. That file contains your copy of the game program; keep it to yourself. (PadMint does this step for you.)
 3. Install `AgePad-mine.ipa` with Sideloadly or AltStore (fine for short matches). For full matches with a paid developer account, set up the memory limit once ([Setup guide, Step 1](docs/IPAD-SETUP.md#step-1--signing-with-the-larger-memory-limit-once)) and install with `scripts/sign-agepad-ipa.sh generated/AgePad-mine.ipa <iPad ID> [your app ID]`.
 4. Connect the iPad, open it in **Finder → Files**, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto **AgePad**. About 20 GB; keep 25 GB free.
 5. Open AgePad and sign in to Steam once by scanning the code with the Steam app on your phone. From then on, tap the icon to play.
@@ -91,13 +93,40 @@ your app ID isn't the default); please don't attach game files, saves or Steam d
 
 Checked on the tested iPad: touch, Apple Pencil, keyboard and trackpad, save/load,
 Steam sign-in, going online, and offline play. Map dragging was rebuilt on 30
-September: the map now stays under your fingers (measured on the iPad within about
-3%; before, it moved the wrong way, ignored small drags and ran away on big ones),
+September: the map now follows your fingers (a little faster than them, 1.2×;
+before, it moved the wrong way, ignored small drags and ran away on big ones),
 iPadOS no longer takes three-finger swipes for undo, and a drag no longer turns into
 a zoom halfway. A mouse, full online matches, sessions over an hour and other iPad
 models are not yet verified.
 
+## How it works
+
+AgePad is not an emulator, and no CPU instructions are translated. The Mac edition
+of the game is already native Apple silicon code, and an iPad runs the same kind
+of processor on a close relative of macOS, so the game's own program runs directly
+on the iPad at full speed. What the iPad lacks is the Mac's app frameworks, so
+AgePad fills that gap, a little like Wine does for Windows programs:
+
+| Piece | What AgePad does |
+| --- | --- |
+| The game program | Your own copy, with only its header relabelled from Mac to iPad; code and data are byte-identical |
+| Mac windows, mouse and keyboard (AppKit) | Replaced by iPad windows, touch, Apple Pencil, trackpad and keyboard |
+| Graphics and sound | Mac-only Metal and CoreGraphics calls answered with their iPad equivalents |
+| Steam | Valve's own Steam client engine, from your Mac's Steam, running inside the app |
+
+iPadOS runs only code signed into an app, so each player assembles and signs their
+own copy. [The release route](docs/IPA-ROUTE.md) has the details.
+
 ## Frequently asked questions
+
+<details>
+<summary>Is this emulation?</summary>
+
+No. The Mac game is native Apple silicon code and runs directly on the iPad's
+processor; AgePad supplies the Mac system pieces the iPad doesn't have. See
+[How it works](#how-it-works).
+
+</details>
 
 <details>
 <summary>Can I download a ready-to-play IPA?</summary>

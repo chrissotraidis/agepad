@@ -32,7 +32,7 @@ long sessions not yet verified (the README and release notes say so).
    map drag with real fingers, quick repeated swipes, two-finger drag vs pinch, and
    dragging after zooming in or out.
 2. **Rebuild the base app after any further change** (`scripts/agepad-ipad.sh kit`);
-   the current one (30 September, SHA-256 `ef3e9193…794309`) matches the installed build.
+   the current one (30 September, SHA-256 `a03b8f13…80b502`, staged with the PadMint manifest and SHA256SUMS in `generated/release/v0.1.0`) matches the installed build.
 3. **Publish:** push, make the repository public, tag and release (below).
 
 Licence: MIT, chosen 27 September ([LICENSE](../LICENSE)).
@@ -42,17 +42,21 @@ Licence: MIT, chosen 27 September ([LICENSE](../LICENSE)).
 After the touch review, with the iPad still connected:
 
 ```sh
-scripts/agepad-ipad.sh kit                 # makes generated/kit/AgePad-base.ipa; must end "0 contain game or Steam content"
-shasum -a 256 generated/kit/AgePad-base.ipa
+scripts/agepad-ipad.sh kit      # generated/kit/AgePad-base.ipa; must end "0 contain game or Steam content"
+V=$(python3 -c "import json;print(json.load(open('version.json'))['version'])")
+mkdir -p generated/release/v$V
+cp generated/kit/AgePad-base.ipa generated/release/v$V/AgePad-v$V-ios-base.ipa
+cp padmint.json generated/release/v$V/AgePad-v$V-padmint.json
+(cd generated/release/v$V && shasum -a 256 AgePad-v$V-* > SHA256SUMS)
 git push origin main
 gh repo edit chrissotraidis/agepad --visibility public --accept-visibility-change-consequences
-git tag v0.1 && git push origin v0.1
-gh release create v0.1 generated/kit/AgePad-base.ipa --prerelease \
-  --title "AgePad 0.1 (preview)" --notes-file docs/RELEASE-NOTES-0.1.md
+git tag v$V && git push origin v$V
+gh release create v$V generated/release/v$V/* --prerelease \
+  --title "AgePad $V (developer preview)" --notes-file docs/RELEASE-NOTES-0.1.md
 ```
 
-Then: in the README "Downloads" row, replace "(release not yet published)" with a
-link to the release; download the asset while signed out and compare its SHA-256.
+Then download the assets while signed out and compare them with `SHA256SUMS`; add
+AgePad to PadMint's catalog (`catalog/agepad.json`, pinned to the release commit).
 
 If Steam or the game updates before the release, rebuild first: `inject` rejects
 files that don't match the base app's recorded versions.

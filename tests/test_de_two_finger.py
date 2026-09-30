@@ -180,7 +180,7 @@ return 0;}}
 '''
 (out/'TwoFingerProbe.m').write_text(preamble.replace('TWO_FINGER_WINDOW', window_line)+protocol+interface+'\n@implementation DEGameViewHost\n'+handlers+'\n@end\n'+gestures+main)
 sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
-subprocess.run(['xcrun','clang','-fobjc-arc','-Wno-deprecated-declarations','-target','arm64-apple-ios26.0-simulator','-isysroot',sdk,'-I',str(root/'port/de'),str(out/'TwoFingerProbe.m'),
+subprocess.run(['xcrun','clang','-fobjc-arc','-Wno-deprecated-declarations','-target','arm64-apple-ios17.0-simulator','-isysroot',sdk,'-I',str(root/'port/de'),str(out/'TwoFingerProbe.m'),
                 '-framework','Foundation','-framework','UIKit','-framework','QuartzCore','-framework','GameController','-framework','CoreGraphics','-o',str(out/'TwoFingerProbe')],check=True)
 subprocess.run(['codesign','-s','-','--force',str(out/'TwoFingerProbe')],check=True,capture_output=True)
 device=de_device.device_udid()

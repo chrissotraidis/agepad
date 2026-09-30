@@ -113,7 +113,7 @@ return 0;
 (out/'InputProbe.m').write_text(preamble+protocol+'\n@implementation DEGameViewHost\n'+mouse+'\n@end\n'+key+main)
 (out/'extracted-source.json').write_text(json.dumps({'source':'port/de/WindowViewCompat.m','sha256':hashlib.sha256(s.encode()).hexdigest(),'methods':['sendGameMouse','DEPostGameKey'],'note':'Exact source extraction; fixture supplies touch/window objects, actual EventCompat/EventQueueCompat/PointerEventCompat included.'},indent=2))
 sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
-subprocess.run(['xcrun','clang','-fobjc-arc','-target','arm64-apple-ios26.0-simulator','-isysroot',sdk,'-I',str(root/'port/de'),str(out/'InputProbe.m'),'-framework','Foundation','-framework','UIKit','-framework','QuartzCore','-framework','GameController','-framework','CoreGraphics','-o',str(out/'InputProbe')],check=True)
+subprocess.run(['xcrun','clang','-fobjc-arc','-target','arm64-apple-ios17.0-simulator','-isysroot',sdk,'-I',str(root/'port/de'),str(out/'InputProbe.m'),'-framework','Foundation','-framework','UIKit','-framework','QuartzCore','-framework','GameController','-framework','CoreGraphics','-o',str(out/'InputProbe')],check=True)
 subprocess.run(['codesign','-s','-','--force',str(out/'InputProbe')],check=True)
 
 # Exercise the real adapter in the AgePad Simulator when it is booted (other

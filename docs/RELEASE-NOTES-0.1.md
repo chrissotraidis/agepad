@@ -1,16 +1,18 @@
-# AgePad 0.1 (preview)
+# AgePad 0.1.0 (developer preview)
 
 Play your own Steam copy of **Age of Empires II: Definitive Edition** natively on an iPad with 8 GB of memory.
 
 ## In this release
 
-- `AgePad-base.ipa` (about 1 MB): AgePad's own code only. It contains no game or Steam files; `scripts/audit-agepad-base.py` checks this.
-- Build: game version 488492.107976 (Steam build 25464371), Steam for Mac as of 26 September 2026.
+- `AgePad-v0.1.0-ios-base.ipa` (about 1 MB): AgePad's own code only. It contains no game or Steam files; `scripts/audit-agepad-base.py` checks this.
+- `AgePad-v0.1.0-padmint.json`: the manifest [PadMint](https://github.com/chrissotraidis/padmint) uses to make your personal app.
+- `SHA256SUMS` for both.
+- Build: game version 488492.107976 (Steam build 25464371), Steam for Mac as of 30 September 2026.
 
 ## How to install
 
-1. On a Mac with the game installed through Steam, download the repository and `AgePad-base.ipa`.
-2. Run `scripts/agepad-ipad.sh inject AgePad-base.ipa`. It adds your own game and Steam files and writes `generated/AgePad-mine.ipa`. Keep that file to yourself.
+1. On a Mac with the game installed through Steam, download the repository and `AgePad-v0.1.0-ios-base.ipa`.
+2. Run `scripts/agepad-ipad.sh inject AgePad-v0.1.0-ios-base.ipa`. It adds your own game and Steam files and writes `generated/AgePad-mine.ipa`. Keep that file to yourself. (Or let PadMint do steps 1 and 2.)
 3. Install it with Sideloadly, AltStore, or Xcode. A paid Apple Developer account is recommended (full matches); a free Apple ID works for short matches.
 4. Copy the `AgeOfEmpires2Data` folder to AgePad with Finder → Files (about 20 GB).
 5. Open AgePad, scan the Steam sign-in code with the Steam app on your phone, and play.
@@ -22,7 +24,7 @@ Play your own Steam copy of **Age of Empires II: Definitive Edition** natively o
   Tap selects, two-finger tap gives orders, two- or three-finger drag moves the map, pinch
   zooms. With the Pencil, tap to select, then each tap gives an order until you hold
   for half a second or double-tap the Pencil. [All controls](https://github.com/chrissotraidis/agepad/blob/main/docs/IPAD-SETUP.md).
-- Steam signed in on the iPad itself; offline play through Steam's offline mode.
+- Steam signed in on the iPad itself, online, or offline through Steam's offline mode.
 
 ## Known limits
 

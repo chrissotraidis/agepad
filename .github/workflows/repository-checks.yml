@@ -1,0 +1,23 @@
+name: Repository checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-and-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repository safety
+        run: python3 scripts/check-repo-safety.py
+      - name: Repository tests
+        run: python3 -m unittest tests/test_repo_safety.py tests/test_intake.py tests/test_gates.py
+      - name: PadMint manifest
+        run: python3 -c "import json; m=json.load(open('padmint.json')); v=json.load(open('version.json')); assert m['id']=='agepad' and v['version']"
+      - name: Game-side tests (no game data; touch tests compile only)
+        run: scripts/run-de-tests.sh

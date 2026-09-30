@@ -77,7 +77,7 @@ The Mac routes remain as fallbacks: **Play with my Mac's Steam instead** on the 
 | Tap | Select (left click) |
 | Drag | Selection box |
 | Two-finger tap | Right click: move, gather, attack (the fingers can land up to about half a second apart) |
-| Two- or three-finger drag | Move the map; it stays under your fingers. With two fingers, a gesture is a drag or a pinch, whichever you start; three fingers always drag. iPadOS's three-finger undo/copy gestures are off inside AgePad. (It works through the game's click-drag scrolling, right mouse button, which is its default; keep that setting) |
+| Two- or three-finger drag | Move the map; it follows your fingers, a little faster than them (1.2×). With two fingers, a gesture is a drag or a pinch, whichever you start; three fingers always drag. iPadOS's three-finger undo/copy gestures are off inside AgePad. (It works through the game's click-drag scrolling, right mouse button, which is its default; keep that setting) |
 | Pinch | Zoom, in the same steps as ZOOM + / ZOOM − |
 | Apple Pencil tap on a unit or drag-box | Select; the next Pencil taps on the map give orders (right click) until you… (finger taps don't do this: after using fingers, a Pencil tap selects) |
 | Apple Pencil hold (½ s) | …plain left click, which stops giving orders |
