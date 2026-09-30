@@ -6,3 +6,5 @@
 /docs/artifacts/
 __pycache__/
 *.pyc
+# PadMint's private workspace
+build/
