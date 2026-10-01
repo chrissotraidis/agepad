@@ -133,6 +133,7 @@ approval are not evidence that Valve approves this particular integration.
 
 | Primary source | Relevance and limit |
 | --- | --- |
+| [GameNative's implementation disclosure](https://github.com/utkarshdalal/GameNative/blob/master/THIRD_PARTY_NOTICES#steam-client-bootstrap-shim-source-withheld) | Its Android integration describes loading a real Steam client library, supplying a refresh token and calling undocumented internal interfaces identified through static analysis. This is a closer comparison than cosmetic skins, but its binary adaptations have not been matched to AgePad's. No substantiated Steam-account ban solely for ordinary use was found in the public search. |
 | [Valve's Proton source](https://github.com/ValveSoftware/Proton/blob/proton_11.0/lsteamclient/unixlib.cpp) | Its Steam wrapper loads the host's platform-native Steam client library. A Valve-maintained compatibility tool is not evidence of permission for AgePad's privately retargeted iOS client. |
 | [Millennium FAQ](https://docs.steambrew.app/users/getting-started/faq) | This Steam modification project claims the client is exempt from the agreement's modification restrictions. That premise conflicts with the current agreement's explicit client inclusion. Its maintainer reassurance cannot establish AgePad's permission or enforcement safety. |
 | [ArchiSteamFarm FAQ](https://github.com/JustArchiNET/ArchiSteamFarm/wiki/FAQ) | The maintainer acknowledges contractual uncertainty and reports suspensions involving extensive account networks, trading or traffic. Those reports are not proof that ordinary compatibility play or metadata edits trigger bans. Its independent client also differs materially from AgePad. |
@@ -144,6 +145,40 @@ the Subscriber Agreement and separately licenses particular build utilities and
 device rules. It supplied no general client-binary editing grant. The older
 AppImage reference to a limited redistribution license is not evidence of a
 current grant for the Mac-to-iPad route.
+
+## Actual suspension reports and what they establish
+
+The [ArchiSteamFarm incident list](https://github.com/JustArchiNET/ArchiSteamFarm/wiki/FAQ#did-anybody-get-banned-for-it)
+documents restrictions involving a 1,000+ bot trading network, 170+ accounts
+during the 2017 Winter Sale, 120+ accounts reportedly flooding Steam through an
+outdated-client bug, and a 128-account farming operation reported in June 2021.
+The page includes messages attributed to Steam Support. This review confirms
+that the maintainer published those reports, but cannot independently
+authenticate the messages or establish the complete cause of each restriction.
+They do not establish that an unofficial client alone causes bans during normal
+compatibility play.
+
+For Millennium, the [August 2026 "Ban appeal"](https://github.com/SteamClientHomebrew/Millennium/discussions/870)
+concerns its Discord server, not a Steam account. No substantiated Steam-account
+ban solely for normal Millennium use was found in this public search. The same
+search finding applies to ordinary GameNative use; neither result establishes
+an absence of private incidents, official permission or a measured ban rate.
+
+There are confirmed enforcement examples with different mechanisms. Valve's
+[19 October 2023 CS2 release notes](https://store.steampowered.com/news/posts/?appids=730&enddate=1697825171&feed=steam_community_announcements)
+confirm VAC bans affecting users of incompatible AMD graphics drivers and
+announce reversals. Bungie's [Destiny restriction policy](https://help.bungie.net/hc/en-us/articles/360049517431-Destiny-Account-Restrictions-and-Banning-Policies)
+explicitly says circumventing SteamOS/Proton incompatibility results in a game
+ban. Those show possible anti-cheat or publisher enforcement, not an established
+Steam-wide account-ban trigger for AgePad's library adaptations.
+
+**No percentage is supported.** These examples do not provide a representative
+population, observation period, complete reporting or verified causes suitable
+for estimating AgePad's risk. Public projects and user anecdotes establish
+related integrations, not an account-safety guarantee. No substantiated matching
+ban precedent was found; private support and Discord reports were not reviewed.
+The research does not establish that Steam-wide bans are routine for ordinary
+compatibility play, and cannot establish that AgePad is compliant or ban-safe.
 
 ## Different meanings of "banned"
 
