@@ -2,6 +2,9 @@
 
 Play your own Steam copy of **Age of Empires II: Definitive Edition** natively on an iPad with 8 GB of memory.
 
+**Before signing in:** this Steam integration is unsupported, and account safety
+is not guaranteed. Read the [Steam account-risk review](https://github.com/chrissotraidis/agepad/blob/main/docs/STEAM-ACCOUNT-RISK.md).
+
 ## In this release
 
 - `AgePad-v0.1.0-ios-unsigned.ipa` (about 1 MB): AgePad's own code only. It contains no game or Steam files; `scripts/audit-agepad-base.py` checks this.

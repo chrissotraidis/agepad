@@ -1,3 +1,13 @@
+> [!CAUTION]
+> **Steam compatibility and account safety are unconfirmed.** AgePad modifies
+> local copies of Steam client and SDK files to run on iPadOS and uses internal
+> client interfaces. We cannot confirm whether this integration complies with
+> Steam's terms or what consequences using it could have for your account,
+> including restrictions or bans. I am investigating interoperability changes
+> with the goal of making the port compliant; that outcome is not established or
+> guaranteed. Consider this uncertainty before signing in. Read the
+> [Steam risk review](docs/STEAM-ACCOUNT-RISK.md).
+
 <p align="center"><img src="docs/images/agepad-icon-256.png" width="128" alt="AgePad icon"></p>
 
 # AgePad
@@ -40,6 +50,11 @@ management and packaging. The game itself and Steam come from your own installs.
 > offline play through Steam's offline mode. Full online matches, long sessions,
 > mice and other iPads are not yet verified. Unofficial fan project, not affiliated
 > with Microsoft, Valve, Feral Interactive or Apple.
+>
+> **Steam account risk.** AgePad modifies local copies of Steam client and SDK
+> files for iPadOS and uses internal client interfaces. Account safety is not
+> guaranteed. Read the [account-risk review](docs/STEAM-ACCOUNT-RISK.md) before
+> signing in. Using your own files does not establish Valve's approval.
 >
 > **AI disclosure:** AgePad uses substantial AI assistance for code, tests,
 > documentation, debugging and maintenance. There is no audited percentage of
@@ -104,7 +119,8 @@ your app ID isn't the default); please don't attach game files, saves or Steam d
   half a second, double-tap the Pencil, or squeeze an Apple Pencil Pro to stop.
 - **Mouse, trackpad and keyboard:** clicks, right clicks, drag-select, the wheel
   (zoom) and the game's own hotkeys.
-- **Online and offline:** online everything runs through Steam as on a computer.
+- **Online and offline:** AgePad connects through its in-app Steam engine; full
+  online matches are not yet verified.
   Without Internet AgePad uses Steam's offline mode (single player, skirmish and
   campaigns). Open AgePad once with Internet before you go offline.
 - **HUD size** starts at 125% on a new install; change it in the game's
@@ -169,6 +185,25 @@ It's recommended. With a paid account (99 USD a year) the app gets Apple's large
 </details>
 
 <details>
+<summary>Could using AgePad get my Steam account banned?</summary>
+
+We cannot guarantee that it won't. AgePad modifies copies of your Mac Steam client
+and SDK files and uses internal client interfaces on an unsupported platform.
+It preserves their code and data sections, but changes platform headers, library
+paths and signatures. Steam's terms restrict
+unauthorized modification and process tampering and allow account restrictions
+for breaches. Genuine sign-in and ownership checks do not establish permission.
+
+AgePad has only just been released, so the absence of ban reports provides no
+meaningful enforcement history. The [1 October 2026 review](docs/STEAM-ACCOUNT-RISK.md)
+distinguishes VAC bans, publisher multiplayer bans and Steam account restrictions.
+Offline play still requires an earlier sign-in and is not a guarantee
+against account action. Full online matches remain unverified. If you cannot
+accept this uncertainty, use the supported Mac version instead.
+
+</details>
+
+<details>
 <summary>How does Steam work on the iPad? Is my password stored?</summary>
 
 AgePad runs Valve's own Steam client engine, taken from your Mac's Steam, inside the app. You sign in once by scanning a QR code with the Steam phone app (or with your password and Steam Guard). AgePad keeps Steam's sign-in token in the iPad Keychain and never stores or logs your password. Steam itself decides whether your account owns the game. The iPad appears in your account as "AgePad (iPad)".
@@ -185,7 +220,7 @@ Yes, through Steam's own offline mode: single player, skirmish and campaigns. It
 <details>
 <summary>What happens when the game or Steam updates?</summary>
 
-The iPad keeps the game version it has and tells you when Steam has a newer one. Single player and offline play are unaffected; online matches need the current version, which needs a matching AgePad release first. An installed AgePad keeps working when Steam for Mac updates. Each release matches one game and one Steam version, so `inject` refuses newer files until a matching release is out (building it yourself picks up the new Steam at once). If Valve ever stops accepting AgePad's copy of Steam, the iPad says so and still starts offline.
+The iPad keeps the game version it has and tells you when Steam has a newer one. Online matches need the current version, which needs a matching AgePad release first. Each release matches one game and one Steam version, so `inject` refuses newer files until a matching release is out (building it yourself picks up the new Steam at once). AgePad attempts Steam's offline mode for connection or protocol failures when cached ownership permits it. Continued access after token revocation, account restrictions or future service changes is not guaranteed. See the [account-risk review](docs/STEAM-ACCOUNT-RISK.md).
 
 </details>
 

@@ -4,6 +4,12 @@
 
 A full IPA can't be published: the working app contains Microsoft's game program and Valve's Steam software, which aren't ours to give away. iPadOS also runs only code that is inside the signed app, so the app can't download the game program later by itself.
 
+**Steam modification and account risk:** assembling a personal IPA changes copies
+of Steam client and SDK files, including platform metadata, dependency paths and
+signatures. Preserving code/data sections and excluding vendor files from the
+public base do not establish permission or account safety. Read the
+[account-risk review](STEAM-ACCOUNT-RISK.md) before signing in.
+
 ## The route: a public base app plus "add your own copy"
 
 1. **Base app (publishable, about 1 MB).** `scripts/agepad-ipad.sh kit` makes `AgePad-base.ipa`, published as `AgePad-vX.Y.Z-ios-unsigned.ipa` with `AgePad-vX.Y.Z-padmint.json` and `SHA256SUMS` so [PadMint](https://github.com/chrissotraidis/padmint) can use it: AgePad's own code, the icon, and `AgePadKit.json`, a recipe of which game/Steam files go where, with their SHA-256 hashes and the header-only changes (platform, library paths) that make them load on iPadOS. The recipe holds no vendor bytes. `scripts/audit-agepad-base.py` checks the base app against the full game and Steam installs (whole files and code sections): **0 matches**.
