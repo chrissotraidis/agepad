@@ -38,6 +38,8 @@ Free Apple IDs (AltStore, SideStore, Sideloadly) generally can't get the capabil
 ## Other limits
 
 - A base app matches one game build and one Steam version, so each game patch needs a new base app release.
+- Missing-file and version-mismatch errors list up to five distinct files and say
+  how many more were omitted. This does not relax the recipe's compatibility checks.
 - A Mac with Steam is needed once, to get the Mac game files.
 
 ## Ruled out

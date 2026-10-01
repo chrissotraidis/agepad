@@ -25,6 +25,7 @@ for name in pointer_ownership ordered_delivery; do
 done
 OUT=$(python3 tests/test_de_touch_ordering.py 2>&1) && pass "touch-ordering: $(print -r -- $OUT | tail -1)" || fail "touch-ordering: $(print -r -- $OUT | tail -3)"
 OUT=$(python3 tests/test_de_two_finger.py 2>&1) && pass "two-finger: $(print -r -- $OUT | tail -1)" || fail "two-finger: $(print -r -- $OUT | tail -3)"
+OUT=$(python3 tests/test_agepad_kit_diagnostics.py 2>&1) && pass "kit diagnostics: $(print -r -- $OUT | tail -1)" || fail "kit diagnostics: $(print -r -- $OUT | tail -3)"
 OUT=$(python3 tests/test_agepad_kit_roundtrip.py 2>&1) && pass "release round trip: $(print -r -- $OUT | tail -1)" || fail "release round trip: $(print -r -- $OUT | tail -3)"
 OUT=$(python3 tests/test-startup-trace-parser.py 2>&1) && pass "startup-trace-parser" || fail "startup-trace-parser"
 (( FAILED )) && { print 'Some tests failed.'; exit 1; }

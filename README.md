@@ -77,6 +77,12 @@ version comes with the Steam purchase), an iPad with 8 GB of memory or more with
 25 GB free, and a sideloading tool. A paid Apple Developer account is recommended
 for full matches ([why](docs/IPA-ROUTE.md#memory-the-one-real-limit)).
 
+**Version check:** AgePad 0.1.0 needs the exact game and Steam versions its base
+app was made for. The 1 October 2026 check rejected an updated Steam beta client;
+a compatible profile for that update has not been verified. If you get a version
+mismatch, stop there: do not change the recipe's hashes or replace your Steam files
+to force it through. Updating PadMint alone does not fix that mismatch.
+
 ### With PadMint
 
 AgePad is in PadMint 0.2.7 and newer.
