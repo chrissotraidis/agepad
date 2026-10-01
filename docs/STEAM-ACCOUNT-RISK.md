@@ -4,6 +4,10 @@ Reviewed 1 October 2026. Scope: the v0.1.0 Mac-to-iPad route and the current sou
 This is an engineering and policy review, not a legal opinion or approval from
 Valve, Microsoft or Feral Interactive.
 
+The subsequent [focused interoperability investigation](STEAM-INTEROPERABILITY-LOOP.md)
+traces the actual QR request, distinguishes local integrity checks from remote
+authentication, examines legal precedents, and evaluates alternative architectures.
+
 **We cannot promise that using AgePad will never result in account action.** This
 project has only just been released, so the absence of incident reports supplies
 no meaningful enforcement history from which to estimate a probability. Successful
