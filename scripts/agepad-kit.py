@@ -56,6 +56,12 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def file_summary(names):
+    names = sorted(set(names))
+    shown = ', '.join(names[:5])
+    return shown + (' (and %d more)' % (len(names) - 5) if len(names) > 5 else '')
+
+
 def thin(data):
     """The arm64 Mach-O of a (possibly universal) file, or None."""
     magic = struct.unpack_from('>I', data)[0]
@@ -271,7 +277,7 @@ def inject(base_ipa, out, game, steam, steamapps=STEAMAPPS):
         missing = [e['source'] for e in plan['files'] if e['op'] in ('copy', 'header', 'wrap') and e['source'] not in table]
         if missing:
             sys.exit('Not found in your game/Steam folders: %s. Is Age of Empires II: DE (Mac) installed through Steam?'
-                     % ', '.join(sorted(set(missing))[:5]))
+                     % file_summary(missing))
         wrong = []
         for entry in plan['files']:
             target = app / entry['path']
@@ -304,7 +310,7 @@ def inject(base_ipa, out, game, steam, steamapps=STEAMAPPS):
                 target.chmod(0o755)
         if wrong:
             sys.exit('These files are a different version than this AgePad was made for: %s. '
-                     'Get the AgePad release for your game and Steam versions.' % ', '.join(sorted(set(wrong))[:5]))
+                     'Get the AgePad release for your game and Steam versions.' % file_summary(wrong))
         zip_app(app, out)
     print('Your AgePad: %s (%.0f MB). Sign and install it with a sideloading tool; keep it to yourself.'
           % (out, out.stat().st_size / 1e6))
