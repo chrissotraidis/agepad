@@ -5,8 +5,9 @@
 > Steam's terms or what consequences using it could have for your account,
 > including restrictions or bans. I am investigating interoperability changes
 > with the goal of making the port compliant; that outcome is not established or
-> guaranteed. Consider this uncertainty before signing in. Read the
-> [Steam risk review](docs/STEAM-ACCOUNT-RISK.md).
+> guaranteed. Consider this uncertainty before signing in. For comparable
+> projects and reported bans, see [Steam account safety](#steam-account-safety)
+> and the [full risk review](docs/STEAM-ACCOUNT-RISK.md).
 
 <p align="center"><img src="docs/images/agepad-icon-256.png" width="128" alt="AgePad icon"></p>
 
@@ -59,6 +60,50 @@ management and packaging. The game itself and Steam come from your own installs.
 > **AI disclosure:** AgePad uses substantial AI assistance for code, tests,
 > documentation, debugging and maintenance. There is no audited percentage of
 > AI-generated code. Build, test and device records describe what was checked.
+
+## Steam account safety
+
+**What do we know about bans?** Our 1 October 2026 search found related projects
+using unofficial Steam integrations and client modifications, but no
+substantiated report matching AgePad's particular combination of genuine sign-in,
+owned-game play and adapted Mac Steam libraries on iPadOS. The examples below do
+not establish that Steam-wide account bans are routine for ordinary compatibility
+play. They also do not establish permission or guarantee safety.
+
+| Comparable project or incident | What the public evidence shows |
+| --- | --- |
+| [GameNative on Android](https://github.com/utkarshdalal/GameNative/blob/master/THIRD_PARTY_NOTICES#steam-client-bootstrap-shim-source-withheld) | Its notices describe real Steam-client token login and undocumented internal interfaces. We found no substantiated Steam-account ban report solely for ordinary use. Its binary adaptations have not been matched to AgePad's. |
+| [Millennium Steam client modifications](https://docs.steambrew.app/users/getting-started/faq) | We found no substantiated Steam-account ban attributed solely to normal use. Its maintainer's safety claim is not Valve approval. An apparent [ban appeal](https://github.com/SteamClientHomebrew/Millennium/discussions/870) concerned Discord, not Steam. |
+| [ArchiSteamFarm suspension reports](https://github.com/JustArchiNET/ArchiSteamFarm/wiki/FAQ#did-anybody-get-banned-for-it) | The maintainer documents account/trade restrictions involving large bot networks, commercial activity or excessive traffic, with messages attributed to Steam Support. Those messages were not independently authenticated; these cases do not establish bans for ordinary compatibility play. |
+| [CS2 and AMD drivers, October 2023](https://store.steampowered.com/news/posts/?appids=730&enddate=1697825171&feed=steam_community_announcements) | Valve confirmed VAC bans affecting users of incompatible AMD drivers and announced reversals. This shows software compatibility problems can trigger anti-cheat enforcement; it does not establish a Steam-wide account ban for AgePad. |
+| [Destiny 2 and Proton](https://help.bungie.net/hc/en-us/articles/360049517431-Destiny-Account-Restrictions-and-Banning-Policies) | Bungie explicitly says circumventing its SteamOS/Proton incompatibility results in a game ban. This is that publisher's policy, not an established Age of Empires restriction or a Steam-wide ban. |
+
+**There is no defensible ban-risk percentage for AgePad.** We do not have a
+representative user population, an observation period or verified causes for
+each incident. Private support and Discord reports were not reviewed. AgePad is
+new, so its own absence of reports provides no meaningful enforcement history.
+Neither "0% risk" nor a figure such as "1%" or "5%" is supported by this research.
+
+**What does AgePad change, and can Valve see it?** Your personal app contains
+copies of Steam client and SDK files with changed platform headers, library paths
+and signatures. Their original code and data sections are preserved, but they
+are still modified files. AgePad uses real Valve authentication and ownership
+checks, and its QR request explicitly names the device **AgePad (iPad)**. The
+local request probe found no executable hash or OS identifier in that first
+request; later client telemetry remains unmeasured. Successful login confirms
+authentication, not approval of the integration.
+
+I am investigating interoperability changes with the goal of making the port
+compliant. That outcome remains unconfirmed. Offline mode retains the adapted
+files and depends on an earlier sign-in; it is not a verified ban-safe mode.
+Full online matches remain unverified.
+
+**If you'd like more detail:** the [Steam risk review](docs/STEAM-ACCOUNT-RISK.md)
+covers the modifications, published terms and different kinds of restrictions.
+The [focused interoperability investigation](docs/STEAM-INTEROPERABILITY-LOOP.md)
+traces authentication, local integrity checks, Steam-visible signals, legal
+precedents and alternative architectures. These are research findings, not
+approval from Valve, Microsoft or Feral Interactive.
 
 ## Get AgePad
 
@@ -194,18 +239,15 @@ It's recommended. With a paid account (99 USD a year) the app gets Apple's large
 <summary>Could using AgePad get my Steam account banned?</summary>
 
 We cannot guarantee that it won't. AgePad modifies copies of your Mac Steam client
-and SDK files and uses internal client interfaces on an unsupported platform.
-It preserves their code and data sections, but changes platform headers, library
-paths and signatures. Steam's terms restrict
-unauthorized modification and process tampering and allow account restrictions
-for breaches. Genuine sign-in and ownership checks do not establish permission.
+and SDK files and uses internal client interfaces. We found no substantiated
+matching ban precedent, but cannot confirm compliance or calculate a reliable
+percentage. [Steam account safety](#steam-account-safety) explains the comparable
+projects and documented restrictions, with links to the full research.
 
-AgePad has only just been released, so the absence of ban reports provides no
-meaningful enforcement history. The [1 October 2026 review](docs/STEAM-ACCOUNT-RISK.md)
-distinguishes VAC bans, publisher multiplayer bans and Steam account restrictions.
-Offline play still requires an earlier sign-in and is not a guarantee
-against account action. Full online matches remain unverified. If you cannot
-accept this uncertainty, use the supported Mac version instead.
+VAC bans, publisher game bans and Steam-wide account restrictions are different
+outcomes. Genuine login and ownership checks do not establish permission, and
+offline mode does not remove the modified files or earlier sign-in. If you cannot
+accept this uncertainty, use the supported Mac version.
 
 </details>
 
