@@ -133,7 +133,7 @@ to force it through. Updating PadMint alone does not fix that mismatch.
 AgePad is in PadMint 0.2.7 and newer.
 
 1. Download [PadMint](https://github.com/chrissotraidis/padmint/releases/latest), unzip it and double-click `PadMint.command`.
-2. There is no game file to drag in: press Enter at the first question and choose **AgePad**. PadMint downloads the AgePad release, finds your game and Steam in Steam's folders on this Mac, checks every file against the release and saves your AgePad IPA in your Downloads folder, usually in under a minute.
+2. There is no game file to choose: in the PadMint page that opens in your browser, choose **AgePad** and click **Make my copy**. PadMint downloads the AgePad release, finds your game and Steam in Steam's folders on this Mac, checks every file against the release and saves your AgePad IPA in your Downloads folder, usually in under a minute.
 3. Continue with [install and copy the game data](#then-install-and-copy-the-game-data).
 
 ### Directly, with the inject command
