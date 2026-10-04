@@ -35,6 +35,7 @@ management and packaging. The game itself and Steam come from your own installs.
   <img alt="Developer preview" src="https://img.shields.io/badge/status-developer%20preview-FF9F0A">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-8E8E93"></a>
   <img alt="Game data not included" src="https://img.shields.io/badge/game%20data-not%20included-FF453A">
+  <a href="https://github.com/chrissotraidis/padmint"><img alt="Build AgePad with PadMint" src="https://img.shields.io/badge/PadMint-build%20your%20own-3EB489"></a>
   <a href="https://discord.gg/xwHfUD2bxW"><img alt="Join the community on Discord" src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&amp;logoColor=white"></a>
 </p>
 
@@ -295,6 +296,16 @@ signs and installs in place and copies the game files over USB-C; `sync` copies 
 what a game update changed; `kit` makes the release base app and audits it.
 Contributions are welcome through issues and pull requests; please keep game and
 Steam files out of them.
+
+## Community and support
+
+[Join the Discord](https://discord.gg/xwHfUD2bxW) for help and news. It is one
+community for AgePad and its sibling projects, such as KartPad, BlueWake and
+MeleePad: ask about setup, building with PadMint, and installing, share how it
+runs on your device, and hear about new releases first.
+
+Found a bug? [Open an issue](https://github.com/chrissotraidis/agepad/issues)
+with your device, its OS version, and the steps that led to it.
 
 ## Credits and license
 
