@@ -21,7 +21,7 @@ SPEC.loader.exec_module(kit)
 
 class PortableKitTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='AgePad portable input ')
+        temporary = tempfile.TemporaryDirectory(prefix='AgePad portable input \u96ea ')
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.game = self.root / 'game Contents'
@@ -84,11 +84,12 @@ class PortableKitTests(unittest.TestCase):
         self.assertEqual(entries['Game/program']['mode'], stat.S_IMODE(program.stat().st_mode))
 
     def test_full_cli_forwards_all_local_folders_and_preserves_ipa_metadata(self):
-        result = subprocess.run([sys.executable, str(ROOT / 'scripts/agepad-kit.py'), 'inject',
+        result = subprocess.run([sys.executable, '-X', 'utf8=0', str(ROOT / 'scripts/agepad-kit.py'), 'inject',
                                  str(self.base), str(self.output), '--game', str(self.game),
                                  '--steam', str(self.steam), '--steamapps', str(self.apps)],
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding='utf-8')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(str(self.output), result.stdout)
         with zipfile.ZipFile(self.output) as archive, zipfile.ZipFile(self.base) as base:
             self.assertFalse(any('\\' in name for name in archive.namelist()))
             for name in ('OwnProgram', 'Frameworks/alias'):

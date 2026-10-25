@@ -336,6 +336,10 @@ def inject(base_ipa, out, game, steam, steamapps=STEAMAPPS):
 
 
 def main():
+    if os.name == 'nt':
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8')
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='command', required=True)
     r = sub.add_parser('recipe'); r.add_argument('app', type=Path); r.add_argument('out', type=Path)

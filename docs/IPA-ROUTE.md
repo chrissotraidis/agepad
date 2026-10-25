@@ -61,6 +61,15 @@ Synthetic portability tests do not establish a Windows player route: a Windows
 Steam installation does not supply the required Mac binaries, and an actual
 private-input Windows build has not been validated. These folder options are manual preparation only; there is no current Windows PadMint route. Host support remains Mac-only.
 
+The synthetic Windows injection checks also use Japanese folder names and
+explicitly disable Python's UTF-8 mode. The CLI writes UTF-8 so reporting a
+successful output path does not turn the build into an encoding failure.
+On 26 October 2026, a Windows check using the actual installed Mac files and the
+published v0.1.0 base correctly refused six changed Steam binaries while
+preserving the previous output. The game files and build number matched that
+base. This verifies the version guard; a successful private Windows injection
+still requires the exact matching Mac Steam files.
+
 ## Ruled out
 
 | Route | Why not |
