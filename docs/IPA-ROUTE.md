@@ -14,6 +14,7 @@ public base do not establish permission or account safety. Read the
 
 1. **Base app (publishable, about 1 MB).** `scripts/agepad-ipad.sh kit` makes `AgePad-base.ipa`, published as `AgePad-vX.Y.Z-ios-unsigned.ipa` with `AgePad-vX.Y.Z-padmint.json` and `SHA256SUMS` so [PadMint](https://github.com/chrissotraidis/padmint) can use it: AgePad's own code, the icon, and `AgePadKit.json`, a recipe of which game/Steam files go where, with their SHA-256 hashes and the header-only changes (platform, library paths) that make them load on iPadOS. The recipe holds no vendor bytes. `scripts/audit-agepad-base.py` checks the base app against the full game and Steam installs (whole files and code sections): **0 matches**.
 2. **Add your own copy (on your Mac, about 6 seconds).** PadMint, or `scripts/agepad-ipad.sh inject AgePad-vX.Y.Z-ios-unsigned.ipa`, reads your Steam install of the Mac game and Steam for Mac, checks every file against the recipe, applies the recorded header changes and writes `generated/AgePad-mine.ipa` (71 MB). Plain Python 3 (macOS offers to install it the first time): no Xcode or Apple account needed for this step. Code and data stay byte-identical to your own files. Mismatched game or Steam versions are refused with a clear message.
+
 3. **Sign and install** with your signing method (see "Memory" below): Sideloadly or AltStore, or, with a paid account and the memory capability, `scripts/sign-agepad-ipa.sh AgePad-mine.ipa <iPad ID> [your app ID]`, which signs with the Mac's own tools and installs.
 4. **Copy the game data** (about 20 GB): connect the iPad, open it in Finder → Files, and drag the `AgeOfEmpires2Data` folder (Steam → Age of Empires II: DE → Manage → Browse local files) onto AgePad. Or `scripts/agepad-ipad.sh sync`. AgePad checks the copy is complete (file count and size) before starting the game, and shows progress if it isn't.
 5. **Open AgePad and sign in to Steam once** with the QR code.
@@ -41,6 +42,24 @@ Free Apple IDs (AltStore, SideStore, Sideloadly) generally can't get the capabil
 - Missing-file and version-mismatch errors list up to five distinct files and say
   how many more were omitted. This does not relax the recipe's compatibility checks.
 - A Mac with Steam is needed once, to get the Mac game files.
+
+## Installed-input development
+
+The next PadMint recipe declares this as a private build input discovered in the
+local installation (`schema_version: 2`, `when: build`, `selection: installed`). It requires PadMint's
+installed-input support, built on [PR #177](https://github.com/chrissotraidis/padmint/pull/177).
+This is a source-only change for the next release; the public v0.1.0 recipe still
+uses the older no-file-chooser declaration. No game or Steam files are uploaded,
+and this route is not eligible for a GitHub-hosted build.
+
+For local development with matching copies in other folders, the Python injector
+accepts `--game` (the Mac game's `Contents` folder), `--steam` (Mac Steam's
+`Contents/MacOS` folder), and `--steamapps` (the folder containing
+`appmanifest_813780.acf`). It preserves the base IPA's archive metadata and the
+recorded permissions of injected files, independently of the host filesystem.
+Synthetic portability tests do not establish a Windows player route: a Windows
+Steam installation does not supply the required Mac binaries, and an actual
+private-input Windows build has not been validated. These folder options are manual preparation only; there is no current Windows PadMint route. Host support remains Mac-only.
 
 ## Ruled out
 

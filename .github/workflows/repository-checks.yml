@@ -9,6 +9,22 @@ permissions:
   contents: read
 
 jobs:
+  portable-kit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Synthetic installed-input injection
+        run: |
+          python -m unittest discover -s tests -p test_agepad_kit_portable.py -v
+          python -m unittest discover -s tests -p test_agepad_kit_diagnostics.py -v
+
   safety-and-tests:
     runs-on: macos-15
     steps:
