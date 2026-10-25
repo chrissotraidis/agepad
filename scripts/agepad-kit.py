@@ -8,7 +8,7 @@
                                 edits only: never vendor bytes.
   base BUILT_APP RECIPE OUT.ipa (maintainers) the app without any of those files:
                                 AgePad's own code and assets only.
-  inject BASE.ipa OUT.ipa [--game DIR] [--steam DIR]
+  inject BASE.ipa OUT.ipa [--game DIR] [--steam DIR] [--steamapps DIR]
                                 (players) put your own game program and Steam
                                 software into the base app. Pure Python: no Xcode.
                                 Sign and install the result with a sideloading
@@ -19,11 +19,13 @@ exactly as scripts/prepare-de-load-image.py does; code and data sections are
 byte-identical to the user's own files, which the recipe verifies by hash.
 """
 import argparse
+import copy
 import hashlib
 import json
 import os
 import plistlib
 import shutil
+import stat
 import struct
 import sys
 import tempfile
@@ -161,7 +163,7 @@ def sources(game, steam):
             continue
         for p in root.rglob('*'):
             if p.is_file() and not p.is_symlink():
-                table.setdefault(label + ':' + str(p.relative_to(root)), p)
+                table.setdefault(label + ':' + p.relative_to(root).as_posix(), p)
     return table
 
 
@@ -191,7 +193,7 @@ def recipe(app, out, game, steam):
     for p in sorted(app.rglob('*')):
         if not p.is_file() or '_CodeSignature' in p.parts:
             continue
-        rel = str(p.relative_to(app))
+        rel = p.relative_to(app).as_posix()
         if rel in derived:
             continue
         data = p.read_bytes()
@@ -219,6 +221,8 @@ def recipe(app, out, game, steam):
         same = header_key(rebuilt) == header_key(arm) and sections_digest(rebuilt) == sections_digest(arm)
         entries.append({'path': rel, 'source': key, 'source_sha256': sha(table[key].read_bytes()),
                         'op': 'header', 'edits': edits, 'verified': same})
+    for entry in entries:
+        entry['mode'] = stat.S_IMODE((app / entry['path']).stat().st_mode)
     report = {'format': 1, 'files': entries, 'own_files': len(ours)}
     out.write_text(json.dumps(report, indent=1) + '\n')
     bad = [e['path'] for e in entries if e['op'] == 'header' and not e['verified']]
@@ -228,17 +232,25 @@ def recipe(app, out, game, steam):
     return 1 if bad else 0
 
 
-def zip_app(app, out):
+def zip_app(app, out, metadata=None, modes=None):
+    """Retain base IPA metadata; do not derive iOS permissions from Windows files."""
+    metadata, modes = metadata or {}, modes or {}
     out.parent.mkdir(parents=True, exist_ok=True)  # generated/ doesn't exist in a fresh clone
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
         for p in sorted(app.rglob('*')):
-            arc = 'Payload/' + app.name + '/' + str(p.relative_to(app))
+            rel = p.relative_to(app).as_posix()
+            arc = 'Payload/' + app.name + '/' + rel
             if p.is_symlink():
                 info = zipfile.ZipInfo(arc)
+                info.create_system = 3
                 info.external_attr = 0o120777 << 16
                 z.writestr(info, os.readlink(p))
             elif p.is_file():
-                info = zipfile.ZipInfo.from_file(p, arc)
+                info = copy.copy(metadata[rel]) if rel in metadata else zipfile.ZipInfo.from_file(p, arc)
+                info.filename = arc
+                if rel in modes:
+                    info.create_system = 3
+                    info.external_attr = (stat.S_IFREG | modes[rel]) << 16
                 info.compress_type = zipfile.ZIP_DEFLATED
                 with p.open('rb') as f:
                     z.writestr(info, f.read())
@@ -272,8 +284,15 @@ def inject(base_ipa, out, game, steam, steamapps=STEAMAPPS):
     with tempfile.TemporaryDirectory() as tmp:
         with zipfile.ZipFile(base_ipa) as z:
             z.extractall(tmp)
+            original = {info.filename: info for info in z.infolist()}
         app = next((Path(tmp) / 'Payload').glob('*.app'))
+        prefix = 'Payload/' + app.name + '/'
+        metadata = {name[len(prefix):]: info for name, info in original.items() if name.startswith(prefix)}
         plan = json.loads((app / 'AgePadKit.json').read_text())
+        # Older released recipes did not record modes. Header-edited Mach-O files
+        # are executable; other newly injected files use ordinary read permissions.
+        modes = {entry['path']: entry.get('mode', 0o755 if entry['op'] == 'header' else 0o644)
+                 for entry in plan['files']}
         missing = [e['source'] for e in plan['files'] if e['op'] in ('copy', 'header', 'wrap') and e['source'] not in table]
         if missing:
             sys.exit('Not found in your game/Steam folders: %s. Is Age of Empires II: DE (Mac) installed through Steam?'
@@ -311,17 +330,22 @@ def inject(base_ipa, out, game, steam, steamapps=STEAMAPPS):
         if wrong:
             sys.exit('These files are a different version than this AgePad was made for: %s. '
                      'Get the AgePad release for your game and Steam versions.' % file_summary(wrong))
-        zip_app(app, out)
+        zip_app(app, out, metadata, modes)
     print('Your AgePad: %s (%.0f MB). Sign and install it with a sideloading tool; keep it to yourself.'
           % (out, out.stat().st_size / 1e6))
 
 
 def main():
+    if os.name == 'nt':
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8')
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='command', required=True)
     r = sub.add_parser('recipe'); r.add_argument('app', type=Path); r.add_argument('out', type=Path)
     b = sub.add_parser('base'); b.add_argument('app', type=Path); b.add_argument('recipe', type=Path); b.add_argument('out', type=Path)
     i = sub.add_parser('inject'); i.add_argument('base', type=Path); i.add_argument('out', type=Path)
+    i.add_argument('--steamapps', type=Path, default=STEAMAPPS, help='the folder containing appmanifest_813780.acf')
     for s in (r, i):
         s.add_argument('--game', type=Path, default=GAME, help='the Mac game app\'s Contents folder')
         s.add_argument('--steam', type=Path, default=STEAM, help='Steam for Mac\'s Contents/MacOS folder')
@@ -333,7 +357,7 @@ def main():
         return recipe(a.app, a.out, a.game, a.steam)
     if a.command == 'base':
         return base(a.app, a.recipe, a.out)
-    return inject(a.base, a.out, a.game, a.steam)
+    return inject(a.base, a.out, a.game, a.steam, a.steamapps)
 
 
 if __name__ == '__main__':
