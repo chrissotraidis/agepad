@@ -1,0 +1,53 @@
+{
+ "schema": 1,
+ "note": "Steam for Mac client files AgePad adds to the app, from Valve's public client packages (client-update.steamstatic.com). Files are content-addressed, so these exact packages stay downloadable on any computer.",
+ "client_version": "1792618285",
+ "packages": {
+  "bins_osx": {
+   "file": "bins_osx.zip.dc1e26e3e2a8c20701c770661b1d7f83da8b7a6c",
+   "sha256": "270aafcd50893623534031f2a3d01572ff5e79afc188d0e113c50a1deb4d09bb"
+  },
+  "bins_client_osx": {
+   "file": "bins_client_osx.zip.8494317737a1ee5eeb237e8defb24902dfe799a1",
+   "sha256": "a33530b9c07c20fa56969ba8d83897019d2ef9c41b2c70a210fcdddb36edb4cb"
+  },
+  "breakpad_osx": {
+   "file": "breakpad_osx.zip.4206ae9f47c52f82bfdb4d746db3a52559e1f293",
+   "sha256": "26821ac11e101c14a6b66f62d110e33d3bc0e94411102a52f4f13b0e5195e5ae"
+  }
+ },
+ "files": {
+  "ipcserver": {
+   "package": "bins_osx",
+   "sha256": "f6228ffa731e5fceaecb4bd2f5a62ffc5eb5463c0f586578abf83bc95ffbf632"
+  },
+  "crashhandler.dylib": {
+   "package": "bins_osx",
+   "sha256": "0d90a6950e70c0dbbb71093e868e57b13b70b2f2620be09a4da6af90eb5ab0ae"
+  },
+  "libaudio.dylib": {
+   "package": "bins_osx",
+   "sha256": "9060cc81ee417b1a7bc935f9d5d2cd6349b0ed9a678d414bc11dfee52738b5a0"
+  },
+  "libtier0_s.dylib": {
+   "package": "bins_osx",
+   "sha256": "913324c6e720c7a7b7d0ebef2decf3d584e27853a36cf2a50ecadf4cdd893f19"
+  },
+  "libvstdlib_s.dylib": {
+   "package": "bins_osx",
+   "sha256": "1f6194296936c4121f4c6eedc81ddcbe6a40888b55d40c6f65a6bbc2522c7422"
+  },
+  "steamclient.dylib": {
+   "package": "bins_client_osx",
+   "sha256": "b9d62be2ac64b77dc77e1d19eefcf3880df99495c7db85b30623095310b6a6bd"
+  },
+  "Frameworks/Breakpad.framework/Versions/A/Breakpad": {
+   "package": "breakpad_osx",
+   "sha256": "bca3dbe21864b3ecdd86c003042f2fe42c52b0af716f8ec3bb14039bd64de5e4"
+  },
+  "Frameworks/Breakpad.framework/Versions/A/Resources/breakpadUtilities.dylib": {
+   "package": "breakpad_osx",
+   "sha256": "a354ca72885b36bd22ad00a8723a9a768b5bf91ca7c7786736fea512c744d4b2"
+  }
+ }
+}
