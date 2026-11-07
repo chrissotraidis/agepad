@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "agepad",
   "name": "AgePad",
   "game": "Age of Empires II: Definitive Edition (Mac edition from Steam, game build 25464371)",
@@ -9,7 +9,8 @@
     {
       "type": "steam-mac-install",
       "formats": [],
-      "when": "in-app",
+      "when": "build",
+      "selection": "installed",
       "description": "Your own Steam copy of Age of Empires II: DE for Mac and Steam for Mac, installed on this Mac. The build finds them in Steam's standard folders (no file to choose) and checks every file against the release's recipe. The game data folder (AgeOfEmpires2Data, about 20 GB) is copied to the iPad afterwards with Finder or the Files app."
     }
   ],
