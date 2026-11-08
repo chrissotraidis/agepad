@@ -131,6 +131,12 @@ to force it through. Updating PadMint alone does not fix that mismatch.
 
 ### With PadMint
 
+**No Mac?** AgePad needs an Apple Silicon Mac today: PadMint adds the Mac
+edition of Age of Empires II from your Steam library on that Mac. [PadMint's
+Windows
+list](https://github.com/chrissotraidis/padmint/blob/main/docs/WINDOWS.md)
+records the Windows route being explored.
+
 AgePad is in PadMint 0.2.7 and newer.
 
 1. Download [PadMint](https://github.com/chrissotraidis/padmint/releases/latest), unzip it and double-click `PadMint.command`.
