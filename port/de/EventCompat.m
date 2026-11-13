@@ -5,6 +5,7 @@
 #include "UnsupportedBoundary.h"
 #import <UIKit/UIKit.h>
 extern CGPoint DEUIKitPointerPosition(void);
+extern CGFloat DEUIKitPointerScreenMaxY(void);
 @interface NSEvent : NSObject
 @property(nonatomic) NSUInteger type,modifierFlags;
 @property(nonatomic) CGPoint locationInWindow;
@@ -27,9 +28,10 @@ extern CGPoint DEUIKitPointerPosition(void);
 @implementation NSEvent
 + (CGPoint)mouseLocation {
     CGPoint point=DEUIKitPointerPosition();
-    CGSize screen=UIScreen.mainScreen.bounds.size;
-    fprintf(stderr,"DE_NSEVENT_MOUSE_LOCATION UIKit=%g,%g screenHeight=%g\n",point.x,point.y,screen.height);
-    return CGPointMake(point.x,screen.height-point.y);
+    // macOS screen coordinates rise from the bottom of the game window's screen.
+    CGFloat bottom=DEUIKitPointerScreenMaxY();
+    fprintf(stderr,"DE_NSEVENT_MOUSE_LOCATION UIKit=%g,%g screenHeight=%g\n",point.x,point.y,bottom);
+    return CGPointMake(point.x,bottom-point.y);
 }
 + (NSTimeInterval)doubleClickInterval {
     // App-owned gesture policy; UIKit does not export the macOS preference.
