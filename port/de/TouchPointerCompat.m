@@ -50,6 +50,15 @@ CGPoint DEUIKitPointerPosition(void) {
     if (!getenv("AGEPAD_POINTER_STATE") || !DEPointer) DEUnsupported("uninitialized UIKit pointer state");
     @synchronized(DEPointer) { return DEPointer.position; }
 }
+// Bottom edge of the space DEUIKitPointerPosition reports in: the screen of
+// the game window, the same reference -[NSWindow convertPointFromScreen:]
+// flips with. Not the device's main screen.
+CGFloat DEUIKitPointerScreenMaxY(void) {
+    if (!getenv("AGEPAD_POINTER_STATE") || !DEPointer) DEUnsupported("uninitialized UIKit pointer state");
+    UIWindow *window=DEPointer.window;
+    if (!window.screen) DEUnsupported("pointer window has no screen");
+    return CGRectGetMaxY(window.screen.bounds);
+}
 
 // Reposition the app's logical pointer. Never moves the host Mac cursor.
 void DEUIKitSetPointerPosition(CGPoint point) {

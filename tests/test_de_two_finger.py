@@ -30,6 +30,7 @@ preamble = r'''
 #include "PointerEventCompat.m"
 static CGPoint testPointer;
 CGPoint DEUIKitPointerPosition(void){return testPointer;}
+CGFloat DEUIKitPointerScreenMaxY(void){return UIScreen.mainScreen.bounds.size.height;}
 void DEUIKitSetPointerPosition(CGPoint p){testPointer=p;}
 void DEUIKitPinPointer(CGPoint p,NSTimeInterval s){testPointer=p;}
 @interface NSApplication:NSObject
