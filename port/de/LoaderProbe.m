@@ -670,13 +670,17 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         fprintf(stderr,"DE_UIKIT_LANDSCAPE_REQUESTED scene=%p\n",scene);
     }
     // The translated engine is a legacy UIApplication host rather than a
-    // scene-delegate app. On the Simulator, the public geometry request can
-    // be accepted without rotating the legacy device orientation.
-    UIDeviceOrientation deviceOrientation=UIDevice.currentDevice.orientation;
-    if (deviceOrientation==UIDeviceOrientationPortrait ||
-        deviceOrientation==UIDeviceOrientationPortraitUpsideDown ||
-        deviceOrientation==UIDeviceOrientationFaceUp ||
-        deviceOrientation==UIDeviceOrientationFaceDown) {
+    // scene-delegate app. iOS 15 has no public geometry request, and on the
+    // Simulator that request can be accepted without rotating the legacy
+    // host. Only there, and only while this window's scene is still in
+    // portrait, fall back to the legacy orientation handoff. The scene's
+    // interface orientation decides, not how the device is physically held.
+    BOOL publicGeometryRequest=NO;
+    if (@available(iOS 16.0,*)) publicGeometryRequest=YES;
+#if TARGET_OS_SIMULATOR
+    publicGeometryRequest=NO;
+#endif
+    if (!publicGeometryRequest && scene && UIInterfaceOrientationIsPortrait(scene.interfaceOrientation)) {
         [UIDevice.currentDevice setValue:@(UIDeviceOrientationLandscapeRight) forKey:@"orientation"];
         fprintf(stderr,"DE_UIKIT_LEGACY_LANDSCAPE_HANDOFF orientation=landscape-right\n");
     }

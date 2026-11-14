@@ -20,6 +20,7 @@ preamble=r'''
 #include "PointerEventCompat.m"
 static CGPoint testPointer;
 CGPoint DEUIKitPointerPosition(void){return testPointer;}
+CGFloat DEUIKitPointerScreenMaxY(void){return UIScreen.mainScreen.bounds.size.height;}
 void DEUIKitSetPointerPosition(CGPoint p){testPointer=p;}
 @interface NSApplication:NSObject
 @property(nonatomic,strong) DEEventQueue *queue;
