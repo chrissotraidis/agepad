@@ -10,7 +10,7 @@
       "type": "steam-mac-install",
       "formats": [],
       "when": "in-app",
-      "description": "Your own Steam copy of Age of Empires II: DE for Mac and Steam for Mac, installed on this Mac. The build finds them in Steam's standard folders (no file to choose) and checks every file against the release's recipe. The game data folder (AgeOfEmpires2Data, about 20 GB) is copied to the iPad afterwards with Finder or the Files app."
+      "description": "Your own Steam copy of Age of Empires II: DE for Mac, installed on this Mac. The build finds it in Steam's standard folder (no file to choose) and checks every game file against the release's recipe. Steam for Mac's own libraries are downloaded from Valve's public update server and checked against pinned hashes, so a Steam update no longer stops the build. The game data folder (AgeOfEmpires2Data, about 20 GB) is copied to the iPad afterwards with Finder or the Files app."
     }
   ],
   "targets": {
@@ -26,13 +26,23 @@
       "check": "ipa",
       "steps": [
         {
+          "stage": "dependencies",
+          "command": [
+            "{python}",
+            "{repo}/scripts/fetch-steam-mac.py",
+            "{work}/steam-mac"
+          ]
+        },
+        {
           "stage": "inject",
           "command": [
             "{python}",
             "{repo}/scripts/agepad-kit.py",
             "inject",
             "{app}",
-            "{output}"
+            "{output}",
+            "--steam",
+            "{work}/steam-mac"
           ]
         }
       ]
