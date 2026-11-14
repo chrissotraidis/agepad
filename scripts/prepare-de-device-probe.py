@@ -167,12 +167,18 @@ info = plistlib.loads(info_path.read_bytes())
 info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad', 'CFBundleName': 'AgePad',
              'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True})
 # AgePad's own Home Screen icon (assets/agepad-icon-1024.png, a two-column
-# "II"), replacing the game's icon files the bundle already lists.
+# "II"). The Mac game's Info.plist names no iOS icon files, so list them here
+# too; without CFBundleIcons the Home Screen shows a blank icon.
 icon = ROOT / 'assets/agepad-icon-1024.png'
 for name, px in {'AppIcon76x76~ipad.png': 76, 'AppIcon76x76@2x~ipad.png': 152, 'AppIcon83.5x83.5@2x~ipad.png': 167,
                  'AppIcon60x60@2x.png': 120, 'AppIcon40x40@2x~ipad.png': 80, 'AppIcon29x29@2x~ipad.png': 58}.items():
     subprocess.run(['sips', '-s', 'format', 'png', '-z', str(px), str(px), str(icon), '--out', str(output / name)],
                    check=True, capture_output=True)
+icons = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['AppIcon29x29', 'AppIcon40x40', 'AppIcon60x60',
+                                                       'AppIcon76x76', 'AppIcon83.5x83.5'],
+                                 'UIPrerenderedIcon': False}}
+info['CFBundleIcons'] = icons
+info['CFBundleIcons~ipad'] = icons
 # Tap-to-play reaches the Mac helper on the home network; iPadOS asks once.
 # Players copy the game files in through Finder's iPad view or the Files app.
 info['UIFileSharingEnabled'] = True
