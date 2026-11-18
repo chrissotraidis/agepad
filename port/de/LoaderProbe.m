@@ -650,11 +650,11 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
     return UIEditingInteractionConfigurationNone;
 }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-    return UIInterfaceOrientationMaskLandscape;
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskLandscape;
 }
 - (BOOL)shouldAutorotate { return YES; }
 - (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
-    return UIInterfaceOrientationLandscapeRight;
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? [super preferredInterfaceOrientationForPresentation] : UIInterfaceOrientationLandscapeRight;
 }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
@@ -663,7 +663,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
     [self setNeedsUpdateOfSupportedInterfaceOrientations];
     if (@available(iOS 16.0,*)) {
         UIWindowSceneGeometryPreferencesIOS *preferences=
-            [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
+            [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:(UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskLandscape)];
         [scene requestGeometryUpdateWithPreferences:preferences errorHandler:^(NSError *error) {
             fprintf(stderr,"DE_UIKIT_LANDSCAPE_REQUEST_FAILED %s\n",error.localizedDescription.UTF8String);
         }];
@@ -680,7 +680,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
 #if TARGET_OS_SIMULATOR
     publicGeometryRequest=NO;
 #endif
-    if (!publicGeometryRequest && scene && UIInterfaceOrientationIsPortrait(scene.interfaceOrientation)) {
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPad && !publicGeometryRequest && scene && UIInterfaceOrientationIsPortrait(scene.interfaceOrientation)) {
         [UIDevice.currentDevice setValue:@(UIDeviceOrientationLandscapeRight) forKey:@"orientation"];
         fprintf(stderr,"DE_UIKIT_LEGACY_LANDSCAPE_HANDOFF orientation=landscape-right\n");
     }
@@ -691,7 +691,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
         UIWindowScene *nextScene=self.view.window.windowScene;
         if (@available(iOS 16.0,*)) {
             UIWindowSceneGeometryPreferencesIOS *nextPreferences=
-                [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
+                [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:(UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskLandscape)];
             [nextScene requestGeometryUpdateWithPreferences:nextPreferences errorHandler:^(NSError *error) {
                 fprintf(stderr,"DE_UIKIT_LANDSCAPE_RETRY_FAILED %s\n",error.localizedDescription.UTF8String);
             }];
@@ -715,7 +715,7 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
 @implementation DEProbeDelegate
 - (UIInterfaceOrientationMask)application:(UIApplication *)application
     supportedInterfaceOrientationsForWindow:(UIWindow *)window {
-    return UIInterfaceOrientationMaskLandscape;
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskLandscape;
 }
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];

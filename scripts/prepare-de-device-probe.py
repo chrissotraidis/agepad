@@ -164,6 +164,12 @@ if args.steam_app_manifest:
         parser.error('Not the AoE II: DE app manifest: ' + str(args.steam_app_manifest))
     (output / 'SteamAppManifest_813780.acf').write_text(text)
 info = plistlib.loads(info_path.read_bytes())
+info.update(CFBundleShortVersionString='1.2.1', CFBundleVersion='2',
+            UIRequiresFullScreenIgnoredStartingWithVersion='26',
+            UISupportedInterfaceOrientations=['UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight'])
+info['UISupportedInterfaceOrientations~ipad'] = [
+    'UIInterfaceOrientationPortrait','UIInterfaceOrientationPortraitUpsideDown',
+    'UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight']
 info.update({'CFBundleIdentifier': args.bundle_id, 'CFBundleDisplayName': 'AgePad', 'CFBundleName': 'AgePad',
              'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True})
 # AgePad's own Home Screen icon (assets/agepad-icon-1024.png, a two-column
