@@ -164,7 +164,7 @@ if args.steam_app_manifest:
         parser.error('Not the AoE II: DE app manifest: ' + str(args.steam_app_manifest))
     (output / 'SteamAppManifest_813780.acf').write_text(text)
 info = plistlib.loads(info_path.read_bytes())
-info.update(CFBundleShortVersionString='1.2.1', CFBundleVersion='2',
+info.update(CFBundleShortVersionString='1.2.1', CFBundleVersion='3',
             UIRequiresFullScreenIgnoredStartingWithVersion='26',
             UISupportedInterfaceOrientations=['UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight'])
 info['UISupportedInterfaceOrientations~ipad'] = [
@@ -187,6 +187,11 @@ info['CFBundleIcons'] = icons
 info['CFBundleIcons~ipad'] = icons
 # Tap-to-play reaches the Mac helper on the home network; iPadOS asks once.
 # Players copy the game files in through Finder's iPad view or the Files app.
+# PadMint opens the game through padmint-agepad:// (PadMint's own builder adds the
+# same link; this build path must too, or the library cannot start AgePad).
+info['CFBundleURLTypes'] = [t for t in info.get('CFBundleURLTypes', [])
+                            if 'padmint-agepad' not in t.get('CFBundleURLSchemes', [])] + [
+    {'CFBundleURLName': 'padmint-agepad', 'CFBundleURLSchemes': ['padmint-agepad']}]
 info['UIFileSharingEnabled'] = True
 info['LSSupportsOpeningDocumentsInPlace'] = True
 info['NSLocalNetworkUsageDescription'] = ('AgePad connects to the AgePad helper on your Mac, '
