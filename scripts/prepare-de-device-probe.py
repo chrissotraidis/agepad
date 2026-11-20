@@ -164,7 +164,7 @@ if args.steam_app_manifest:
         parser.error('Not the AoE II: DE app manifest: ' + str(args.steam_app_manifest))
     (output / 'SteamAppManifest_813780.acf').write_text(text)
 info = plistlib.loads(info_path.read_bytes())
-info.update(CFBundleShortVersionString='1.2.1', CFBundleVersion='4',
+info.update(CFBundleShortVersionString='1.2.1', CFBundleVersion='5',
             UIRequiresFullScreenIgnoredStartingWithVersion='26',
             UISupportedInterfaceOrientations=['UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight'])
 info['UISupportedInterfaceOrientations~ipad'] = [

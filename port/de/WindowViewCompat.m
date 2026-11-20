@@ -456,6 +456,13 @@ static void DELogSynthesizedMouse(NSUInteger phase, id<DEGameMouseEvent> event, 
         CGFloat width=76,height=44,gap=8;
         CGFloat x=CGRectGetMaxX(self.bounds)-self.safeAreaInsets.right-width-12;
         CGFloat y=CGRectGetMidY(self.bounds)-(6*height+5*gap)/2;
+        // A TV is shorter (720 points): centred, the strip covered the player
+        // scores above the minimap. Keep it below the top bar and clear of them.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        if (self.window.screen && self.window.screen!=UIScreen.mainScreen)
+            y=MAX(CGRectGetHeight(self.bounds)*0.1,MIN(y,CGRectGetHeight(self.bounds)*0.58-(6*height+5*gap)));
+#pragma clang diagnostic pop
         NSArray *buttons=[@[self.touchOrderButton] arrayByAddingObjectsFromArray:self.touchShortcutButtons];
         for(NSUInteger i=0;i<buttons.count;i++) {
             UIButton *button=buttons[i];button.frame=CGRectMake(x,y+i*(height+gap),width,height);
