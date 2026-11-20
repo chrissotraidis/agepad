@@ -25,16 +25,46 @@ static NSScreen *DEWrapScreen(UIScreen *screen) {
 }
 id DEUIKitScreenObject(UIScreen *screen) { return screen?DEWrapScreen(screen):nil; }
 uint32_t DEUIKitDisplayIdentifier(UIScreen *screen) { return screen?DEWrapScreen(screen).displayIdentifier:0; }
+// The window scene AgePad shows in. On a TV (iPadOS's extended display) that
+// scene is on the TV, while UIScreen.screens.firstObject stays the iPad's own,
+// often portrait, screen: the game then laid itself out for the iPad.
+static UIWindowScene *DEActiveWindowScene(void) {
+    UIWindowScene *found=nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        if (scene.activationState==UISceneActivationStateForegroundActive) return (UIWindowScene *)scene;
+        if (scene.activationState==UISceneActivationStateForegroundInactive && !found) found=(UIWindowScene *)scene;
+    }
+    return found;
+}
+UIScreen *DEActiveUIKitScreen(void) {
+    UIScreen *screen=DEActiveWindowScene().screen;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    return screen ?: UIScreen.mainScreen;
+#pragma clang diagnostic pop
+}
+// A screen's usable size in points: the scene's bounds on the screen it is on.
+CGRect DEUIKitScreenBounds(UIScreen *screen) {
+    UIWindowScene *scene=DEActiveWindowScene();
+    if (scene && scene.screen==screen) {
+        CGRect bounds=scene.coordinateSpace.bounds;
+        if (bounds.size.width>0 && bounds.size.height>0) return bounds;
+    }
+    return screen.bounds;
+}
 @implementation NSScreen
 + (NSArray<NSScreen *> *)screens {
-    NSMutableArray *result=[NSMutableArray array];
-    for (UIScreen *screen in UIScreen.screens) [result addObject:DEWrapScreen(screen)];
+    // macOS lists the screen with the key window first.
+    UIScreen *active=DEActiveUIKitScreen();
+    NSMutableArray *result=[NSMutableArray arrayWithObject:DEWrapScreen(active)];
+    for (UIScreen *screen in UIScreen.screens) if (screen!=active) [result addObject:DEWrapScreen(screen)];
     return result;
 }
 + (NSScreen *)mainScreen { return self.screens.firstObject; }
 + (BOOL)screensHaveSeparateSpaces { return NO; } // No macOS Spaces in UIKit.
-- (CGRect)frame { return self.uiScreen.bounds; }
-- (CGRect)visibleFrame { return self.uiScreen.bounds; } // No desktop menu/Dock exclusion.
+- (CGRect)frame { return DEUIKitScreenBounds(self.uiScreen); }
+- (CGRect)visibleFrame { return DEUIKitScreenBounds(self.uiScreen); } // No desktop menu/Dock exclusion.
 - (CGFloat)backingScaleFactor { return DERenderScale(self.uiScreen); }
 - (NSTimeInterval)minimumRefreshInterval {
  NSInteger fps=self.uiScreen.maximumFramesPerSecond;

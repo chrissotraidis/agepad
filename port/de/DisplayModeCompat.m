@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #include "UnsupportedBoundary.h"
 extern uint32_t DEUIKitDisplayIdentifier(UIScreen *screen);
+extern CGRect DEUIKitScreenBounds(UIScreen *screen);
 
 static UIScreen *DECurrentDisplay(uint32_t display) {
     if (!getenv("AGEPAD_UIKIT_DISPLAY_MODE")) DEUnsupported("UIKit display mode");
@@ -11,13 +12,13 @@ static UIScreen *DECurrentDisplay(uint32_t display) {
 }
 CGRect CGDisplayBounds(uint32_t display) {
     UIScreen *screen=DECurrentDisplay(display);
-    return screen?screen.bounds:CGRectZero;
+    return screen?DEUIKitScreenBounds(screen):CGRectZero;
 }
 const void *CGDisplayCopyDisplayMode(uint32_t display) {
     UIScreen *screen=DECurrentDisplay(display);
     if (!screen || !screen.currentMode) return NULL;
     // CGDisplayModeGetWidth/Height are points, not backing pixel dimensions.
-    CGSize points=screen.bounds.size;
+    CGSize points=DEUIKitScreenBounds(screen).size;
     NSDictionary *mode=@{@"DEUIKitMode":@YES,@"width":@(points.width),@"height":@(points.height),@"refreshRate":@(screen.maximumFramesPerSecond)};
     fprintf(stderr,"DE_UIKIT_DISPLAY_MODE display=%u points=%gx%g backing=%gx%g\n",
         display,points.width,points.height,screen.currentMode.size.width,screen.currentMode.size.height);
