@@ -39,6 +39,11 @@ __attribute__((constructor)) static void DERedirectDeviceLog(void) {
     snprintf(directory,sizeof(directory),"%s/Library/Caches/AgePadDiagnostics",home);
     mkdir(directory,0700);
     snprintf(path,sizeof(path),"%s/launch.log",directory);
+    // Keep the previous session's log: a hang or crash is usually noticed
+    // only after AgePad has been opened again.
+    char previous[1100];
+    snprintf(previous,sizeof(previous),"%s/launch.previous.log",directory);
+    rename(path,previous);
     int fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0600);
     if (fd<0) return;
     dup2(fd,STDOUT_FILENO);dup2(fd,STDERR_FILENO);close(fd);
@@ -446,6 +451,9 @@ static void *DEMainWatchdogLoop(void *unused) {
     if (home) {
         char path[1100];
         snprintf(path,sizeof(path),"%s/Library/Caches/AgePadDiagnostics/watchdog.log",home);
+        char previous[1100];
+        snprintf(previous,sizeof(previous),"%s/Library/Caches/AgePadDiagnostics/watchdog.previous.log",home);
+        rename(path,previous);
         DEWatchdogFD=open(path,O_WRONLY|O_CREAT|O_TRUNC,0600);
     }
     {
@@ -716,6 +724,15 @@ static NSString *DEDeviceLinkFeralDataFolder(NSString *imported) {
 - (UIInterfaceOrientationMask)application:(UIApplication *)application
     supportedInterfaceOrientationsForWindow:(UIWindow *)window {
     return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskLandscape;
+}
+// PadMint opens AgePad through padmint-agepad://. Because the app also sets
+// LSSupportsOpeningDocumentsInPlace (for the Files app), UIKit requires this
+// method and aborts a cold launch from a link without it. The link carries
+// nothing to act on: AgePad starts the same way either way.
+- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url
+    options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+    fprintf(stderr, "AGEPAD_OPEN_URL scheme=%s\n", url.scheme.UTF8String ?: "(none)");
+    return [url.scheme isEqualToString:@"padmint-agepad"];
 }
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
